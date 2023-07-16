@@ -1798,7 +1798,7 @@ substQuotElim f subs (RAllT tvb ty r)
      in RAllT tvb t' r
 substQuotElim f subs (RAllP pvb ty)
   = RAllP (substQuotElim void (void <$> subs) <$> pvb) (substQuotElim f subs ty)
-substQuotElim f subs (RApp (QTyCon _ ut _ vs _) ts _ _)
+substQuotElim f subs (RApp (QTyCon _ ut _ _ vs _) ts _ _)
   = let nsubs = foldr (uncurry M.insert) subs $ zip vs (map (substQuotElim f subs) ts)
      in substQuotElim f nsubs (f ut)
 substQuotElim f subs (RApp tc as ps r)
@@ -1952,6 +1952,36 @@ instance PPrint (RType c tv r) => Show (RType c tv r) where
 instance PPrint (RTProp c tv r) => Show (RTProp c tv r) where
   show = showpp
 
+pprintBind :: Tidy -> (Symbol, BareType) -> Doc
+pprintBind k (s, t) = pprintTidy k s <+> text ":" <+> pprintTidy k t <+> text "->"
+
+instance PPrint QuotCtor where
+  pprintTidy k (QuotCtor n _ binds l r)
+    =   pprintTidy k n
+    <+> text "::" <+> hcat (map (pprintBind k) binds)
+    <+> pprintTidy k l <+> text "==" <+> pprintTidy k r
+
+instance PPrint QuotDecl where
+  pprintTidy k (QuotDecl c tvs ty qs _)
+    = let
+        prefix = text "data" <+> pprint c <+> pprint tvs
+      in  prefix
+      <+> text "="
+      <+> pprintTidy k ty
+      $+$ nest 4 (vcat $ [ "|/" <+> pprintTidy k q | q <- qs ])
+
+instance PPrint RespectsSig where
+  pprintTidy k (RespectsSig nm qt fn bs l r)
+    = let
+        prefix =  text "respects<"
+              <+> pprintTidy k qt
+              <+> text ","
+              <+> pprintTidy k fn
+              <+> text ">"
+              <+> pprintTidy k nm
+      in  prefix
+      <+> text "::" <+> hcat (map (pprintBind k) bs)
+      <+> pprintTidy k l <+> text "==" <+> pprintTidy k r
 
 -------------------------------------------------------------------------------
 -- | tyVarsPosition t returns the type variables appearing

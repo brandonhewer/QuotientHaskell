@@ -837,10 +837,12 @@ data Pspec ty ctor
   = Meas    (Measure ty ctor)                             -- ^ 'measure' definition
   | Assm    (LocSymbol, ty)                               -- ^ 'assume' signature (unchecked)
   | Asrt    (LocSymbol, ty)                               -- ^ 'assert' signature (checked)
+  | RAsrt   RespectsSig                                   -- ^ 'assert' quotient respectfulness signature
   | LAsrt   (LocSymbol, ty)                               -- ^ 'local' assertion -- TODO RJ: what is this
   | Asrts   ([LocSymbol], (ty, Maybe [Located Expr]))     -- ^ TODO RJ: what is this
   | Impt    Symbol                                        -- ^ 'import' a specification module
   | DDecl   DataDecl                                      -- ^ refined 'data'    declaration
+  | QDecl   QuotDecl                                      -- ^ quotient 'data'   declaration
   | NTDecl  DataDecl                                      -- ^ refined 'newtype' declaration
   | Relational (LocSymbol, LocSymbol, ty, ty, RelExpr, RelExpr) -- ^ relational signature
   | AssmRel (LocSymbol, LocSymbol, ty, ty, RelExpr, RelExpr) -- ^ 'assume' relational signature
@@ -901,6 +903,8 @@ ppPspec k (Assm (lx, t))
   = "assume"  <+> pprintTidy k (val lx) <+> "::" <+> pprintTidy k t
 ppPspec k (Asrt (lx, t))
   = "assert"  <+> pprintTidy k (val lx) <+> "::" <+> pprintTidy k t
+ppPspec k (RAsrt sig)
+  = pprintTidy k sig
 ppPspec k (LAsrt (lx, t))
   = "local assert"  <+> pprintTidy k (val lx) <+> "::" <+> pprintTidy k t
 ppPspec k (Asrts (lxs, (t, les)))
@@ -911,6 +915,8 @@ ppPspec k (DDecl d)
   = pprintTidy k d
 ppPspec k (NTDecl d)
   = "newtype" <+> pprintTidy k d
+ppPspec k (QDecl q)
+  = pprintTidy k q
 ppPspec _ (Incl f)
   = "include" <+> "<" PJ.<> PJ.text f PJ.<> ">"
 ppPspec k (Invt t)
@@ -1055,6 +1061,7 @@ mkSpec name xs         = (name,) $ qualifySpec (symbol name) Measure.Spec
   , Measure.asmSigs    = [a | Assm   a <- xs]
   , Measure.sigs       = [a | Asrt   a <- xs]
                       ++ [(y, t) | Asrts (ys, (t, _)) <- xs, y <- ys]
+  , Measure.respSigs   = [a | RAsrt  a <- xs]
   , Measure.localSigs  = []
   , Measure.reflSigs   = []
   , Measure.impSigs    = []
@@ -1063,6 +1070,7 @@ mkSpec name xs         = (name,) $ qualifySpec (symbol name) Measure.Spec
   , Measure.ialiases   = [t | Using t <- xs]
   , Measure.imports    = [i | Impt   i <- xs]
   , Measure.dataDecls  = [d | DDecl  d <- xs] ++ [d | NTDecl d <- xs]
+  , Measure.quotDecls  = [d | QDecl  d <- xs]
   , Measure.newtyDecls = [d | NTDecl d <- xs]
   , Measure.includes   = [q | Incl   q <- xs]
   , Measure.aliases    = [a | Alias  a <- xs]
@@ -1131,13 +1139,13 @@ specP
          >> ((reserved "measure"  >> fmap IMeas  iMeasureP )
          <|> (reserved "laws"     >> fmap ILaws instanceLawP)
          <|> fmap RInst  instanceP ))
-
+    <|> (reserved "respects"      >> fmap RAsrt respectsP)
     <|> (reserved "import"        >> fmap Impt   symbolP   )
 
     <|> (reserved "data"
         >> ((reserved "variance"  >> fmap Varia  datavarianceP)
         <|> (reserved "size"      >> fmap DSize  dsizeP)
-        <|> fmap DDecl  dataDeclP ))
+        <|> dataOrQuotDeclP ))
     <|> (reserved "newtype"       >> fmap NTDecl dataDeclP )
     <|> (reserved "relational"    >> fmap Relational relationalP )
     <|> (reserved "include"       >> fmap Incl   filePathP )
@@ -1258,6 +1266,15 @@ termTypeP t
        reservedOp "/"
        es <- brackets $ sepBy (located exprP) comma
        return (t, Just es)
+
+respectsP :: Parser RespectsSig
+respectsP = do
+  func   <- reservedOp "<" *> locLowerIdP
+  qt     <- comma *> locLowerIdP <* reservedOp ">"
+  name   <- locLowerIdP
+  binds  <- many (try quotConBindP <* reservedOp "->")
+  (l, r) <- braces ((,) <$> locLexeme exprP <* reservedOp "==" <*> locLexeme exprP)
+  return $ RespectsSig name func qt binds l r
 
 -- -------------------------------------
 
@@ -1578,6 +1595,18 @@ relationalP = do
     ex <- relrefaP
     return (x,y,tx,ty,assm,ex)
 
+dataOrQuotDeclP :: Parser BPspec
+dataOrQuotDeclP = do
+  pos   <- getSourcePos
+  x     <- locUpperOrInfixIdP
+  fsize <- dataSizeP
+
+  let nonEmpty = case fsize of
+        Nothing -> dataOrQuotDeclBodyP pos x
+        Just _  -> DDecl <$> dataDeclBodyP pos x fsize
+
+  nonEmpty <|> return (DDecl $ emptyDecl x pos fsize)
+
 dataDeclP :: Parser DataDecl
 dataDeclP = do
   pos <- getSourcePos
@@ -1593,12 +1622,34 @@ emptyDecl x pos _
   where
     msg = "You should specify either a default [size] or one or more fields in the data declaration"
 
+dataOrQuotDeclBodyP :: SourcePos -> LocSymbol -> Parser BPspec
+dataOrQuotDeclBodyP pos x = do
+  vanilla         <- null <$> many locUpperIdP
+  as              <- many noWhere -- TODO: check this again
+  mps             <- predVarDefsP
+  case mps of
+    []
+      | vanilla ->
+          try (DDecl <$> dataDeclWithP pos vanilla x Nothing as [])
+          <|> (QDecl <$> quotDeclBodyP pos x as)
+    ps -> DDecl <$> dataDeclWithP pos vanilla x Nothing as ps
+
+quotDeclBodyP :: SourcePos -> LocSymbol -> [Symbol] -> Parser QuotDecl
+quotDeclBodyP pos x as = do
+  utype <- reservedOp "=" >> (_pct <$> compP)
+  qtors <- some (reservedOp "|/" >> quotConP as)
+  return $ QuotDecl x as utype qtors pos
+
 dataDeclBodyP :: SourcePos -> LocSymbol -> Maybe SizeFun -> Parser DataDecl
 dataDeclBodyP pos x fsize = do
-  vanilla    <- null <$> many locUpperIdP
-  as         <- many noWhere -- TODO: check this again
-  ps         <- predVarDefsP
-  (pTy, dcs) <- dataCtorsP as
+  vanilla         <- null <$> many locUpperIdP
+  as              <- many noWhere -- TODO: check this again
+  predVarDefsP >>= dataDeclWithP pos vanilla x fsize as
+
+dataDeclWithP
+  :: SourcePos -> Bool -> LocSymbol -> Maybe SizeFun -> [Symbol] -> [PVar BSort] -> Parser DataDecl
+dataDeclWithP pos vanilla x fsize as ps = do
+  (pTy, dcs)  <- dataCtorsP as
   let dn      = dataDeclName pos x vanilla dcs
   return      $ DataDecl dn as ps (Just dcs) pos fsize pTy DataUser
 
@@ -1621,6 +1672,47 @@ dataCtorsP as = do
                 <|> (reserved   "where" >> ((Nothing, ) <$>                 block (adtDataConP as)                 ))
                 <|>                        ((,)         <$> dataPropTyP <*> block (adtDataConP as)                  )
   return (pTy, Misc.sortOn (val . dcName) dcs)
+
+quotConBindsP :: Parser [(Symbol, BareType)]
+quotConBindsP = many (try quotConBindP <* reservedOp "->") <?> "quotConBindP"
+
+quotConBindP :: Parser (Symbol, BareType)
+quotConBindP = (,) <$> symbolP <* reservedOp ":" <*> (_pct <$> btP)
+
+quotConP :: [Symbol] -> Parser QuotCtor
+quotConP as = do
+  x  <- locLowerIdP <* reservedOp "::"
+  bs <- quotConBindsP
+  l  <- locLexeme quotPatternP <* reservedOp "=="
+  QuotCtor x as bs l <$> locLexeme exprP
+
+quotPatternP :: Parser QPattern
+quotPatternP
+  =   parenPat
+  <|> (upperIdP >>= consPat)
+  <|> (QPLit <$> constantP)
+  <|> (QPVar <$> lowerIdP)
+  where
+    argPat :: Parser QPattern
+    argPat
+      =   parenPat
+      <|> (QPLit <$> constantP)
+      <|> (QPVar <$> lowerIdP)
+
+    parenPat :: Parser QPattern
+    parenPat = do
+      ps <- parens $ sepBy quotPatternP comma
+      return $ case ps of
+        [p] -> p
+        ps  -> do
+          let len  = length ps
+          let cons = symbol $ "(" ++ replicate len ',' ++ ")"  -- stored in prefix form
+           in QPCons len cons ps
+
+    consPat :: Symbol -> Parser QPattern
+    consPat x = do
+      args <- many argPat
+      return $ QPCons (length args) x args
 
 noWhere :: Parser Symbol
 noWhere =

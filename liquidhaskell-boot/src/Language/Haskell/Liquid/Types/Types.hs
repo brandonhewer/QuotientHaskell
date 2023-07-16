@@ -52,6 +52,7 @@ module Language.Haskell.Liquid.Types.Types (
       , qtc_name
       , qtc_type
       , qtc_quots
+      , qtc_arity
       , qtc_tyvars
       , qtc_variances
       )
@@ -106,6 +107,7 @@ module Language.Haskell.Liquid.Types.Types (
   -- * Parse-time entities describing quotient data types
   , QuotDecl (..)
   , QuotCtor (..)
+  , RespectsSig (..)
 
   -- * Pre-instantiated RType
   , RRType, RRProp
@@ -661,14 +663,15 @@ data RTyCon
     { qtc_name      :: !F.LocSymbol  -- ^ Quotient Type Constructor Name
     , qtc_type      :: !SpecType     -- ^ Underlying Type
     , qtc_quots     :: ![F.Symbol]   -- ^ Names of Quotients
+    , qtc_arity     :: !Int          -- ^ Arity of Quotient type constructor
     , qtc_tyvars    :: ![RTyVar]     -- ^ Type Variables
     , qtc_variances :: ![Variance]   -- ^ Variances of Type Variables
     }
   deriving (Generic, Data, Typeable)
 
 instance F.Symbolic RTyCon where
-  symbol (RTyCon c _ _)     = F.symbol c
-  symbol (QTyCon c _ _ _ _) = F.symbol c
+  symbol (RTyCon c _ _)       = F.symbol c
+  symbol (QTyCon c _ _ _ _ _) = F.symbol c
 
 instance F.Symbolic BTyCon where
   symbol = F.val . btc_tc
@@ -1090,8 +1093,8 @@ instance TyConable BTyCon where
 
 
 instance Eq RTyCon where
-  (RTyCon c _ _)     == (RTyCon c' _ _)     = c == c'
-  (QTyCon c _ _ _ _) == (QTyCon c' _ _ _ _) = c == c'
+  (RTyCon c _ _)       == (RTyCon c' _ _)       = c == c'
+  (QTyCon c _ _ _ _ _) == (QTyCon c' _ _ _ _ _) = c == c'
   _ == _ = False
 
 instance Eq BTyCon where
@@ -1101,8 +1104,8 @@ instance Ord BTyCon where
   compare x y = compare (btc_tc x) (btc_tc y)
 
 instance F.Fixpoint RTyCon where
-  toFix (RTyCon c _ _)      = text $ showPpr c
-  toFix (QTyCon c _ _ _ _ ) = F.toFix c
+  toFix (RTyCon c _ _)       = text $ showPpr c
+  toFix (QTyCon c _ _ _ _ _) = F.toFix c
 
 instance F.Fixpoint BTyCon where
   toFix = text . F.symbolString . F.val . btc_tc
@@ -1117,7 +1120,7 @@ instance F.PPrint RTyCon where
   pprintTidy k (RTyCon c pvs _)
     | ppDebug ppEnv = F.pprintTidy k (F.symbol c) <-> angleBrackets (F.pprintTidy k pvs)
     | otherwise     = text $ showPpr c
-  pprintTidy k (QTyCon c _ _ _ _) = F.pprintTidy k (F.symbol c)
+  pprintTidy k (QTyCon c _ _ _ _ _) = F.pprintTidy k (F.symbol c)
 
 instance F.PPrint BTyCon where
   pprintTidy _ = text . F.symbolString . F.val . btc_tc
@@ -1364,8 +1367,8 @@ data QuotDecl = QuotDecl
   { qtycName   :: !F.LocSymbol -- ^ Quotient Type Constructor Name
   , qtycTyVars :: [Symbol]     -- ^ Tyvar Parameters
   , qtycType   :: BareType     -- ^ Underlying type
-  , qtycSrcPos :: !F.SourcePos -- ^ Source Position
   , qtycQuots  :: [QuotCtor]   -- ^ Quotient Constructors
+  , qtycSrcPos :: !F.SourcePos -- ^ Source Position
   } deriving (Data, Typeable, Generic)
     deriving Hashable via Generically QuotDecl
 
@@ -1400,6 +1403,41 @@ instance Show QuotDecl where
               (show $ qtycName   qd)
               (show $ qtycTyVars qd)
               (show $ qtycQuots  qd)
+
+--------------------------------------------------------------------------------
+-- | Quotient respectfulness
+--------------------------------------------------------------------------------
+
+data RespectsSig = RespectsSig
+  { rsName  :: F.LocSymbol
+  , rsQuot  :: F.LocSymbol
+  , rsFunc  :: F.LocSymbol
+  , rsBinds :: [(Symbol, BareType)]
+  , rsLeft  :: F.Located Expr
+  , rsRight :: F.Located Expr
+  } deriving (Data, Typeable, Generic)
+    deriving Hashable via Generically RespectsSig
+
+instance B.Binary RespectsSig
+
+instance F.Loc RespectsSig where
+  srcSpan = F.srcSpan . rsName
+
+instance F.Symbolic RespectsSig where
+  symbol = F.symbol . rsName
+
+instance Eq RespectsSig where
+  q1 == q2 = rsName q1 == rsName q2
+
+instance Ord RespectsSig where
+  compare q1 q2 = compare (rsName q1) (rsName q2)
+
+-- | For debugging.
+instance Show RespectsSig where
+  show qd = printf "RespectsSig: name = %s, quotient = %s, function = %s" -- [at: %s]"
+              (show $ rsName qd)
+              (show $ rsQuot qd)
+              (show $ rsFunc qd)
 
 --------------------------------------------------------------------------------
 -- | Refinement Type Aliases

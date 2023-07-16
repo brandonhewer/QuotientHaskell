@@ -74,18 +74,24 @@ checkBareSpec _ sp
   where
     allChecks = mconcat [ checkUnique   "measure"    measures
                         , checkUnique   "field"      fields
+                        , checkUnique   "quotients"  quotients
+                        , checkUnique   "respects"   respectSigs
                         , checkDisjoints             [ inlines
                                                      , hmeasures
                                                      , S.fromList measures
                                                      , reflects
                                                      , S.fromList fields
+                                                     , S.fromList quotients
+                                                     , S.fromList respectSigs
                                                      ]
                         ]
-    inlines   = Ms.inlines    sp
-    hmeasures = Ms.hmeas      sp
-    reflects  = Ms.reflects   sp
-    measures  = msName    <$> Ms.measures sp
-    fields    = concatMap dataDeclFields (Ms.dataDecls sp)
+    inlines     = Ms.inlines    sp
+    hmeasures   = Ms.hmeas      sp
+    reflects    = Ms.reflects   sp
+    measures    = msName    <$> Ms.measures sp
+    fields      = concatMap dataDeclFields (Ms.dataDecls sp)
+    quotients   = concatMap quotDeclVars (Ms.quotDecls sp)
+    respectSigs = rsName <$> Ms.respSigs sp
 
 dataDeclFields :: DataDecl -> [F.LocSymbol]
 dataDeclFields = filter (not . GM.isTmpSymbol . F.val)
@@ -98,6 +104,9 @@ dataCtorFields :: DataCtor -> [F.LocSymbol]
 dataCtorFields c
   | isGadt c  = []
   | otherwise = F.atLoc c <$> [ f | (f,_) <- dcFields c ]
+
+quotDeclVars :: QuotDecl -> [F.LocSymbol]
+quotDeclVars = map qcName . qtycQuots
 
 isGadt :: DataCtor -> Bool
 isGadt = isJust . dcResult
@@ -513,17 +522,24 @@ checkAppTys = go
     go (RHole _)        = Nothing
 
 checkTcArity :: RTyCon -> Arity -> Maybe Doc
-checkTcArity RTyCon{ rtc_tc = tc } givenArity
-  | expectedArity < givenArity
-    = Just $ text "Type constructor" <+> pprint tc
-        <+> text "expects a maximum" <+> pprint expectedArity
-        <+> text "arguments but was given" <+> pprint givenArity
-        <+> text "arguments"
-  | otherwise
-    = Nothing
-  where
-    expectedArity = tyConRealArity tc
-
+checkTcArity tc givenArity
+  = case tc of
+      RTyCon { rtc_tc = tc }
+        | expectedArity < givenArity
+            -> Just $ text "Type constructor" <+> pprint tc
+                 <+> text "expects a maximum" <+> pprint expectedArity
+                 <+> text "arguments but was given" <+> pprint givenArity
+                 <+> text "arguments"
+        | otherwise -> Nothing
+        where
+          expectedArity = tyConRealArity tc
+      QTyCon { qtc_arity = arity }
+        | arity < givenArity
+            -> Just $ text "Quotient type constructor" <+> pprint tc
+                 <+> text "expects a maximum" <+> pprint arity
+                 <+> text "arguments but was given" <+> pprint givenArity
+                 <+> text "arguments"
+        | otherwise -> Nothing
 
 checkAbstractRefs
   :: (PPrint t, F.Reftable t, SubsTy RTyVar RSort t, F.Reftable (RTProp RTyCon RTyVar (UReft t))) =>
@@ -755,4 +771,7 @@ checkClassMeasures measures = mkDiagnostics mempty (mapMaybe checkOne byTyCon)
                                       (GM.fSrcSpan <$> (m:ms)))
 
 
+---------------------------------------------------------------------------------------------
+-- | Utility functions for checking quotients/respectfulness signatures ---------------------
+---------------------------------------------------------------------------------------------
 

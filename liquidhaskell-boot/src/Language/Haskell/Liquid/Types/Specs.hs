@@ -378,12 +378,14 @@ data Spec ty bndr  = Spec
   , expSigs    :: ![(F.Symbol, F.Sort)]                               -- ^ Exported variables types
   , asmSigs    :: ![(F.LocSymbol, ty)]                                -- ^ Assumed (unchecked) types; including reflected signatures
   , sigs       :: ![(F.LocSymbol, ty)]                                -- ^ Imported functions and types
+  , respSigs   :: ![RespectsSig]                                      -- ^ Quotient respectfulness signatures
   , localSigs  :: ![(F.LocSymbol, ty)]                                -- ^ Local type signatures
   , reflSigs   :: ![(F.LocSymbol, ty)]                                -- ^ Reflected type signatures
   , invariants :: ![(Maybe F.LocSymbol, ty)]                          -- ^ Data type invariants; the Maybe is the generating measure
   , ialiases   :: ![(ty, ty)]                                         -- ^ Data type invariants to be checked
   , imports    :: ![F.Symbol]                                         -- ^ Loaded spec module names
   , dataDecls  :: ![DataDecl]                                         -- ^ Predicated data definitions
+  , quotDecls  :: ![QuotDecl]                                         -- ^ Quotiented data definitions
   , newtyDecls :: ![DataDecl]                                         -- ^ Predicated new type definitions
   , includes   :: ![FilePath]                                         -- ^ Included qualifier files
   , aliases    :: ![F.Located (RTAlias F.Symbol BareType)]            -- ^ RefType aliases
@@ -438,6 +440,7 @@ instance Semigroup (Spec ty bndr) where
            , expSigs    =           expSigs    s1 ++ expSigs    s2
            , asmSigs    =           asmSigs    s1 ++ asmSigs    s2
            , sigs       =           sigs       s1 ++ sigs       s2
+           , respSigs   =           respSigs   s1 ++ respSigs   s2
            , localSigs  =           localSigs  s1 ++ localSigs  s2
            , reflSigs   =           reflSigs   s1 ++ reflSigs   s2
            , invariants =           invariants s1 ++ invariants s2
@@ -445,6 +448,7 @@ instance Semigroup (Spec ty bndr) where
            , imports    = sortNub $ imports    s1 ++ imports    s2
            , dataDecls  =           dataDecls  s1 ++ dataDecls  s2
            , newtyDecls =           newtyDecls s1 ++ newtyDecls s2
+           , quotDecls  =           quotDecls  s1 ++ quotDecls  s2
            , includes   = sortNub $ includes   s1 ++ includes   s2
            , aliases    =           aliases    s1 ++ aliases    s2
            , ealiases   =           ealiases   s1 ++ ealiases   s2
@@ -487,6 +491,7 @@ instance Monoid (Spec ty bndr) where
            , expSigs    = []
            , asmSigs    = []
            , sigs       = []
+           , respSigs   = []
            , localSigs  = []
            , reflSigs   = []
            , invariants = []
@@ -494,6 +499,7 @@ instance Monoid (Spec ty bndr) where
            , imports    = []
            , dataDecls  = []
            , newtyDecls = []
+           , quotDecls  = []
            , includes   = []
            , aliases    = []
            , ealiases   = []
@@ -831,6 +837,7 @@ unsafeFromLiftedSpec a = Spec
   , expSigs    = S.toList . liftedExpSigs $ a
   , asmSigs    = S.toList . liftedAsmSigs $ a
   , sigs       = S.toList . liftedSigs $ a
+  , respSigs   = mempty
   , localSigs  = mempty
   , reflSigs   = mempty
   , relational = mempty
@@ -840,6 +847,7 @@ unsafeFromLiftedSpec a = Spec
   , imports    = S.toList . liftedImports $ a
   , dataDecls  = S.toList . liftedDataDecls $ a
   , newtyDecls = S.toList . liftedNewtyDecls $ a
+  , quotDecls  = mempty
   , includes   = mempty
   , aliases    = S.toList . liftedAliases $ a
   , ealiases   = S.toList . liftedEaliases $ a
