@@ -30,7 +30,7 @@ import qualified Liquid.GHC.Misc
                                                as GM
 import           Language.Haskell.Liquid.Types.Types
 import           Language.Haskell.Liquid.Types.RefType
-                                                ( ofType )
+                                                ( ofType, appQuotTyCon )
 import qualified Data.List                     as L
 import qualified Data.HashMap.Strict           as M
 import qualified Data.HashSet                  as S
@@ -704,6 +704,8 @@ specTypeToLHsType =
      where
       notExprArg (RExprArg _) = False
       notExprArg _            = True
+    RAppF QTyCon { qtc_type = utype, qtc_tyvars = vars } ts _ _ ->
+      specTypeToLHsType $ appQuotTyCon utype vars (map fst ts)
     RAllEF _ (_, tin) (_, tout) -> nlHsFunTy tin tout
     RExF   _ (_, tin) (_, tout) -> nlHsFunTy tin tout
     -- impossible

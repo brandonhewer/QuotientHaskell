@@ -76,6 +76,12 @@ module Language.Haskell.Liquid.Types.RefType (
   , typeSort
   , shiftVV
 
+  -- * Quotient type constructor expansion
+  , appQuotTyCon
+  , appQuotTyConSort
+  , expandQuotTyCons
+  , expandQuotTyConsInSort
+
   -- * TODO: classify these
   -- , mkDataConIdsTy
   , expandProductType
@@ -95,6 +101,8 @@ module Language.Haskell.Liquid.Types.RefType (
 -- import           GHC.Stack
 import Prelude hiding (error)
 -- import qualified Prelude
+
+import           Data.Bifunctor           (second)
 import           Data.Maybe               (fromMaybe, isJust)
 import           Data.Monoid              (First(..))
 import           Data.Hashable
@@ -1757,6 +1765,55 @@ classBinds _ t
 
 isEqualityConstr :: SpecType -> Bool
 isEqualityConstr (toType False -> ty) = Ghc.isEqPred ty || Ghc.isEqPrimPred ty
+
+--------------------------------------------------------------------------------
+-- | Quotient Utility Functions ------------------------------------------------
+--------------------------------------------------------------------------------
+
+appQuotTyCon :: SpecType -> [RTyVar] -> [SpecType] -> SpecType
+appQuotTyCon ut vs ts = substQuotElim id (M.fromList $ zip vs ts) ut
+
+appQuotTyConSort :: RSort -> [RTyVar] -> [RSort] -> RSort
+appQuotTyConSort ut vs ts = substQuotElim void (M.fromList $ zip vs ts) ut
+
+expandQuotTyCons :: SpecType -> SpecType
+expandQuotTyCons = substQuotElim id mempty
+
+expandQuotTyConsInSort :: RSort -> RSort
+expandQuotTyConsInSort = substQuotElim void mempty
+
+substQuotElim
+  :: (SpecType -> RType RTyCon RTyVar r)
+  -> M.HashMap RTyVar (RType RTyCon RTyVar r)
+  -> RType RTyCon RTyVar r
+  -> RType RTyCon RTyVar r
+substQuotElim _ subs (RVar v r)
+  = case M.lookup v subs of
+      Nothing -> RVar v r
+      Just t  -> t
+substQuotElim f subs (RFun b inf i o r)
+  = RFun b inf (substQuotElim f subs i) (substQuotElim f subs o) r
+substQuotElim f subs (RAllT tvb ty r)
+  = let t' = substQuotElim f (M.delete (ty_var_value tvb) subs) ty
+     in RAllT tvb t' r
+substQuotElim f subs (RAllP pvb ty)
+  = RAllP (substQuotElim void (void <$> subs) <$> pvb) (substQuotElim f subs ty)
+substQuotElim f subs (RApp (QTyCon _ ut _ vs _) ts _ _)
+  = let nsubs = foldr (uncurry M.insert) subs $ zip vs (map (substQuotElim f subs) ts)
+     in substQuotElim f nsubs (f ut)
+substQuotElim f subs (RApp tc as ps r)
+  = RApp tc (map (substQuotElim f subs) as) (map (substQuotElim f subs <$>) ps) r
+substQuotElim f subs (RAllE s aa ty)
+  = RAllE s (substQuotElim f subs aa) (substQuotElim f subs ty)
+substQuotElim f subs (REx s exa ty)
+  = REx s (substQuotElim f subs exa) (substQuotElim f subs ty)
+substQuotElim _ _ (RExprArg e) = RExprArg e
+substQuotElim f subs (RAppTy a t r)
+  = RAppTy (substQuotElim f subs a) (substQuotElim f subs t) r
+substQuotElim f subs (RRTy env r obl ty)
+  = RRTy (map (second (substQuotElim f subs)) env) r obl (substQuotElim f subs ty)
+substQuotElim _ _ (RHole r) = RHole r
+
 
 --------------------------------------------------------------------------------
 -- | Termination Predicates ----------------------------------------------------

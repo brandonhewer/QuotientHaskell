@@ -44,7 +44,17 @@ module Language.Haskell.Liquid.Types.Types (
   , BTyVar(..)
 
   -- * Refined Type Constructors
-  , RTyCon (RTyCon, rtc_tc, rtc_info)
+  , RTyCon
+      ( RTyCon
+      , QTyCon
+      , rtc_tc
+      , rtc_info
+      , qtc_name
+      , qtc_type
+      , qtc_quots
+      , qtc_tyvars
+      , qtc_variances
+      )
   , TyConInfo(..), defaultTyConInfo
   , rTyConPVs
   , rTyConPropVs
@@ -92,6 +102,10 @@ module Language.Haskell.Liquid.Types.Types (
   , HasDataDecl (..), hasDecl
   , DataDeclKind (..)
   , TyConP   (..)
+
+  -- * Parse-time entities describing quotient data types
+  , QuotDecl (..)
+  , QuotCtor (..)
 
   -- * Pre-instantiated RType
   , RRType, RRProp
@@ -637,15 +651,24 @@ data BTyCon = BTyCon
 
 instance B.Binary BTyCon
 
-data RTyCon = RTyCon
-  { rtc_tc    :: TyCon         -- ^ GHC Type Constructor
-  , rtc_pvars :: ![RPVar]      -- ^ Predicate Parameters
-  , rtc_info  :: !TyConInfo    -- ^ TyConInfo
-  }
+data RTyCon
+  = RTyCon
+    { rtc_tc    :: TyCon         -- ^ GHC Type Constructor
+    , rtc_pvars :: ![RPVar]      -- ^ Predicate Parameters
+    , rtc_info  :: !TyConInfo    -- ^ TyConInfo
+    }
+  | QTyCon
+    { qtc_name      :: !F.LocSymbol  -- ^ Quotient Type Constructor Name
+    , qtc_type      :: !SpecType     -- ^ Underlying Type
+    , qtc_quots     :: ![F.Symbol]   -- ^ Names of Quotients
+    , qtc_tyvars    :: ![RTyVar]     -- ^ Type Variables
+    , qtc_variances :: ![Variance]   -- ^ Variances of Type Variables
+    }
   deriving (Generic, Data, Typeable)
 
 instance F.Symbolic RTyCon where
-  symbol = F.symbol . rtc_tc
+  symbol (RTyCon c _ _)     = F.symbol c
+  symbol (QTyCon c _ _ _ _) = F.symbol c
 
 instance F.Symbolic BTyCon where
   symbol = F.val . btc_tc
@@ -683,10 +706,12 @@ isClassBTyCon = btc_class
 -- isClassRTyCon x = (isClassTyCon $ rtc_tc x) || (rtc_tc x == eqPrimTyCon)
 
 rTyConPVs :: RTyCon -> [RPVar]
-rTyConPVs     = rtc_pvars
+rTyConPVs (RTyCon _ pvs _) = pvs
+rTyConPVs _                = []
 
 rTyConPropVs :: RTyCon -> [PVar RSort]
-rTyConPropVs  = filter isPropPV . rtc_pvars
+rTyConPropVs (RTyCon _ pvs _) = filter isPropPV pvs
+rTyConPropVs _                = []
 
 isPropPV :: PVar t -> Bool
 isPropPV      = isProp . ptype
@@ -930,8 +955,8 @@ data UReft r = MkUReft
 
 instance B.Binary r => B.Binary (UReft r)
 
-type BRType      = RType BTyCon BTyVar       -- ^ "Bare" parsed version
-type RRType      = RType RTyCon RTyVar       -- ^ "Resolved" version
+type BRType      = RType BTyCon BTyVar -- ^ "Bare" parsed version
+type RRType      = RType RTyCon RTyVar -- ^ "Resolved" version
 type RRep        = RTypeRep RTyCon RTyVar
 type BSort       = BRType    ()
 type RSort       = RRType    ()
@@ -946,8 +971,6 @@ type SpecProp    = RRProp    RReft
 type RRProp r    = Ref       RSort (RRType r)
 type BRProp r    = Ref       BSort (BRType r)
 type SpecRTVar   = RTVar     RTyVar RSort
-
-
 
 type LocBareType = F.Located BareType
 type LocSpecType = F.Located SpecType
@@ -998,20 +1021,30 @@ type OkRT c tv r = ( TyConable c
 -- | TyConable Instances -------------------------------------------------------
 -------------------------------------------------------------------------------
 
+rTyConLift :: a -> (TyCon -> a) -> RTyCon -> a
+rTyConLift _ f (RTyCon c _ _) = f c
+rTyConLift z _ _              = z
+
+rTyConPred :: (TyCon -> Bool) -> RTyCon -> Bool
+rTyConPred = rTyConLift False
+
+rTyConMaybe :: (TyCon -> Maybe a) -> RTyCon -> Maybe a
+rTyConMaybe = rTyConLift Nothing
+
 instance TyConable RTyCon where
-  isFun      = isFunTyCon . rtc_tc
-  isList     = (listTyCon ==) . rtc_tc
-  isTuple    = Ghc.isTupleTyCon   . rtc_tc
-  isClass    = isClass . rtc_tc -- isClassRTyCon
-  isEqual    = isEqual . rtc_tc
+  isFun      = rTyConPred isFunTyCon
+  isList     = rTyConPred (listTyCon ==)
+  isTuple    = rTyConPred Ghc.isTupleTyCon
+  isClass    = rTyConPred isClass -- isClassRTyCon
+  isEqual    = rTyConPred isEqual
   ppTycon    = F.toFix
 
   isNumCls c  = maybe False (isClassOrSubClass isNumericClass)
-                (tyConClass_maybe $ rtc_tc c)
+                (rTyConMaybe tyConClass_maybe c)
   isFracCls c = maybe False (isClassOrSubClass isFractionalClass)
-                (tyConClass_maybe $ rtc_tc c)
-  isOrdCls  c = maybe False isOrdClass (tyConClass_maybe $ rtc_tc c)
-  isEqCls   c = isEqCls (rtc_tc c)
+                (rTyConMaybe tyConClass_maybe c)
+  isOrdCls  c = maybe False isOrdClass (rTyConMaybe tyConClass_maybe c)
+  isEqCls   c = rTyConPred isEqCls c
 
 
 instance TyConable TyCon where
@@ -1057,7 +1090,9 @@ instance TyConable BTyCon where
 
 
 instance Eq RTyCon where
-  x == y = rtc_tc x == rtc_tc y
+  (RTyCon c _ _)     == (RTyCon c' _ _)     = c == c'
+  (QTyCon c _ _ _ _) == (QTyCon c' _ _ _ _) = c == c'
+  _ == _ = False
 
 instance Eq BTyCon where
   x == y = btc_tc x == btc_tc y
@@ -1066,7 +1101,8 @@ instance Ord BTyCon where
   compare x y = compare (btc_tc x) (btc_tc y)
 
 instance F.Fixpoint RTyCon where
-  toFix (RTyCon c _ _) = text $ showPpr c
+  toFix (RTyCon c _ _)      = text $ showPpr c
+  toFix (QTyCon c _ _ _ _ ) = F.toFix c
 
 instance F.Fixpoint BTyCon where
   toFix = text . F.symbolString . F.val . btc_tc
@@ -1078,12 +1114,10 @@ instance Show Cinfo where
   show = show . F.toFix
 
 instance F.PPrint RTyCon where
-  pprintTidy k c
-    | ppDebug ppEnv = F.pprintTidy k tc  <-> angleBrackets (F.pprintTidy k pvs)
-    | otherwise     = text . showPpr . rtc_tc $ c
-    where
-      tc            = F.symbol (rtc_tc c)
-      pvs           = rtc_pvars c
+  pprintTidy k (RTyCon c pvs _)
+    | ppDebug ppEnv = F.pprintTidy k (F.symbol c) <-> angleBrackets (F.pprintTidy k pvs)
+    | otherwise     = text $ showPpr c
+  pprintTidy k (QTyCon c _ _ _ _) = F.pprintTidy k (F.symbol c)
 
 instance F.PPrint BTyCon where
   pprintTidy _ = text . F.symbolString . F.val . btc_tc
@@ -1311,6 +1345,61 @@ instance F.PPrint DataName where
 dataNameSymbol :: DataName -> F.LocSymbol
 dataNameSymbol (DnName z) = z
 dataNameSymbol (DnCon  z) = z
+
+--------------------------------------------------------------------------------
+-- | Quotient type refinements
+--------------------------------------------------------------------------------
+
+-- | Equality Constructor / Quotient
+data QuotCtor = QuotCtor
+  { qcName   :: F.LocSymbol
+  , qcTyVars :: [F.Symbol]
+  , qcBinds  :: [(Symbol, BareType)]
+  , qcLeft   :: F.Located F.QPattern
+  , qcRight  :: F.Located Expr
+  } deriving (Data, Typeable, Generic, Eq)
+    deriving Hashable via Generically QuotCtor
+
+data QuotDecl = QuotDecl
+  { qtycName   :: !F.LocSymbol -- ^ Quotient Type Constructor Name
+  , qtycTyVars :: [Symbol]     -- ^ Tyvar Parameters
+  , qtycType   :: BareType     -- ^ Underlying type
+  , qtycSrcPos :: !F.SourcePos -- ^ Source Position
+  , qtycQuots  :: [QuotCtor]   -- ^ Quotient Constructors
+  } deriving (Data, Typeable, Generic)
+    deriving Hashable via Generically QuotDecl
+
+instance B.Binary QuotCtor
+instance B.Binary QuotDecl
+
+instance F.Loc QuotCtor where
+  srcSpan = F.srcSpan . qcName
+
+instance F.Loc QuotDecl where
+  srcSpan = srcSpanFSrcSpan . sourcePosSrcSpan . qtycSrcPos
+
+instance F.Symbolic QuotDecl where
+  symbol = F.symbol . qtycName
+
+instance Eq QuotDecl where
+  q1 == q2 = qtycName q1 == qtycName q2
+
+instance Ord QuotDecl where
+  compare q1 q2 = compare (qtycName q1) (qtycName q2)
+
+-- | For debugging.
+instance Show QuotCtor where
+  show qc = printf "QuotCtor: name = %s, left = %s, right = %s"
+              (show $ qcName qc)
+              (show $ qcLeft qc)
+              (show $ qcRight qc)
+
+-- | For debugging.
+instance Show QuotDecl where
+  show qd = printf "QuotDecl: data = %s, tyvars = %s, quotients = %s" -- [at: %s]"
+              (show $ qtycName   qd)
+              (show $ qtycTyVars qd)
+              (show $ qtycQuots  qd)
 
 --------------------------------------------------------------------------------
 -- | Refinement Type Aliases
