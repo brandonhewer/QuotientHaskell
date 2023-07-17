@@ -20,6 +20,9 @@ module Language.Haskell.Liquid.Bare.Types
     -- * Measure related environment 
   , MeasEnv (..)
 
+    -- * Quotient related environment
+  , QuotMap (..)
+
     -- * Misc 
   , PlugTV (..)
   , plugSrc
@@ -67,6 +70,7 @@ plugSrc _        = Nothing
 -------------------------------------------------------------------------------
 data Env = RE 
   { reLMap      :: !LogicMap
+  , reQuotMap   :: !(M.HashMap ModName QuotMap)
   , reSyms      :: ![(F.Symbol, Ghc.Var)]    -- ^ see "syms" in old makeGhcSpec'
   , _reSubst    :: !F.Subst                  -- ^ see "su"   in old makeGhcSpec'
   , _reTyThings :: !TyThingMap 
@@ -158,3 +162,23 @@ failMaybe env name res = case res of
 
 isTargetModName :: Env -> ModName -> Bool 
 isTargetModName env name = name == _giTargetMod (reSrc env) 
+
+
+-------------------------------------------------------------------------------
+-- | Quotient environment types
+-------------------------------------------------------------------------------
+
+data QuotMap = QuotMap
+  { quotTyMap :: !(M.HashMap F.Symbol BareQuotientType)
+  , quotMap   :: !(M.HashMap F.Symbol BareQuotient)
+  }
+
+instance Semigroup QuotMap where
+  q1 <> q2
+    = QuotMap
+        { quotTyMap = quotTyMap q1 <> quotTyMap q2
+        , quotMap   = quotMap   q1 <> quotMap   q2
+        }
+
+instance Monoid QuotMap where
+  mempty = QuotMap { quotTyMap = mempty, quotMap = mempty }

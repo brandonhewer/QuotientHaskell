@@ -6,6 +6,7 @@
 {-# LANGUAGE FlexibleContexts           #-}
 {-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE DerivingVia                #-}
+{-# LANGUAGE StandaloneDeriving         #-}
 
 {-# OPTIONS_GHC -Wno-orphans #-}
 
@@ -45,6 +46,8 @@ module Language.Haskell.Liquid.Types.Specs (
   , GhcSpecLaws(..)
   , GhcSpecData(..)
   , GhcSpecQual(..)
+  , GhcSpecQuots(..)
+  
   , BareDef
   , BareMeasure
   , SpecMeasure
@@ -54,6 +57,12 @@ module Language.Haskell.Liquid.Types.Specs (
   -- $legacyDataStructures
   , GhcSrc(..)
   , GhcSpec(..)
+
+  -- * Quotient structures
+  , QuotientType (..)
+  , BareQuotientType
+  , SpecQuotientType
+
   -- * Provisional compatibility exports & optics
   -- $provisionalBackCompat
   , toTargetSrc
@@ -195,6 +204,7 @@ data TargetSpec = TargetSpec
   , gsTerm   :: !GhcSpecTerm
   , gsRefl   :: !GhcSpecRefl
   , gsLaws   :: !GhcSpecLaws
+  , gsQuots  :: !GhcSpecQuots
   , gsImps   :: ![(F.Symbol, F.Sort)]  -- ^ Imported Environment
   , gsConfig :: !Config
   }
@@ -269,7 +279,8 @@ data GhcSpecData = SpData
   , gsIaliases   :: ![(LocSpecType, LocSpecType)] -- ^ Data type invariant aliases
   , gsMeasures   :: ![Measure SpecType DataCon]   -- ^ Measure definitions
   , gsUnsorted   :: ![UnSortedExpr]
-  }
+  } deriving Show
+
 data GhcSpecNames = SpNames
   { gsFreeSyms   :: ![(F.Symbol, Var)]            -- ^ List of `Symbol` free in spec and corresponding GHC var, eg. (Cons, Cons#7uz) from tests/pos/ex1.hs
   , gsDconsP     :: ![F.Located DataCon]          -- ^ Predicated Data-Constructors, e.g. see tests/pos/Map.hs
@@ -339,6 +350,37 @@ data LawInstance = LawInstance
   , lilEqus   :: [(VarOrLocSymbol, (VarOrLocSymbol, Maybe LocSpecType))]
   , lilPos    :: SrcSpan
   }
+
+data QuotientType c tv r = QuotientType
+  { qtyName   :: !F.LocSymbol
+  , qtyType   :: !(RType c tv r)
+  , qtyQuots  :: ![F.Symbol]
+  , qtyTyVars :: ![tv]
+  , qtyArity  :: !Int
+  }
+
+type BareQuotientType = QuotientType BTyCon BTyVar RReft
+type SpecQuotientType = QuotientType RTyCon RTyVar RReft
+
+deriving instance Show BareQuotientType
+deriving instance Show SpecQuotientType
+
+data GhcSpecQuots = SpQuots
+  { gsQuotTyCons   :: !(M.HashMap F.Symbol SpecQuotientType)
+  , gsQuotients    :: !(M.HashMap F.Symbol SpecQuotient)
+  , gsQuotCons     :: !(M.HashMap TyCon [(QuotientTyCon, [SpecType])])
+                      -- | ^ Refinements of data constructors for quotient types
+  }
+
+instance Semigroup GhcSpecQuots where
+  x <> y = SpQuots 
+    { gsQuotTyCons   = gsQuotTyCons x <> gsQuotTyCons y
+    , gsQuotients    = gsQuotients  x <> gsQuotients  y
+    , gsQuotCons     = gsQuotCons   x <> gsQuotCons   y
+    }
+
+instance Monoid GhcSpecQuots where
+  mempty = SpQuots { gsQuotTyCons = mempty, gsQuotients = mempty, gsQuotCons = mempty }
 
 type VarOrLocSymbol = Either Var LocSymbol
 type BareMeasure   = Measure LocBareType F.LocSymbol
@@ -724,6 +766,7 @@ data GhcSpec = SP
   , _gsTerm   :: !GhcSpecTerm
   , _gsRefl   :: !GhcSpecRefl
   , _gsLaws   :: !GhcSpecLaws
+  , _gsQuots  :: !GhcSpecQuots
   , _gsImps   :: ![(F.Symbol, F.Sort)]  -- ^ Imported Environment
   , _gsConfig :: !Config
   , _gsLSpec  :: !(Spec LocBareType F.LocSymbol) -- ^ Lifted specification for the target module
@@ -786,6 +829,7 @@ toTargetSpec ghcSpec =
       , gsTerm   = _gsTerm ghcSpec
       , gsRefl   = _gsRefl ghcSpec
       , gsLaws   = _gsLaws ghcSpec
+      , gsQuots  = _gsQuots ghcSpec
       , gsImps   = _gsImps ghcSpec
       , gsConfig = _gsConfig ghcSpec
       }

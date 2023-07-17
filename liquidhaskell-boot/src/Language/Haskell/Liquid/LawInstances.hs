@@ -86,7 +86,7 @@ unify mkError c li t1 t2
     splitForall vs (RAllT v t _) = splitForall (v:vs) t 
     splitForall vs  t            = (vs, t) 
 
-    findTyVars (((_x, RApp cc as _ _):_ts)) | rtc_tc cc == classTyCon c 
+    findTyVars (((_x, RApp (RTyCon tc _ _) as _ _):_ts)) | tc == classTyCon c 
       = [v | RVar v _ <- as ]
     findTyVars (_:ts) = findTyVars ts 
     findTyVars [] = [] 

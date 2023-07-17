@@ -173,6 +173,7 @@ checkTargetSpec specs src env cbs tsp
                      <> checkPlugged (catMaybes [ fmap (F.dropSym 2 $ GM.simplesymbol x,) (getMethodType t) | (x, t) <- gsMethods (gsSig tsp) ])
                      <> checkLawInstances (gsLaws tsp)
                      <> checkRewrites tsp
+                     <> checkQuotients allowHO bsc cbs emb tcEnv env (gsQuots tsp)
 
     _rClasses         = concatMap Ms.classes specs
     _rInsts           = concatMap Ms.rinstance specs
@@ -468,7 +469,7 @@ checkMismatch (x, t) = if ok then emptyDiagnostics else mkDiagnostics mempty [er
 tyCompat :: Var -> RType RTyCon RTyVar r -> Bool
 tyCompat x t         = lqT == hsT
   where
-    lqT :: RSort     = toRSort t
+    lqT :: RSort     = expandQuotTyConsInSort $ toRSort t
     hsT :: RSort     = ofType (varType x)
     _msg             = "TY-COMPAT: " ++ GM.showPpr x ++ ": hs = " ++ F.showpp hsT ++ " :lq = " ++ F.showpp lqT
 
@@ -540,6 +541,7 @@ checkTcArity tc givenArity
                  <+> text "arguments but was given" <+> pprint givenArity
                  <+> text "arguments"
         | otherwise -> Nothing
+      _ -> Nothing
 
 checkAbstractRefs
   :: (PPrint t, F.Reftable t, SubsTy RTyVar RSort t, F.Reftable (RTProp RTyCon RTyVar (UReft t))) =>
@@ -775,3 +777,136 @@ checkClassMeasures measures = mkDiagnostics mempty (mapMaybe checkOne byTyCon)
 -- | Utility functions for checking quotients/respectfulness signatures ---------------------
 ---------------------------------------------------------------------------------------------
 
+checkQuotients :: Bool
+               -> BScope
+               -> [CoreBind]
+               -> F.TCEmb TyCon
+               -> Bare.TyConMap
+               -> F.SEnv F.SortedReft
+               -> GhcSpecQuots
+               -> Diagnostics
+checkQuotients allowHO bsc _ emb tcEnv senv quots
+  =  foldMap checkQuotientTy (gsQuotTyCons quots)
+  where
+    quotientMap :: [F.Symbol] -> [SpecQuotient]
+    quotientMap syms = mapMaybe (`M.lookup` gsQuotients quots) syms
+
+    checkQuotientTy :: SpecQuotientType -> Diagnostics
+    checkQuotientTy spec
+      =  checkTy allowHO bsc err emb tcEnv senv (F.Loc loc loc $ qtyType spec)
+      <> freeTyVarDiagnostics
+      <> foldMap (checkQuotient (qtyType spec)) (quotientMap $ qtyQuots spec)
+      <> checkNonRecursiveQuotient spec
+      where
+        loc = F.loc $ qtyName spec
+
+        err = ErrQuotType (GM.sourcePosSrcSpan loc) (pprint $ qtyName spec)
+
+        unboundTyVars :: [RTyVar]
+        unboundTyVars = map ty_var_value (freeTyVars $ qtyType spec) L.\\ qtyTyVars spec
+
+        freeTyVarDiagnostics :: Diagnostics
+        freeTyVarDiagnostics
+          | null unboundTyVars = mempty
+          | otherwise
+              = mkDiagnostics []
+                  [ err
+                      (   text "The type variables "
+                      <+> pprint unboundTyVars
+                      <+> text " were used but never introduced."
+                      )
+                  ]
+
+    checkQuotient :: SpecType -> SpecQuotient -> Diagnostics
+    checkQuotient ty qt = lCheck <> rCheck
+      where
+        γ = foldr (\(s, t) -> F.insertSEnv s (rTypeSortedReft emb t)) senv
+                  (M.toList $ qtVars qt)
+
+        lCheck
+          = checkETy "left-hand side"
+          $ checkSortFull (F.srcSpan $ qtName qt) γ (rTypeSort emb ty) (F.val $ qtLeft qt)
+
+        rCheck
+          = checkETy "right-hand side"
+          $ checkSortFull (F.srcSpan $ qtName qt) γ (rTypeSort emb ty) (F.val $ qtRight qt)
+
+        checkETy sd
+          = maybe
+              mempty
+              (\d ->
+                  mkDiagnostics []
+                    [err (text ("The " <> sd <> " of the equality target is malformed:\n") <+> d )]
+              )
+
+        err doc = ErrQuotWF
+          { pos   = GM.sourcePosSrcSpan $ F.loc $ qtName qt
+          , qname = pprint $ qtName qt
+          , dc    = doc
+          }
+
+checkNonRecursiveQuotient :: SpecQuotientType -> Diagnostics
+checkNonRecursiveQuotient (QuotientType nm ty _ _ _)
+  = case containsQTyCon (F.val nm) ty of
+      Just pos ->
+          mkDiagnostics []
+            [ ErrRecQuot
+                (GM.sourcePosSrcSpan $ F.loc nm)
+                (pprint nm)
+                (GM.sourcePosSrcSpan pos)
+                (pprint ty)
+            ]
+      Nothing  -> emptyDiagnostics
+
+firstJust :: Maybe a -> Maybe a -> Maybe a
+firstJust (Just x) _       = Just x
+firstJust Nothing (Just x) = Just x
+firstJust Nothing Nothing  = Nothing
+
+firstJusts :: [Maybe a] -> Maybe a
+firstJusts = L.foldl' firstJust Nothing
+
+firstJustMap :: (a -> Maybe b) -> [a] -> Maybe b
+firstJustMap f xs = firstJusts $ map f xs
+
+refContainsQTyCon :: F.Symbol -> Ref (RRType a) (RRType b) -> Maybe F.SourcePos
+refContainsQTyCon s ref
+  = firstJust (containsQTyCon s $ rf_body ref)
+              (firstJusts $ map (containsQTyCon s . snd) $ rf_args ref)
+
+containsQTyCon :: F.Symbol -> RRType r -> Maybe F.SourcePos
+containsQTyCon s (RAllT rtvu t _) = firstJust p (containsQTyCon s t)
+  where
+    p = case ty_var_info rtvu of
+      RTVInfo { rtv_kind = k } -> containsQTyCon s k
+      _                        -> Nothing
+containsQTyCon s (RAllP pvu t) = firstJust p0 (firstJust p1 $ containsQTyCon s t)
+  where
+    p0 = case ptype pvu of
+      PVProp k -> containsQTyCon s k
+      _        -> Nothing
+
+    p1 = firstJustMap (\(u, _, _) -> containsQTyCon s u) (pargs pvu)
+containsQTyCon s (RApp (RTyCon {}) ts ps _)
+  = firstJust (firstJustMap (containsQTyCon s) ts) (firstJustMap (refContainsQTyCon s) ps)
+containsQTyCon s (RApp (QTyCon nm ut _ _ _ _) ts ps _)
+  | s == F.val nm = Just $ F.loc nm
+  | otherwise
+      = let utc = containsQTyCon s ut
+            tsc = firstJustMap (containsQTyCon s) ts
+            psc = firstJustMap (refContainsQTyCon s) ps
+         in firstJust utc (firstJust tsc psc)
+containsQTyCon _ (RApp {}) = Nothing 
+containsQTyCon s (RFun _ _ t1 t2 _)
+  = firstJust (containsQTyCon s t1) (containsQTyCon s t2)
+containsQTyCon _ (RVar _ _)         = Nothing
+containsQTyCon s (RAllE _ t1 t2)
+  = firstJust (containsQTyCon s t1) (containsQTyCon s t2)
+containsQTyCon s (REx _ t1 t2)
+  = firstJust (containsQTyCon s t1) (containsQTyCon s t2)
+containsQTyCon s (RAppTy t1 t2 _)
+  = firstJust (containsQTyCon s t1) (containsQTyCon s t2)
+containsQTyCon s (RRTy ts _ _ t)
+  = firstJust (firstJustMap (containsQTyCon s . snd) ts) (containsQTyCon s t)
+containsQTyCon _ (RExprArg _)       = Nothing
+containsQTyCon _ (RHole _)          = Nothing

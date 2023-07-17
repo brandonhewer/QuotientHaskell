@@ -70,7 +70,9 @@ initEnv info
        let tcb   = mapSnd (rTypeSort tce) <$> concat bs
        let cbs   = giCbs . giSrc $ info
        rTrue   <- mapM (mapSndM (true allowTC)) f6
-       let γ0    = measEnv sp (head bs) cbs tcb lt1s lt2s (f6 ++ bs!!3) (bs!!5) hs info
+       let dconM = M.fromList (map (first F.symbol) f4)
+       let qcons = makeQuotDataCons (gsQuotCons $ gsQuots sp) (gsDconsP $ gsName sp) dconM
+       let γ0    = measEnv sp (head bs) cbs tcb lt1s lt2s (f6 ++ bs!!3) (bs!!5) hs qcons info
        γ  <- globalize <$> foldM (+=) γ0 ( [("initEnv", x, y) | (x, y) <- concat (rTrue:tail bs)])
        return γ {invs = is (invs1 ++ invs2)}
   where
@@ -166,10 +168,11 @@ measEnv :: TargetSpec
         -> [(F.Symbol, SpecType)]
         -> [(F.Symbol, SpecType)]
         -> [F.Symbol]
+        -> M.HashMap F.Symbol SpecType
         -> TargetInfo
         -> CGEnv
 --------------------------------------------------------------------------------
-measEnv sp xts cbs _tcb lt1s lt2s asms itys hs info = CGE
+measEnv sp xts cbs _tcb lt1s lt2s asms itys hs qcons info = CGE
   { cgLoc    = Sp.empty
   , renv     = fromListREnv (second val <$> gsMeas (gsData sp)) []
   , syenv    = F.fromListSEnv (gsFreeSyms (gsName sp))
@@ -195,6 +198,9 @@ measEnv sp xts cbs _tcb lt1s lt2s asms itys hs info = CGE
   , cerr     = Nothing
   , cgInfo   = info
   , cgVar    = Nothing
+  , cgQuotTyCons   = gsQuotTyCons $ gsQuots sp
+  , cgQuotients    = gsQuotients $ gsQuots sp
+  , cgQuotDataCons = qcons
   }
   where
       tce         = gsTcEmbeds (gsName sp)
@@ -301,3 +307,38 @@ coreBindLits tce info
     dconToSort   = typeSort tce . expandTypeSynonyms . varType
     dconToSym    = F.symbol . idDataCon
     isDCon x     = isDataConId x && not (hasBaseTypeVar x)
+
+makeQuotDataCons
+  :: M.HashMap TyCon [(QuotientTyCon, [SpecType])]
+  -> [F.Located DataCon]
+  -> M.HashMap F.Symbol SpecType
+  -> M.HashMap F.Symbol SpecType
+makeQuotDataCons rs dds ts = L.foldl' makeDataCons mempty dds
+  where
+    makeDataCons :: M.HashMap F.Symbol SpecType -> F.Located DataCon -> M.HashMap F.Symbol SpecType
+    makeDataCons us (F.Loc _ _ dc)
+      = let tc = dataConTyCon dc
+         in case M.lookup tc rs of
+              Nothing -> us
+              Just qs -> case M.lookup (F.symbol dc) ts of
+                Nothing -> us
+                Just t  -> M.insert (F.symbol dc) (refineQuotDataCons tc qs t) us
+
+refineQuotDataCons :: TyCon -> [(QuotientTyCon, [SpecType])] -> SpecType -> SpecType
+refineQuotDataCons tc qs t
+  = let trep = toRTypeRep t
+     in fromRTypeRep $ trep
+          { ty_vars  = map (first (mapTyCon tyConRefine <$>)) $ ty_vars trep
+          , ty_preds = map (mapTyCon tyConRefine <$>) $ ty_preds trep
+          , ty_args  = map (mapTyCon tyConRefine) $ ty_args trep
+          }
+    where
+      tyConRefine :: RTyCon -> RTyCon
+      tyConRefine t@(RTyCon c _ inf)
+        | c == tc = JoinTyCon
+            { jtc_base  = c
+            , jtc_info  = inf
+            , jtc_quots = qs
+            }
+        | otherwise = t
+      tyConRefine t = t

@@ -28,6 +28,7 @@ microTestGroups =
   , "import-cli"
   , "ple-pos"
   , "ple-neg"
+  , "quotients-pos"
   , "rankN-pos"
   , "terminate-pos"
   , "terminate-neg"

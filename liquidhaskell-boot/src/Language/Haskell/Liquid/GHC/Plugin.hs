@@ -346,7 +346,16 @@ liquidHaskellCheckWithConfig globalCfg pipelineData modSummary tcGblEnv = do
 liquidHaskellCheck :: PipelineData -> ModSummary -> TcGblEnv -> TcM (Either LiquidCheckException TcGblEnv)
 liquidHaskellCheck pipelineData modSummary tcGblEnv = do
   cfg <- liftIO getConfig
-  liquidHaskellCheckWithConfig cfg pipelineData modSummary tcGblEnv
+  let cfg' = cfg
+        { proofLogicEval      = True
+        , oldPLE              = False
+        , fuel                = Nothing
+        , reflection          = True
+        , proofLogicEvalLocal = True
+        , interpreter         = True
+        , noLazyPLE           = False
+        }
+  liquidHaskellCheckWithConfig cfg' pipelineData modSummary tcGblEnv
 
 checkLiquidHaskellContext :: LiquidHaskellContext -> TcM (Either LiquidCheckException LiquidLib)
 checkLiquidHaskellContext lhContext = do

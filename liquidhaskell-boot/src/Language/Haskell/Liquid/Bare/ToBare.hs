@@ -44,7 +44,9 @@ dataConToBare d = dropModuleNames . F.symbol <$> locNamedThing d
     vx    = F.symbol v
 
 specToBareTC :: RTyCon -> BTyCon
-specToBareTC = tyConBTyCon . rtc_tc
+specToBareTC (RTyCon tc _ _ )     = tyConBTyCon tc
+specToBareTC (QTyCon c _ _ _ _ _) = BTyCon c False False
+specToBareTC (JoinTyCon c _ _)    = tyConBTyCon c
 
 specToBareTV :: RTyVar -> BTyVar
 specToBareTV (RTV α) = BTV (F.symbol α)

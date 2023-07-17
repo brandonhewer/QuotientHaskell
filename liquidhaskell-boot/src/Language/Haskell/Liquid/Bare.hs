@@ -4,6 +4,7 @@
 {-# LANGUAGE TupleSections             #-}
 {-# LANGUAGE PartialTypeSignatures     #-}
 {-# LANGUAGE OverloadedStrings         #-}
+{-# LANGUAGE StandaloneDeriving        #-}
 
 -- | This module contains the functions that convert /from/ descriptions of
 --   symbols, names and types (over freshly parsed /bare/ Strings),
@@ -247,9 +248,10 @@ makeGhcSpec0 cfg src lmap mspecsNoCls = do
   let (dg1, spcVars) = withDiagnostics $ makeSpecVars cfg src mySpec env measEnv
   let (dg2, spcTerm) = withDiagnostics $ makeSpecTerm cfg     mySpec env       name
   let (dg3, refl)    = withDiagnostics $ makeSpecRefl cfg src measEnv specs env name elaboratedSig tycEnv
-  let laws     = makeSpecLaws env sigEnv (gsTySigs elaboratedSig ++ gsAsmSigs elaboratedSig) measEnv specs
+  let laws           = makeSpecLaws env sigEnv (gsTySigs elaboratedSig ++ gsAsmSigs elaboratedSig) measEnv specs
+  let (dg6, quots)   = withDiagnostics $ makeSpecQuots env (M.toList specs)
   let finalLiftedSpec = makeLiftedSpec name src env refl sData elaboratedSig qual myRTE lSpec1
-  let diags    = mconcat [dg0, dg1, dg2, dg3, dg4, dg5]
+  let diags    = mconcat [dg0, dg1, dg2, dg3, dg4, dg5, dg6]
 
   pure (diags, SP
     { _gsConfig = cfg
@@ -262,6 +264,7 @@ makeGhcSpec0 cfg src lmap mspecsNoCls = do
     , _gsName   = makeSpecName env     tycEnv measEnv   name
     , _gsVars   = spcVars
     , _gsTerm   = spcTerm
+    , _gsQuots  = quots
 
     , _gsLSpec  = finalLiftedSpec
                 { impSigs   = makeImports mspecs
@@ -360,6 +363,93 @@ makeTyConEmbeds env (name, spec)
       symTc = Mb.maybeToList . Bare.maybeResolveSym env name "embed-tycon"
 
 --------------------------------------------------------------------------------
+-- | Quotient specification creation -------------------------------------------
+--------------------------------------------------------------------------------
+
+deriving instance Show QuotientTyCon
+deriving instance Show GhcSpecQuots
+
+makeSpecQuots
+  :: Bare.Env
+  -> [(ModName, Ms.BareSpec)]
+  -> Bare.Lookup GhcSpecQuots
+makeSpecQuots env specs
+  = Ghc.foldrM (\ms gs -> (gs <>) <$> makeSpecQuot ms) mempty specs
+  where
+    makeSpecQuot :: (ModName, Ms.BareSpec) -> Bare.Lookup GhcSpecQuots
+    makeSpecQuot (mname, spec)
+      = Ghc.foldrM (addQuotDecl mname) mempty (quotDecls spec)
+
+    addQuotDecl :: ModName -> QuotDecl -> GhcSpecQuots -> Bare.Lookup GhcSpecQuots
+    addQuotDecl mname qdecl spec
+      = case Bare.maybeResolveSym env mname "quotient-spec" (qtycName qdecl) of
+          Just (qt :: BareQuotientType, qs) -> do
+            tcs   <- toSpecQuotientTy mname qt
+            quots <- traverse (toSpecQuotient mname) qs
+            return $ spec
+              { gsQuotTyCons
+                  = M.insert (F.val $ qtyName tcs) tcs (gsQuotTyCons spec)
+              , gsQuotients
+                  =  gsQuotients spec
+                  <> M.fromList [ (F.val $ qtName q, q) | q <- quots ]
+              , gsQuotCons = addQuotDataRef tcs (gsQuotCons spec) 
+              }
+          Nothing                  -> return spec
+
+    toSpecQuotientTy :: ModName -> BareQuotientType -> Bare.Lookup SpecQuotientType
+    toSpecQuotientTy mname qt = do
+      let pos = F.loc $ qtyName qt
+      utype <- Bare.ofBareTypeE env mname pos Nothing $ qtyType qt
+      return QuotientType
+        { qtyName   = Bare.qualifyTop env mname pos $ qtyName qt
+        , qtyType   = Bare.qualifyTop env mname pos utype
+        , qtyQuots  = Bare.qualifyTop env mname pos <$> qtyQuots qt
+        , qtyTyVars = map bareRTyVar $ qtyTyVars qt
+        , qtyArity  = qtyArity qt
+        }
+
+    toSpecQuotient :: ModName -> BareQuotient -> Bare.Lookup SpecQuotient
+    toSpecQuotient mname q = do
+      let pos = F.loc $ qtName q
+      vars <- traverse
+                ( (Bare.qualifyTop env mname pos <$>)
+                . Bare.ofBareTypeE env mname pos Nothing) (qtVars q
+                )
+      return
+        Quotient
+          { qtName   = Bare.qualifyTop env mname pos $ qtName q
+          , qtTyCon  = Bare.qualifyTop env mname pos $ qtTyCon q
+          , qtVars   = vars
+          , qtLeft   = Bare.qualifyTop env mname pos $ qtLeft q
+          , qtRight  = Bare.qualifyTop env mname pos $ qtRight q
+          }
+
+addQuotDataRef
+  :: SpecQuotientType
+  -> M.HashMap Ghc.TyCon [(QuotientTyCon, [SpecType])]
+  -> M.HashMap Ghc.TyCon [(QuotientTyCon, [SpecType])]
+addQuotDataRef qt drefs
+  = case expandQuotTyCons (qtyType qt) of
+      RApp (RTyCon c _ _) ts _ _ ->
+        M.alter (consMb (makeQuotDataRef ts)) c drefs
+      _                          -> drefs
+    where
+      consMb :: a -> Maybe [a] -> Maybe [a]
+      consMb r Nothing   = Just [r]
+      consMb r (Just rs) = Just (r : rs)
+
+      makeQuotDataRef ts
+        = ( QuotientTyCon
+              { qtcName      = qtyName qt
+              , qtcType      = qtyType qt
+              , qtcQuots     = qtyQuots qt
+              , qtcArity     = qtyArity qt
+              , qtcTyVars    = qtyTyVars qt
+              }
+          , ts
+          )
+
+--------------------------------------------------------------------------------
 -- | [NOTE]: REFLECT-IMPORTS
 --
 -- 1. MAKE the full LiftedSpec, which will eventually, contain:
@@ -436,7 +526,10 @@ varTyCons = specTypeCons . ofType . Ghc.varType
 specTypeCons           :: SpecType -> [Ghc.TyCon]
 specTypeCons         = foldRType tc []
   where
-    tc acc t@RApp {} = rtc_tc (rt_tycon t) : acc
+    tc acc t@RApp {} =
+      case rt_tycon t of
+        RTyCon rt _ _ -> rt : acc
+        _             -> acc
     tc acc _         = acc
 
 reflectedVars :: Ms.BareSpec -> [Ghc.CoreBind] -> [Ghc.Var]

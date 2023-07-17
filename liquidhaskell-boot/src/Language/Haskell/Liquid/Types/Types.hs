@@ -44,9 +44,11 @@ module Language.Haskell.Liquid.Types.Types (
   , BTyVar(..)
 
   -- * Refined Type Constructors
+  , QuotientTyCon (..)
   , RTyCon
       ( RTyCon
       , QTyCon
+      , JoinTyCon
       , rtc_tc
       , rtc_info
       , qtc_name
@@ -55,6 +57,9 @@ module Language.Haskell.Liquid.Types.Types (
       , qtc_arity
       , qtc_tyvars
       , qtc_variances
+      , jtc_base
+      , jtc_info
+      , jtc_quots
       )
   , TyConInfo(..), defaultTyConInfo
   , rTyConPVs
@@ -109,6 +114,11 @@ module Language.Haskell.Liquid.Types.Types (
   , QuotCtor (..)
   , RespectsSig (..)
 
+  -- * Target Spec phase quotient types
+  , Quotient (..)
+  , BareQuotient
+  , SpecQuotient
+
   -- * Pre-instantiated RType
   , RRType, RRProp
   , BRType, BRProp
@@ -144,7 +154,7 @@ module Language.Haskell.Liquid.Types.Types (
   , efoldReft, foldReft, foldReft'
   , emapReft, mapReft, mapReftM, mapPropM
   , mapExprReft
-  , mapBot, mapBind, mapRFInfo
+  , mapBot, mapBind, mapRFInfo, mapTyCon
   , foldRType
 
 
@@ -653,31 +663,54 @@ data BTyCon = BTyCon
 
 instance B.Binary BTyCon
 
+data QuotientTyCon
+  = QuotientTyCon
+      { qtcName      :: !F.LocSymbol  -- ^ Quotient Type Constructor Name
+      , qtcType      :: !SpecType     -- ^ Underlying Type
+      , qtcQuots     :: ![F.Symbol]   -- ^ Names of Quotients
+      , qtcArity     :: !Int          -- ^ Arity of Quotient type constructor
+      , qtcTyVars    :: ![RTyVar]     -- ^ Type Variables
+      }
+    deriving (Generic, Data, Typeable)
+
 data RTyCon
   = RTyCon
-    { rtc_tc    :: TyCon         -- ^ GHC Type Constructor
-    , rtc_pvars :: ![RPVar]      -- ^ Predicate Parameters
-    , rtc_info  :: !TyConInfo    -- ^ TyConInfo
-    }
+      { rtc_tc    :: TyCon         -- ^ GHC Type Constructor
+      , rtc_pvars :: ![RPVar]      -- ^ Predicate Parameters
+      , rtc_info  :: !TyConInfo    -- ^ TyConInfo
+      }
   | QTyCon
-    { qtc_name      :: !F.LocSymbol  -- ^ Quotient Type Constructor Name
-    , qtc_type      :: !SpecType     -- ^ Underlying Type
-    , qtc_quots     :: ![F.Symbol]   -- ^ Names of Quotients
-    , qtc_arity     :: !Int          -- ^ Arity of Quotient type constructor
-    , qtc_tyvars    :: ![RTyVar]     -- ^ Type Variables
-    , qtc_variances :: ![Variance]   -- ^ Variances of Type Variables
-    }
+      { qtc_name      :: !F.LocSymbol  -- ^ Quotient Type Constructor Name
+      , qtc_type      :: !SpecType     -- ^ Underlying Type
+      , qtc_quots     :: ![F.Symbol]   -- ^ Names of Quotients
+      , qtc_arity     :: !Int          -- ^ Arity of Quotient type constructor
+      , qtc_tyvars    :: ![RTyVar]     -- ^ Type Variables
+      , qtc_variances :: ![Variance]   -- ^ Variances of Type Variables
+      }
+  | JoinTyCon -- | Represents a sum of (quotient) type constructors
+      { jtc_base  :: !TyCon
+      , jtc_info  :: !TyConInfo
+        -- | ^ The base/underlying type constructor
+      , jtc_quots :: ![(QuotientTyCon, [SpecType])]
+        -- | ^ Quotient types that are super types of the base TyCon applied to the paired
+        --     list of types.
+      }
   deriving (Generic, Data, Typeable)
+
+instance F.Symbolic QuotientTyCon where
+  symbol (QuotientTyCon c _ _ _ _) = F.symbol c
 
 instance F.Symbolic RTyCon where
   symbol (RTyCon c _ _)       = F.symbol c
   symbol (QTyCon c _ _ _ _ _) = F.symbol c
+  symbol (JoinTyCon c _ _)    = F.symbol c
 
 instance F.Symbolic BTyCon where
   symbol = F.val . btc_tc
 
 instance NFData BTyCon
 
+instance NFData QuotientTyCon
 instance NFData RTyCon
 
 rtyVarType :: RTyVar -> Type
@@ -869,7 +902,7 @@ instance (Eq tv) => Eq (RTVar tv s) where
 data RTVar tv s = RTVar
   { ty_var_value :: tv
   , ty_var_info  :: RTVInfo s
-  } deriving (Generic, Data, Typeable)
+  } deriving (Generic, Data, Functor, Typeable)
     deriving Hashable via Generically (RTVar tv s)
 
 mapTyVarValue :: (tv1 -> tv2) -> RTVar tv1 s -> RTVar tv2 s
@@ -1106,6 +1139,10 @@ instance Ord BTyCon where
 instance F.Fixpoint RTyCon where
   toFix (RTyCon c _ _)       = text $ showPpr c
   toFix (QTyCon c _ _ _ _ _) = F.toFix c
+  toFix (JoinTyCon c _ qs)   =
+      "(" <>  F.toFix (F.symbol c)
+    <> hcat (map (\(q, _) -> text "+" <> F.toFix (F.symbol q)) qs)
+    <> ")"
 
 instance F.Fixpoint BTyCon where
   toFix = text . F.symbolString . F.val . btc_tc
@@ -1121,6 +1158,9 @@ instance F.PPrint RTyCon where
     | ppDebug ppEnv = F.pprintTidy k (F.symbol c) <-> angleBrackets (F.pprintTidy k pvs)
     | otherwise     = text $ showPpr c
   pprintTidy k (QTyCon c _ _ _ _ _) = F.pprintTidy k (F.symbol c)
+  pprintTidy k (JoinTyCon c _ qs)
+    =   F.pprintTidy k (F.symbol c)
+    <+> hcat (map (\(q, _) -> text "+" <+> F.pprintTidy k (F.symbol q)) qs)
 
 instance F.PPrint BTyCon where
   pprintTidy _ = text . F.symbolString . F.val . btc_tc
@@ -1350,7 +1390,7 @@ dataNameSymbol (DnName z) = z
 dataNameSymbol (DnCon  z) = z
 
 --------------------------------------------------------------------------------
--- | Quotient type refinements
+-- | Quotient type refinements (parse structures)
 --------------------------------------------------------------------------------
 
 -- | Equality Constructor / Quotient
@@ -1413,7 +1453,7 @@ data RespectsSig = RespectsSig
   , rsQuot  :: F.LocSymbol
   , rsFunc  :: F.LocSymbol
   , rsBinds :: [(Symbol, BareType)]
-  , rsLeft  :: F.Located Expr
+  , rsLeft  :: F.Located F.QPattern
   , rsRight :: F.Located Expr
   } deriving (Data, Typeable, Generic)
     deriving Hashable via Generically RespectsSig
@@ -1438,6 +1478,26 @@ instance Show RespectsSig where
               (show $ rsName qd)
               (show $ rsQuot qd)
               (show $ rsFunc qd)
+
+--------------------------------------------------------------------------------
+-- | Quotient type refinements (Target Spec phase)
+--------------------------------------------------------------------------------
+
+data Quotient c tv r = Quotient
+  { qtName   :: !F.LocSymbol
+  , qtTyCon  :: !F.LocSymbol
+  , qtVars   :: !(M.HashMap F.Symbol (RType c tv r))
+  , qtLeft   :: !(F.Located F.QPattern)
+  , qtRight  :: !(F.Located F.Expr)
+  } deriving (Generic, Data, Typeable)
+
+type BareQuotient = Quotient BTyCon BTyVar RReft
+type SpecQuotient = Quotient RTyCon RTyVar RReft
+
+instance F.Symbolic (Quotient c tv r) where
+  symbol = F.symbol . qtName
+
+instance (NFData c, NFData tv, NFData r) => NFData (Quotient c tv r)
 
 --------------------------------------------------------------------------------
 -- | Refinement Type Aliases
@@ -1836,6 +1896,21 @@ mapPropM f (RAppTy t t' r)   = liftM3 RAppTy (mapPropM f t) (mapPropM f t') (ret
 mapPropM _ (RHole r)         = return $ RHole r
 mapPropM f (RRTy xts r o t)  = liftM4 RRTy (mapM (mapSndM (mapPropM f)) xts) (return r) (return o) (mapPropM f t)
 
+mapTyConRef :: (c1 -> c2) -> RTProp c1 tv r -> RTProp c2 tv r
+mapTyConRef f (RProp as b) = RProp (map (second (mapTyCon f)) as) (mapTyCon f b)
+
+mapTyCon :: (c1 -> c2) -> RType c1 tv r -> RType c2 tv r
+mapTyCon _ (RVar v r)         = RVar v r
+mapTyCon f (RFun s inf i o r) = RFun s inf (mapTyCon f i) (mapTyCon f o) r
+mapTyCon f (RAllT b t r)      = RAllT (mapTyCon f <$> b) (mapTyCon f t) r
+mapTyCon f (RAllP pb t)       = RAllP (mapTyCon f <$> pb) (mapTyCon f t)
+mapTyCon f (RApp c ts ps r)   = RApp (f c) (map (mapTyCon f) ts) (map (mapTyConRef f) ps) r
+mapTyCon f (RAllE s a t)      = RAllE s (mapTyCon f a) (mapTyCon f t)
+mapTyCon f (REx s a t)        = REx s (mapTyCon f a) (mapTyCon f t)
+mapTyCon _ (RExprArg e)       = RExprArg e
+mapTyCon f (RAppTy a res r)   = RAppTy (mapTyCon f a) (mapTyCon f res) r
+mapTyCon f (RRTy e r o t)     = RRTy (map (second (mapTyCon f)) e) r o (mapTyCon f t)
+mapTyCon _ (RHole r)          = RHole r
 
 --------------------------------------------------------------------------------
 -- foldReft :: (F.Reftable r, TyConable c) => (r -> a -> a) -> a -> RType c tv r -> a

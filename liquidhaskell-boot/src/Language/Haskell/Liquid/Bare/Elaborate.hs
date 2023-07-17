@@ -704,6 +704,12 @@ specTypeToLHsType =
      where
       notExprArg (RExprArg _) = False
       notExprArg _            = True
+    RAppF JoinTyCon { jtc_base = c } ts _ _ -> mkHsTyConApp
+      (getRdrName c)
+      [ hst | (t, hst) <- ts, notExprArg t ]
+     where
+      notExprArg (RExprArg _) = False
+      notExprArg _            = True
     RAppF QTyCon { qtc_type = utype, qtc_tyvars = vars } ts _ _ ->
       specTypeToLHsType $ appQuotTyCon utype vars (map fst ts)
     RAllEF _ (_, tin) (_, tout) -> nlHsFunTy tin tout

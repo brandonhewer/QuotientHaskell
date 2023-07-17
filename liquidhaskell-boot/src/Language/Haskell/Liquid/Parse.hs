@@ -1273,7 +1273,9 @@ respectsP = do
   qt     <- comma *> locLowerIdP <* reservedOp ">"
   name   <- locLowerIdP
   binds  <- many (try quotConBindP <* reservedOp "->")
-  (l, r) <- braces ((,) <$> locLexeme exprP <* reservedOp "==" <*> locLexeme exprP)
+  let nameS = show name
+      eqP p = reserved nameS *> parens p
+  (l, r) <- braces ((,) <$> eqP (locLexeme quotPatternP) <* reservedOp "==" <*> eqP (locLexeme exprP))
   return $ RespectsSig name func qt binds l r
 
 -- -------------------------------------
@@ -1636,7 +1638,7 @@ dataOrQuotDeclBodyP pos x = do
 
 quotDeclBodyP :: SourcePos -> LocSymbol -> [Symbol] -> Parser QuotDecl
 quotDeclBodyP pos x as = do
-  utype <- reservedOp "=" >> (_pct <$> compP)
+  utype <- reservedOp "=" >> (_pct <$> btP)
   qtors <- some (reservedOp "|/" >> quotConP as)
   return $ QuotDecl x as utype qtors pos
 
@@ -1668,7 +1670,9 @@ dataDeclName p x _  _        = uError (ErrBadData (sourcePosSrcSpan p) (pprint (
 --
 dataCtorsP :: [Symbol] -> Parser (Maybe BareType, [DataCtor])
 dataCtorsP as = do
-  (pTy, dcs) <-     (reservedOp "="     >> ((Nothing, ) <$>                 sepBy (dataConP    as) (reservedOp "|")))
+  (pTy, dcs) <-     ( reservedOp "="     >> ((Nothing, ) <$>                 sepBy (dataConP    as) (reservedOp "|"))
+                                         <* notFollowedBy (reservedOp "|/")
+                    )
                 <|> (reserved   "where" >> ((Nothing, ) <$>                 block (adtDataConP as)                 ))
                 <|>                        ((,)         <$> dataPropTyP <*> block (adtDataConP as)                  )
   return (pTy, Misc.sortOn (val . dcName) dcs)
@@ -1677,7 +1681,7 @@ quotConBindsP :: Parser [(Symbol, BareType)]
 quotConBindsP = many (try quotConBindP <* reservedOp "->") <?> "quotConBindP"
 
 quotConBindP :: Parser (Symbol, BareType)
-quotConBindP = (,) <$> symbolP <* reservedOp ":" <*> (_pct <$> btP)
+quotConBindP = (,) <$> symbolP <* reservedOp ":" <*> (_pct <$> compP)
 
 quotConP :: [Symbol] -> Parser QuotCtor
 quotConP as = do

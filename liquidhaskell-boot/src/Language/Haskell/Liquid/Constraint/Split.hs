@@ -46,7 +46,7 @@ import           Language.Haskell.Liquid.Types hiding (loc)
 import           Language.Haskell.Liquid.Constraint.Types
 import           Language.Haskell.Liquid.Constraint.Env
 import           Language.Haskell.Liquid.Constraint.Constraint
-import           Language.Haskell.Liquid.Constraint.Monad (envToSub)
+import           Language.Haskell.Liquid.Constraint.Monad (addWarning, envToSub)
 
 --------------------------------------------------------------------------------
 splitW ::  WfC -> CG [FixWfC]
@@ -236,17 +236,30 @@ splitC allowTC (SubC γ t1'@(RAllT α1 t1 _) t2'@(RAllT α2 t2 _))
 splitC allowTC (SubC _ (RApp c1 _ _ _) (RApp c2 _ _ _)) | (if allowTC then isEmbeddedDict else isClass) c1 && c1 == c2
   = return []
 
-splitC _ (SubC γ t1@RApp{} t2@RApp{})
-  = do (t1',t2') <- unifyVV t1 t2
-       cs    <- bsplitC γ t1' t2'
-       γ'    <- if bscope (getConfig γ) then γ `extendEnvWithVV` t1' else return γ
-       let RApp c t1s r1s _ = t1'
-       let RApp _ t2s r2s _ = t2'
-       let isapplied = True -- TC.tyConArity (rtc_tc c) == length t1s
-       let tyInfo = rtc_info c
-       csvar  <-  splitsCWithVariance           γ' t1s t2s $ varianceTyArgs tyInfo
-       csvar' <- rsplitsCWithVariance isapplied γ' r1s r2s $ variancePsArgs tyInfo
-       return $ cs ++ csvar ++ csvar'
+splitC _ (SubC γ t1@(RApp (QTyCon c1 _ _ _ _ vs) ts _ _) t2@(RApp (QTyCon c2 _ _ _ _ _) us _ _))
+  | c1 == c2 = do
+      (t1',t2') <- unifyVV t1 t2
+      cs    <- bsplitC γ t1' t2'
+      γ'    <- if bscope (getConfig γ) then γ `extendEnvWithVV` t1' else return γ
+      csvar  <-  splitsCWithVariance γ' ts us vs
+      return $ cs ++ csvar
+  | otherwise = do
+      addWarning
+        $ ErrQuotSub (getLocation γ)
+                     (pprint c2 <+> text " is not a subquotient of " <+> pprint c1)
+      return []
+
+splitC _ (SubC γ t1@(RApp (RTyCon _ _ inf) _ _ _) t2@RApp{})
+  = do
+      (t1',t2') <- unifyVV t1 t2
+      cs    <- bsplitC γ t1' t2'
+      γ'    <- if bscope (getConfig γ) then γ `extendEnvWithVV` t1' else return γ
+      let RApp _ t1s r1s _ = t1'
+      let RApp _ t2s r2s _ = t2'
+      let isapplied = True -- TC.tyConArity (rtc_tc c) == length t1s
+      csvar  <-  splitsCWithVariance           γ' t1s t2s $ varianceTyArgs inf
+      csvar' <-  rsplitsCWithVariance isapplied γ' r1s r2s $ variancePsArgs inf
+      return $ cs ++ csvar ++ csvar'
 
 splitC _ (SubC γ t1@(RVar a1 _) t2@(RVar a2 _))
   | a1 == a2

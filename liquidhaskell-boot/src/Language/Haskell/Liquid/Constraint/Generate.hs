@@ -739,7 +739,7 @@ consE γ e
 -- If datacon definitions have references to self for fancy termination,
 -- ignore them at the construction.
 consE γ (Var x) | GM.isDataConId x
-  = do t0 <- varRefType γ x
+  = do t0 <- dataRefType γ x
        -- NV: The check is expected to fail most times, so
        --     it is cheaper than direclty fmap ignoreSelf.
        let hasSelf = selfSymbol `elem` F.syms t0
@@ -1128,7 +1128,7 @@ caseEnv γ x _   (DataAlt c) ys pIs = do
   let (x' : ys')   = F.symbol <$> (x:ys)
   xt0             <- checkTyCon ("checkTycon cconsCase", x) γ <$> γ ??= x
   let rt           = shiftVV xt0 x'
-  tdc             <- γ ??= dataConWorkId c >>= refreshVV
+  tdc             <- getDataConType γ (dataConWorkId c) >>= refreshVV
   let (rtd,yts',_) = unfoldR tdc rt ys
   yts             <- projectTypes (typeclass (getConfig γ))  pIs yts'
   let ys''         = F.symbol <$> filter (not . if allowTC then GM.isEmbeddedDictVar else GM.isEvVar) ys
@@ -1284,6 +1284,11 @@ lamExpr g e = do
                Left  _  -> return Nothing
                Right ce -> return (Just ce)
 
+getDataConType :: (?callStack :: CallStack) => CGEnv -> Var -> CG SpecType
+getDataConType γ x = case M.lookup (F.symbol x) (cgQuotDataCons γ) of
+  Just t  -> refreshTy t
+  Nothing -> γ ??= x
+
 --------------------------------------------------------------------------------
 (??=) :: (?callStack :: CallStack) => CGEnv -> Var -> CG SpecType
 --------------------------------------------------------------------------------
@@ -1316,6 +1321,13 @@ varRefType' γ x t'
       = strengthenMeet
       | otherwise
       = strengthenTop
+
+--------------------------------------------------------------------------------
+dataRefType :: (?callStack :: CallStack) => CGEnv -> Var -> CG SpecType
+--------------------------------------------------------------------------------
+dataRefType γ x = case M.lookup (F.symbol x) (cgQuotDataCons γ) of
+  Nothing -> varRefType γ x
+  Just t  -> return $ varRefType' γ x t
 
 -- | create singleton types for function application
 makeSingleton :: CGEnv -> CoreExpr -> SpecType -> SpecType

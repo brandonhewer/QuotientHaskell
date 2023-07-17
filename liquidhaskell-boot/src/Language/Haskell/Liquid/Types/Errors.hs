@@ -480,6 +480,25 @@ data TError t =
                 , dc   :: !Doc
                 }
 
+  | ErrQuotType { pos   :: SrcSpan
+                , qname :: !Doc
+                , dc    :: !Doc
+                }
+
+  | ErrQuotWF { pos   :: SrcSpan
+              , qname :: !Doc
+              , dc    :: !Doc
+              }
+
+  | ErrRecQuot { pos    :: !SrcSpan
+               , tc     :: !Doc
+               , recPos :: !SrcSpan
+               , utype  :: !Doc
+               }
+
+  | ErrQuotSub { pos    :: SrcSpan
+               , dc     :: !Doc
+               }
 
   | ErrOther    { pos   :: SrcSpan
                 , msg   :: !Doc
@@ -1057,6 +1076,41 @@ ppError' _ dCtx (ErrPosTyCon _ tc dc)
              , " "
              , nest 2 "https://ucsd-progsys.github.io/liquidhaskell/options/#positivity-check"
             ]
+
+ppError' _ dCtx (ErrQuotType pos qname doc)
+  = text "The underlying type of the quotient type"
+      <+> pprint qname
+      <+> "was malformed"
+      $+$ dCtx
+      $+$ nest 4 doc
+      $+$ nest 4 ("Defined at: " <+> pprint pos)
+
+ppError' _ dCtx (ErrQuotWF pos qname doc)
+  = text "The equality constructor"
+      <+> pprint qname
+      <+> "was malformed"
+      $+$ dCtx
+      $+$ nest 4 doc
+      $+$ nest 4 ("Defined at: " <+> pprint pos)
+
+ppError' _ dCtx (ErrRecQuot pos qname rpos tdoc)
+  = text "The quotient type"
+      <+> pprint qname
+      <+> "defined at"
+      <+> pprint pos
+      <+> "was defined recursively, which is not allowed."
+      $+$ dCtx
+      $+$ (  nest 4 "The underlying type was"
+          <+> tdoc 
+          <+> "and was defined at: "
+          <+> pprint rpos
+          )
+
+ppError' _ dCtx (ErrQuotSub pos doc)
+  = text "Quotient subtyping error: "
+      $+$ dCtx
+      $+$ nest 4 doc
+      $+$ nest 4 ("Type error at: " <+> pprint pos)
 
 ppError' _ dCtx (ErrParseAnn _ msg)
   = text "Malformed annotation"
