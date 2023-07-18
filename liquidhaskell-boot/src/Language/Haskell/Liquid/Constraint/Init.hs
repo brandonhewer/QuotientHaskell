@@ -309,7 +309,7 @@ coreBindLits tce info
     isDCon x     = isDataConId x && not (hasBaseTypeVar x)
 
 makeQuotDataCons
-  :: M.HashMap TyCon [(QuotientTyCon, [SpecType])]
+  :: M.HashMap TyCon (M.HashMap F.Symbol [SpecType])
   -> [F.Located DataCon]
   -> M.HashMap F.Symbol SpecType
   -> M.HashMap F.Symbol SpecType
@@ -324,7 +324,7 @@ makeQuotDataCons rs dds ts = L.foldl' makeDataCons mempty dds
                 Nothing -> us
                 Just t  -> M.insert (F.symbol dc) (refineQuotDataCons tc qs t) us
 
-refineQuotDataCons :: TyCon -> [(QuotientTyCon, [SpecType])] -> SpecType -> SpecType
+refineQuotDataCons :: TyCon -> M.HashMap F.Symbol [SpecType] -> SpecType -> SpecType
 refineQuotDataCons tc qs t
   = let trep = toRTypeRep t
      in fromRTypeRep $ trep

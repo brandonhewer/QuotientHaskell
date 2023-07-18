@@ -691,7 +691,7 @@ data RTyCon
       { jtc_base  :: !TyCon
       , jtc_info  :: !TyConInfo
         -- | ^ The base/underlying type constructor
-      , jtc_quots :: ![(QuotientTyCon, [SpecType])]
+      , jtc_quots :: !(M.HashMap F.Symbol [SpecType])
         -- | ^ Quotient types that are super types of the base TyCon applied to the paired
         --     list of types.
       }
@@ -1141,7 +1141,7 @@ instance F.Fixpoint RTyCon where
   toFix (QTyCon c _ _ _ _ _) = F.toFix c
   toFix (JoinTyCon c _ qs)   =
       "(" <>  F.toFix (F.symbol c)
-    <> hcat (map (\(q, _) -> text "+" <> F.toFix (F.symbol q)) qs)
+    <> hcat (map (\(q, _) -> text "+" <> F.toFix (F.symbol q)) $ M.toList qs)
     <> ")"
 
 instance F.Fixpoint BTyCon where
@@ -1160,7 +1160,7 @@ instance F.PPrint RTyCon where
   pprintTidy k (QTyCon c _ _ _ _ _) = F.pprintTidy k (F.symbol c)
   pprintTidy k (JoinTyCon c _ qs)
     =   F.pprintTidy k (F.symbol c)
-    <+> hcat (map (\(q, _) -> text "+" <+> F.pprintTidy k (F.symbol q)) qs)
+    <+> hcat (map (\(q, _) -> text "+" <+> F.pprintTidy k (F.symbol q)) $ M.toList qs)
 
 instance F.PPrint BTyCon where
   pprintTidy _ = text . F.symbolString . F.val . btc_tc

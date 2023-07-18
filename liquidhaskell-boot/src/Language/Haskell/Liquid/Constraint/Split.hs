@@ -30,6 +30,7 @@ import           Prelude hiding (error)
 import           Text.PrettyPrint.HughesPJ hiding (first, parens)
 
 import           Data.Maybe          (fromMaybe)
+import           Data.HashMap.Strict as M
 import           Control.Monad
 import           Control.Monad.State (gets)
 import qualified Control.Exception as Ex
@@ -236,12 +237,30 @@ splitC allowTC (SubC γ t1'@(RAllT α1 t1 _) t2'@(RAllT α2 t2 _))
 splitC allowTC (SubC _ (RApp c1 _ _ _) (RApp c2 _ _ _)) | (if allowTC then isEmbeddedDict else isClass) c1 && c1 == c2
   = return []
 
+splitC allowTC (SubC γ t1@(RApp tc@(RTyCon c _ _) _ _ _) (RApp tc'@(JoinTyCon c' _ _) us ps' r'))
+  | c == c'   = splitC allowTC (SubC γ t1 (RApp tc us ps' r'))
+  | otherwise = do
+      addWarning
+        $ ErrQuotApp (getLocation γ)
+                     (pprint c <+> text " is not a subtype constructor of " <+> pprint tc')
+      return []
+
+splitC allowTC
+  (SubC γ (RApp (QTyCon nm ty _ _ vs _) ts _ _) (RApp tc@(JoinTyCon _ _ qs) us _ _))
+  = case M.lookup (F.symbol nm) qs of
+      Just _  -> splitC allowTC (SubC γ (appQuotTyCon ty vs ts) (appQuotTyCon ty vs us))
+      Nothing -> do
+      addWarning
+        $ ErrQuotApp (getLocation γ)
+                     (pprint nm <+> text " is not a subtype constructor of " <+> pprint tc)
+      return []
+
 splitC _ (SubC γ t1@(RApp (QTyCon c1 _ _ _ _ vs) ts _ _) t2@(RApp (QTyCon c2 _ _ _ _ _) us _ _))
   | c1 == c2 = do
       (t1',t2') <- unifyVV t1 t2
-      cs    <- bsplitC γ t1' t2'
-      γ'    <- if bscope (getConfig γ) then γ `extendEnvWithVV` t1' else return γ
-      csvar  <-  splitsCWithVariance γ' ts us vs
+      cs        <- bsplitC γ t1' t2'
+      γ'        <- if bscope (getConfig γ) then γ `extendEnvWithVV` t1' else return γ
+      csvar     <-  splitsCWithVariance γ' ts us vs
       return $ cs ++ csvar
   | otherwise = do
       addWarning

@@ -368,7 +368,7 @@ deriving instance Show SpecQuotientType
 data GhcSpecQuots = SpQuots
   { gsQuotTyCons   :: !(M.HashMap F.Symbol SpecQuotientType)
   , gsQuotients    :: !(M.HashMap F.Symbol SpecQuotient)
-  , gsQuotCons     :: !(M.HashMap TyCon [(QuotientTyCon, [SpecType])])
+  , gsQuotCons     :: !(M.HashMap TyCon (M.HashMap F.Symbol [SpecType]))
                       -- | ^ Refinements of data constructors for quotient types
   }
 

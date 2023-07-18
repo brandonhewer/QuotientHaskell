@@ -1838,7 +1838,6 @@ substQuotElim f subs (RRTy env r obl ty)
   = RRTy (map (second (substQuotElim f subs)) env) r obl (substQuotElim f subs ty)
 substQuotElim _ _ (RHole r) = RHole r
 
-
 --------------------------------------------------------------------------------
 -- | Termination Predicates ----------------------------------------------------
 --------------------------------------------------------------------------------

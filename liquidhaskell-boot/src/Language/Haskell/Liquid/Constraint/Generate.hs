@@ -4,6 +4,7 @@
 {-# LANGUAGE NoMonomorphismRestriction #-}
 {-# LANGUAGE FlexibleContexts          #-}
 {-# LANGUAGE FlexibleInstances         #-}
+{-# LANGUAGE LambdaCase                #-}
 {-# LANGUAGE TupleSections             #-}
 {-# LANGUAGE PatternGuards             #-}
 {-# LANGUAGE MultiParamTypeClasses     #-}
@@ -29,6 +30,7 @@ import           Liquid.GHC.API                   as Ghc hiding ( panic
 import           Liquid.GHC.TypeRep           ()
 import           Text.PrettyPrint.HughesPJ hiding ((<>))
 import           Control.Monad.State
+import qualified Data.Bifunctor                                as BF
 import           Data.Maybe                                    (fromMaybe, catMaybes, isJust, mapMaybe, fromJust)
 import qualified Data.HashMap.Strict                           as M
 import qualified Data.HashSet                                  as S
@@ -58,6 +60,8 @@ import           Language.Haskell.Liquid.Transforms.CoreToLogic (weakenResult, r
 import           Language.Haskell.Liquid.Bare.DataType (dataConMap, makeDataConChecker)
 
 import           Language.Haskell.Liquid.Types hiding (binds, Loc, loc, Def)
+
+-- import Debug.Trace (trace)
 
 --------------------------------------------------------------------------------
 -- | Constraint Generation: Toplevel -------------------------------------------
@@ -1123,13 +1127,13 @@ case x :: List b of
 -------------------------------------------------------------------------------------
 caseEnv   :: CGEnv -> Var -> [AltCon] -> AltCon -> [Var] -> Maybe [Int] -> CG CGEnv
 -------------------------------------------------------------------------------------
-caseEnv γ x _   (DataAlt c) ys pIs = do
-
+caseEnv γ x _ (DataAlt c) ys pIs = do
   let (x' : ys')   = F.symbol <$> (x:ys)
   xt0             <- checkTyCon ("checkTycon cconsCase", x) γ <$> γ ??= x
   let rt           = shiftVV xt0 x'
   tdc             <- getDataConType γ (dataConWorkId c) >>= refreshVV
-  let (rtd,yts',_) = unfoldR tdc rt ys
+  let tdc' = instJoinTyCons tdc rt
+  let (rtd,yts',_) = unfoldR tdc' rt ys
   yts             <- projectTypes (typeclass (getConfig γ))  pIs yts'
   let ys''         = F.symbol <$> filter (not . if allowTC then GM.isEmbeddedDictVar else GM.isEvVar) ys
   let r1           = dataConReft   c   ys''
@@ -1147,6 +1151,31 @@ caseEnv γ x acs a _ _ = do
   xt'    <- (`strengthen` uTop (altReft γ acs a)) <$> (γ ??= x)
   addBinders γ x' [(x', xt')]
 
+-- | Instantiate a data constructor type with a specific type constructor application
+--   by replacing Join type constructors appropriately.
+instJoinTyCons :: SpecType -> SpecType -> SpecType
+instJoinTyCons init (RApp tcon _ _ _)
+  = let trep = toRTypeRep init
+     in fromRTypeRep trep
+          { ty_vars  = map (BF.first (mapTyCon tyConInstFun <$>)) $ ty_vars trep
+          , ty_preds = map (mapTyCon tyConInstFun <$>) $ ty_preds trep
+          , ty_args  = map (mapTyCon tyConInstFun) $ ty_args trep
+          }
+    where
+      tyConInstFun :: RTyCon -> RTyCon
+      tyConInstFun = case tcon of
+        t@(RTyCon c _ _) -> \case
+          u@(JoinTyCon c' _ _)
+            | c == c'   -> t
+            | otherwise -> u
+          u -> u
+        t@(QTyCon nm _ _ _ _ _) -> \case
+          u@(JoinTyCon _ _ qs) -> case M.lookup (F.symbol nm) qs of
+            Just _   -> t
+            Nothing  -> u
+          u -> u
+        _ -> id
+instJoinTyCons t _ = t
 
 ------------------------------------------------------
 -- SELF special substitutions

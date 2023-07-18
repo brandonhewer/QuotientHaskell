@@ -426,28 +426,23 @@ makeSpecQuots env specs
 
 addQuotDataRef
   :: SpecQuotientType
-  -> M.HashMap Ghc.TyCon [(QuotientTyCon, [SpecType])]
-  -> M.HashMap Ghc.TyCon [(QuotientTyCon, [SpecType])]
+  -> M.HashMap Ghc.TyCon (M.HashMap F.Symbol [SpecType])
+  -> M.HashMap Ghc.TyCon (M.HashMap F.Symbol [SpecType])
 addQuotDataRef qt drefs
   = case expandQuotTyCons (qtyType qt) of
       RApp (RTyCon c _ _) ts _ _ ->
-        M.alter (consMb (makeQuotDataRef ts)) c drefs
+        M.alter (makeQuotDataRef ts) c drefs
       _                          -> drefs
     where
-      consMb :: a -> Maybe [a] -> Maybe [a]
-      consMb r Nothing   = Just [r]
-      consMb r (Just rs) = Just (r : rs)
+      qtSymbol :: F.Symbol
+      qtSymbol = F.symbol $ qtyName qt
 
-      makeQuotDataRef ts
-        = ( QuotientTyCon
-              { qtcName      = qtyName qt
-              , qtcType      = qtyType qt
-              , qtcQuots     = qtyQuots qt
-              , qtcArity     = qtyArity qt
-              , qtcTyVars    = qtyTyVars qt
-              }
-          , ts
-          )
+      makeQuotDataRef
+        :: [SpecType]
+        -> Maybe (M.HashMap F.Symbol [SpecType])
+        -> Maybe (M.HashMap F.Symbol [SpecType])
+      makeQuotDataRef ts Nothing  = Just (M.singleton qtSymbol ts)
+      makeQuotDataRef ts (Just m) = Just (M.insert qtSymbol ts m)
 
 --------------------------------------------------------------------------------
 -- | [NOTE]: REFLECT-IMPORTS

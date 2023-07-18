@@ -500,6 +500,10 @@ data TError t =
                , dc     :: !Doc
                }
 
+  | ErrQuotApp { pos    :: SrcSpan
+               , dc     :: !Doc
+               }
+
   | ErrOther    { pos   :: SrcSpan
                 , msg   :: !Doc
                 } -- ^ Sigh. Other.
@@ -1108,6 +1112,12 @@ ppError' _ dCtx (ErrRecQuot pos qname rpos tdoc)
 
 ppError' _ dCtx (ErrQuotSub pos doc)
   = text "Quotient subtyping error: "
+      $+$ dCtx
+      $+$ nest 4 doc
+      $+$ nest 4 ("Type error at: " <+> pprint pos)
+
+ppError' _ dCtx (ErrQuotApp pos doc)
+  = text "Quotient data constructor application type error: "
       $+$ dCtx
       $+$ nest 4 doc
       $+$ nest 4 ("Type error at: " <+> pprint pos)
