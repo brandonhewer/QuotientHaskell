@@ -148,8 +148,6 @@ import Data.List (foldl')
 
 
 
-
-
 strengthenDataConType :: (Var, SpecType) -> (Var, SpecType)
 strengthenDataConType (x, t) = (x, fromRTypeRep trep {ty_res = tres})
   where
@@ -1333,8 +1331,8 @@ instance SubsTy RTyVar RSort RTyCon where
   subt z (RTyCon tc pvs inf) = RTyCon tc ps' inf
     where
       ps'  = subt z <$> pvs
-  subt z (QTyCon qc ty quots n vars vs)
-    = QTyCon qc (subt z ty) (map (subt z) quots) n vars vs
+  subt z (QTyCon nm t ss n vs vars)
+    = QTyCon nm t ss n (map (subt z) vs) vars
   subt _ tc = tc
 
 -- NOTE: This DOES NOT substitute at the binders

@@ -735,13 +735,18 @@ makeSpecRefl cfg src menv specs env name sig tycEnv = do
   rwrWith  <- makeRewriteWith env name mySpec
   wRefls   <- Bare.wiredReflects cfg env name sig
   xtes     <- Bare.makeHaskellAxioms cfg src env tycEnv name lmap sig mySpec
-  let myAxioms =
+  let lxtes    =
+        [ (x, lt, e { eqRec = S.member s (exprSymbolsSet (eqBody e)) })
+        | (x, lt, e) <- xtes
+        , let s = symbol x
+        ]
+      myAxioms =
         [ Bare.qualifyTop
             env
             name
             (F.loc lt)
-            e {eqName = s, eqRec = S.member s (exprSymbolsSet (eqBody e))}
-        | (x, lt, e) <- xtes
+            e { eqName = s }
+        | (x, lt, e) <- lxtes
         , let s = symbol x
         ]
   let sigVars  = F.notracepp "SIGVARS" $ (fst3 <$> xtes)            -- reflects
@@ -753,7 +758,7 @@ makeSpecRefl cfg src menv specs env name sig tycEnv = do
     , gsImpAxioms  = concatMap (Ms.axeqs . snd) (M.toList specs)
     , gsMyAxioms   = F.notracepp "gsMyAxioms" myAxioms
     , gsReflects   = F.notracepp "gsReflects" (lawMethods ++ filter (isReflectVar rflSyms) sigVars ++ wRefls)
-    , gsHAxioms    = F.notracepp "gsHAxioms" xtes
+    , gsHAxioms    = F.notracepp "gsHAxioms" lxtes
     , gsWiredReft  = wRefls
     , gsRewrites   = rwr
     , gsRewritesWith = rwrWith

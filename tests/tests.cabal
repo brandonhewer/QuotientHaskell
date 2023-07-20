@@ -2398,7 +2398,8 @@ executable quotients-pos
       buildable:      False
 
     other-modules:
-                      Mobiles
+                      Boom
+                    , Mobiles
 
     ghc-options:      -fplugin=LiquidHaskell -fkeep-going -O0
     if flag(measure-timings)

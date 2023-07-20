@@ -264,6 +264,13 @@ data TError t =
                , cond :: t
                } -- ^ condition failure error
 
+  | ErrAssTypeQ { pos   :: !SrcSpan
+                , obl   :: !Oblig
+                , msg   :: !Doc
+                , ctx   :: !(M.HashMap Symbol t)
+                , qcond :: Expr
+                } -- ^ Quotient condition failure error
+
   | ErrParse    { pos  :: !SrcSpan
                 , msg  :: !Doc
                 , pErr :: !ParseError
@@ -789,6 +796,11 @@ hint e = maybe empty (\d -> "" $+$ ("HINT:" <+> d)) (go e)
 ppError' :: (PPrint a, Show a) => Tidy -> Doc -> TError a -> Doc
 --------------------------------------------------------------------------------
 ppError' td dCtx (ErrAssType _ o _ c p)
+  = pprintTidy td o
+        $+$ dCtx
+        $+$ ppFull td (ppPropInContext td p c)
+
+ppError' td dCtx (ErrAssTypeQ _ o _ c p)
   = pprintTidy td o
         $+$ dCtx
         $+$ ppFull td (ppPropInContext td p c)

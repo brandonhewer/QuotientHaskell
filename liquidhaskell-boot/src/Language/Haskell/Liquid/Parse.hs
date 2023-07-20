@@ -1702,6 +1702,7 @@ quotPatternP
       =   parenPat
       <|> (QPLit <$> constantP)
       <|> (QPVar <$> lowerIdP)
+      <|> (flip (QPCons 0) [] <$> upperIdP)
 
     parenPat :: Parser QPattern
     parenPat = do
