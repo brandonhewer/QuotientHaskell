@@ -46,6 +46,7 @@ import           Language.Haskell.Liquid.Constraint.Fresh
 import           Language.Haskell.Liquid.Constraint.Init
 import           Language.Haskell.Liquid.Constraint.Env
 import           Language.Haskell.Liquid.Constraint.Monad
+import           Language.Haskell.Liquid.Constraint.Quotient
 import           Language.Haskell.Liquid.Constraint.Split
 import           Language.Haskell.Liquid.Constraint.Relational (consAssmRel, consRelTop)
 import           Language.Haskell.Liquid.Types.Dictionaries
@@ -601,9 +602,10 @@ cconsE' γ (Let b e) t
   = do γ' <- consCBLet γ b
        cconsE γ' e t
 
-cconsE' γ (Case e x _ cases) t
+cconsE' γ (Case e x τ cases) t
   = do γ' <- consCBLet γ (NonRec x e)
-       forM_ cases $ cconsCase γ' x t nonDefAlts
+       γs <- forM cases $ cconsCase γ' x t nonDefAlts
+       performQuotientChecks γ' x cases γs τ t
     where
        nonDefAlts = [a | Alt a _ _ <- cases, a /= DEFAULT]
        _msg = "cconsE' #nonDefAlts = " ++ show (length nonDefAlts)
@@ -1108,11 +1110,12 @@ dropConstraints cgenv (RRTy cts _ OCons rt)
 dropConstraints _ t = return t
 
 -------------------------------------------------------------------------------------
-cconsCase :: CGEnv -> Var -> SpecType -> [AltCon] -> CoreAlt -> CG ()
+cconsCase :: CGEnv -> Var -> SpecType -> [AltCon] -> CoreAlt -> CG CGEnv
 -------------------------------------------------------------------------------------
 cconsCase γ x t acs (Alt ac ys ce)
   = do cγ <- caseEnv γ x acs ac ys mempty
        cconsE cγ ce t
+       return cγ
 
 {-
 

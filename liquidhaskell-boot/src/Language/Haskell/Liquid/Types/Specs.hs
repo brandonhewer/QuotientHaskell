@@ -319,7 +319,7 @@ data GhcSpecRefl = SpRefl
   , gsWiredReft    :: ![Var]
   , gsRewrites     :: S.HashSet (F.Located Var)
   , gsRewritesWith :: M.HashMap Var [Var]
-  }
+  } deriving Show
 
 instance Semigroup GhcSpecRefl where
   x <> y = SpRefl

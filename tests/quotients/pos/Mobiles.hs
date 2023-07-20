@@ -11,4 +11,9 @@ data Mobile a
 {-@ example :: Mobile a -> Mobile a @-}
 example :: Tree a -> Tree a
 example Leaf        = Leaf
-example (Bin x t u) = Bin x t u
+example (Bin x t u) = Bin x u t
+
+{-@ tmap :: (a -> b) -> Mobile a -> Mobile b @-}
+tmap :: (a -> b) -> Tree a -> Tree b
+tmap _ Leaf        = Leaf
+tmap f (Bin x t u) = Bin (f x) (tmap f t) (tmap f u)

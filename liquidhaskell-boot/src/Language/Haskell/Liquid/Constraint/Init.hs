@@ -1,4 +1,5 @@
 {-# LANGUAGE ScopedTypeVariables       #-}
+{-# LANGUAGE NamedFieldPuns            #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
 {-# LANGUAGE FlexibleContexts          #-}
 {-# LANGUAGE FlexibleInstances         #-}
@@ -200,6 +201,7 @@ measEnv sp xts cbs _tcb lt1s lt2s asms itys hs qcons info = CGE
   , cgVar    = Nothing
   , cgQuotTyCons   = gsQuotTyCons $ gsQuots sp
   , cgQuotients    = gsQuotients $ gsQuots sp
+  , cgQuotRewrites = makeQuotientRewrites allQuotients
   , cgQuotDataCons = qcons
   }
   where
@@ -208,6 +210,10 @@ measEnv sp xts cbs _tcb lt1s lt2s asms itys hs qcons info = CGE
       lts         = lt1s ++ lt2s
       tcb'        = []
 
+      allQuotients
+        = [ (s, mapMaybe (`M.lookup` gsQuotients (gsQuots sp)) $ qtyQuots qt)
+          | (s, qt) <- M.toList (gsQuotTyCons $ gsQuots sp)
+          ]
 
 assm :: TargetInfo -> [(Var, SpecType)]
 assm = assmGrty (giImpVars . giSrc)
@@ -342,3 +348,41 @@ refineQuotDataCons tc qs t
             }
         | otherwise = t
       tyConRefine t = t
+
+makeQuotientRewrites :: [(F.Symbol, [SpecQuotient])] -> M.HashMap F.Symbol [QuotientRewrite]
+makeQuotientRewrites = M.fromList . map (second (map makeRewrite))
+  where
+    makeRewrite :: SpecQuotient -> QuotientRewrite
+    makeRewrite q@Quotient {..}
+      = QuotientRewrite
+          { rwPattern      = F.val qtLeft
+          , rwExpr         = F.val qtRight
+          , rwPrecondition = getQuotientReft q
+          , rwFreeVars     = M.keysSet qtVars
+          }
+
+getQuotientReft :: SpecQuotient -> Maybe F.Expr
+getQuotientReft Quotient { qtVars }
+  = case mapMaybe getReftExpr (M.elems qtVars) of
+      [] -> Nothing
+      es -> Just $ F.PAnd es
+    where
+      getReftExpr :: SpecType -> Maybe F.Expr
+      getReftExpr = filterTrivial . (F.reftPred . ur_reft <$>) . getReft
+
+      filterTrivial :: Maybe F.Expr -> Maybe F.Expr
+      filterTrivial (Just F.PTrue) = Nothing 
+      filterTrivial e              = e
+
+      getReft :: SpecType -> Maybe RReft
+      getReft (RVar _ r)       = Just r
+      getReft (RFun _ _ _ _ r) = Just r
+      getReft (RAllT _ _ r)    = Just r
+      getReft (RAllP {})       = Nothing
+      getReft (RApp _ _ _ r)   = Just r
+      getReft (RAllE {})       = Nothing
+      getReft (REx {})         = Nothing
+      getReft (RExprArg _)     = Nothing
+      getReft (RAppTy _ _ r)   = Just r
+      getReft (RRTy _ r _ _)   = Just r
+      getReft (RHole r)        = Just r

@@ -26,6 +26,8 @@ module Language.Haskell.Liquid.Constraint.Env (
   -- * Construction
   , fromListREnv
   , toListREnv
+  , toSetREnv
+  , toMapREnv
   , insertREnv -- TODO: remove this ASAP
 
   -- * Query
@@ -131,6 +133,12 @@ globalsREnv = M.toList . reGlobal
 
 toListREnv :: REnv -> [(F.Symbol, SpecType)]
 toListREnv re = globalsREnv re ++ localsREnv re
+
+toSetREnv :: REnv -> S.HashSet F.Symbol
+toSetREnv re = S.union (M.keysSet $ reLocal re) (M.keysSet $ reGlobal re)
+
+toMapREnv :: REnv -> M.HashMap F.Symbol SpecType
+toMapREnv  = M.fromList . toListREnv
 
 --------------------------------------------------------------------------------
 extendEnvWithVV :: CGEnv -> SpecType -> CG CGEnv

@@ -192,14 +192,16 @@ data Oblig
   = OTerm -- ^ Obligation that proves termination
   | OInv  -- ^ Obligation that proves invariants
   | OCons -- ^ Obligation that proves subtyping constraints
+  | OQuot !Symbol
   deriving (Eq, Generic, Data, Typeable)
   deriving Hashable via Generically Oblig
 
 instance B.Binary Oblig
 instance Show Oblig where
-  show OTerm = "termination-condition"
-  show OInv  = "invariant-obligation"
-  show OCons = "constraint-obligation"
+  show OTerm     = "termination-condition"
+  show OInv      = "invariant-obligation"
+  show OCons     = "constraint-obligation"
+  show (OQuot q) = "respectfulness of quotient " ++ show q
 
 instance NFData Oblig
 
@@ -207,9 +209,10 @@ instance PPrint Oblig where
   pprintTidy _ = ppOblig
 
 ppOblig :: Oblig -> Doc
-ppOblig OCons = text "Constraint Check"
-ppOblig OTerm = text "Termination Check"
-ppOblig OInv  = text "Invariant Check"
+ppOblig OCons     = text "Constraint Check"
+ppOblig OTerm     = text "Termination Check"
+ppOblig OInv      = text "Invariant Check"
+ppOblig (OQuot q) = text "Quotient Respectfulness Check for" <+> pprint q
 
 --------------------------------------------------------------------------------
 -- | Generic Type for Error Messages -------------------------------------------

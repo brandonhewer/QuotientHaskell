@@ -7,6 +7,7 @@ module Language.Haskell.Liquid.Constraint.ToFixpoint
   , fixConfig
   , refinementEQs
   , canRewrite
+  , makeSimplify
   ) where
 
 import           Prelude hiding (error)
