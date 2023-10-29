@@ -242,7 +242,7 @@ splitC allowTC (SubC γ t1@(RApp tc@(RTyCon c _ _) _ _ _) (RApp tc'@(JoinTyCon c
   | otherwise = do
       addWarning
         $ ErrQuotApp (getLocation γ)
-                     (pprint c <+> text " is not a subtype constructor of " <+> pprint tc')
+                     (pprint c <+> text "is not a subtype constructor of" <+> pprint tc')
       return []
 
 splitC allowTC
@@ -252,7 +252,7 @@ splitC allowTC
       Nothing -> do
       addWarning
         $ ErrQuotApp (getLocation γ)
-                     (pprint nm <+> text " is not a subtype constructor of " <+> pprint tc)
+                     (pprint nm <+> text "is not a subtype constructor of" <+> pprint tc)
       return []
 
 splitC _ (SubC γ t1@(RApp (QTyCon c1 _ _ _ _ vs) ts _ _) t2@(RApp (QTyCon c2 _ _ _ _ _) us _ _))
@@ -265,7 +265,7 @@ splitC _ (SubC γ t1@(RApp (QTyCon c1 _ _ _ _ vs) ts _ _) t2@(RApp (QTyCon c2 _ 
   | otherwise = do
       addWarning
         $ ErrQuotSub (getLocation γ)
-                     (pprint c2 <+> text " is not a subquotient of " <+> pprint c1)
+                     (pprint c2 <+> text "is not a subquotient of" <+> pprint c1)
       return []
 
 splitC _ (SubC γ t1@(RApp (RTyCon _ _ inf) _ _ _) t2@RApp{})
@@ -283,6 +283,13 @@ splitC _ (SubC γ t1@(RApp (RTyCon _ _ inf) _ _ _) t2@RApp{})
 splitC _ (SubC γ t1@(RVar a1 _) t2@(RVar a2 _))
   | a1 == a2
   = bsplitC γ t1 t2
+
+splitC _ (SubC γ (RApp (QTyCon c1 _ _ _ _ _) _ _ _) t2)
+  = do
+      addWarning
+        $ ErrQuotSub (getLocation γ)
+                     ("Quotient type" <+> pprint c1 <+> "is not a subtype of" <+> pprint t2)
+      return []
 
 splitC _ (SubC γ t1 t2)
   = panic (Just $ getLocation γ) $ "(Another Broken Test!!!) splitc unexpected:\n" ++ traceTy t1 ++ "\n  <:\n" ++ traceTy t2

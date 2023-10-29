@@ -711,7 +711,6 @@ instantiatePreds γ e (RAllP π t)
 instantiatePreds _ _ t0
   = return t0
 
-
 -------------------------------------------------------------------
 cconsLazyLet :: CGEnv
              -> CoreExpr

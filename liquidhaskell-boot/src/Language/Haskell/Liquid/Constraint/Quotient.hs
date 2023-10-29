@@ -13,13 +13,7 @@
    rewriting via quotients.
 
    TODO:
-     * Consider improving the type propagation built into the NBE procedure
-       so that quotient rewriting can be applied more generally. At present
-       quotient rewrite rules cannot be applied to terms of a quotient type
-       that appear as direct descendants of an equality expression node.
-       This issue arises because very little type information propagates up
-       from the leaves of an expression in the NBE procedure, and instead we
-       'break apart' an initial type.
+     * Add inference for improved detection of where quotient rewrites can be applied.
 -}
 module Language.Haskell.Liquid.Constraint.Quotient
   ( performQuotientChecks
@@ -48,17 +42,35 @@ import qualified Data.Text                                as Text
 import qualified Data.Text.Encoding                       as Text
 
 import qualified Language.Fixpoint.Solver.Simplify        as F
-import           Language.Fixpoint.Types                  (Brel, Constant, Equation, Expr, QPattern, Symbol)
+import           Language.Fixpoint.Types
+  ( Brel
+  , Constant
+  , Equation
+  , Expr
+  , QPattern
+  , Symbol
+  )
 import qualified Language.Fixpoint.Types                  as F
 import qualified Language.Haskell.Liquid.Bare.DataType    as Bare
 import qualified Language.Haskell.Liquid.Constraint.Env   as CG
 import qualified Language.Haskell.Liquid.Constraint.Monad as CG
 import           Language.Haskell.Liquid.Constraint.Types (CG, CGEnv, QuotientRewrite)
 import qualified Language.Haskell.Liquid.Constraint.Types as CG
-import           Language.Haskell.Liquid.Types            (LocSpecType, SpecQuotient, SpecQuotientType, SpecType)
+import           Language.Haskell.Liquid.Types
+  ( LocSpecType
+  , SpecQuotient
+  , SpecQuotientType
+  , SpecType
+  )
 import qualified Language.Haskell.Liquid.Types            as LH
 
-import           Liquid.GHC.API                           (AltCon, CoreAlt, CoreExpr, CoreBndr, Var)
+import           Liquid.GHC.API
+  ( AltCon
+  , CoreAlt
+  , CoreExpr
+  , CoreBndr
+  , Var
+  )
 import qualified Liquid.GHC.API                           as GHC
 
 import           Language.Haskell.Liquid.Constraint.ToFixpoint  (makeSimplify)
@@ -461,7 +473,7 @@ checkGuardPure2
   -> ((Either Expr Bool, Either Expr Bool) -> a)
   -> m (NBEResult a)
 checkGuardPure2 x y f
-  = checkGuard x $ \ex -> checkGuardPure y $ \ey -> f (ex, ey)
+  = checkGuard x $ \ex -> checkGuardPure y $ f . (ex, )
 
 normalise
   :: (MonadReader NBEEnv m, MonadState NBEState m)
@@ -477,7 +489,7 @@ normalise t (F.EVar v)
   = getDefinition v >>= \case
       Nothing       -> getBinder v >>= \case
         Nothing            -> return $ pureResult $ F.EVar v
-        Just (KnownType u) -> makeRewriteResult (Just u) (varRewrites v)
+        Just (KnownType u) -> makeRewriteResult (t <|> Just u) (varRewrites v)
         Just UnknownType   -> do
           whenJust t $ updateBindType v
           makeRewriteResult t (varRewrites v)
@@ -536,6 +548,7 @@ normaliseDefinition name NBEDefinition {..}
     else
       normalise (Just nbeType) nbeDefinition
 
+-- | TODO: Refactor normalisation of application
 normaliseApp
   :: (MonadReader NBEEnv m, MonadState NBEState m)
   => Maybe SpecType
@@ -574,7 +587,7 @@ normaliseApp t ie ia = do
       let (doUnfold, nuc) = M.alterF getAndUpdate v uc
 
       if doUnfold then do
-        trace ("UNFOLDING WITH " ++ show (LH.pprint as') ++ ": " ++ show (LH.pprint e)) $ return (Just nuc, pureResult e)
+        return (Just nuc, pureResult e)
       else
         return (Nothing, pureResult f')
 
@@ -894,7 +907,7 @@ contractIfThenElse p i e = (p, i, e)
 
 -- | Resolves the join type constructors in a data constructor argument list
 resolveJoins :: Maybe SpecType -> [SpecType] -> [SpecType]
-resolveJoins (Just (LH.RApp tc@(LH.QTyCon {}) _ _ _))
+resolveJoins (Just (LH.RApp tc _ _ _))
   = map (LH.mapTyCon updateJoin)
     where
       updateJoin LH.JoinTyCon {} = tc
@@ -1084,7 +1097,7 @@ isContradiction es
       ) es
     ) es
 
--- | Check if a disjunction of expression is a tautology
+-- | Check if a disjunction of expressions is a tautology
 isTautology :: [Expr] -> Bool
 isTautology es
   = Fold.all (\x ->
@@ -1149,10 +1162,10 @@ initNBEEnv γ = do
   rs <- ST.gets getReflects
   ss <- ST.gets getSelectors
   dc <- ST.gets getDataCons
-  return NBE
+  trace ("DC: " ++ show (M.union (CG.cgQuotDataCons γ) dc)) $ return NBE
     { nbeDefs      = rs
     , nbeSelectors = ss
-    , nbeDataCons  = dc
+    , nbeDataCons  = M.union (CG.cgQuotDataCons γ) dc
     , nbeGuards    = []
     , nbeRewrites  = CG.cgQuotRewrites γ
     }
