@@ -29,13 +29,10 @@ import qualified Language.Haskell.Liquid.GHC.SpanStack         as Sp
 import qualified Language.Haskell.Liquid.GHC.Misc              as GM -- ( isInternal, collectArguments, tickSrcSpan, showPpr )
 import Text.PrettyPrint.HughesPJ ( text )
 import           Control.Monad.State
-<<<<<<< HEAD
 import qualified Data.Bifunctor                                as BF
 import           Data.Maybe                                    (fromMaybe, catMaybes, isJust, mapMaybe, fromJust)
-=======
-import           Data.Maybe                                    (fromMaybe, isJust, mapMaybe)
+import           Data.Maybe                                    (fromMaybe, catMaybes, isJust, mapMaybe, fromJust)
 import           Data.Either.Extra                             (eitherToMaybe)
->>>>>>> fe1c99abf820d3f40ea435d70fc8a69f0f3206c0
 import qualified Data.HashMap.Strict                           as M
 import qualified Data.HashSet                                  as S
 import qualified Data.List                                     as L
@@ -49,12 +46,8 @@ import           Language.Haskell.Liquid.Constraint.Fresh ( addKuts, freshTyType
 import           Language.Haskell.Liquid.Constraint.Init ( initEnv, initCGI )
 import           Language.Haskell.Liquid.Constraint.Env
 import           Language.Haskell.Liquid.Constraint.Monad
-<<<<<<< HEAD
 import           Language.Haskell.Liquid.Constraint.Quotient
-import           Language.Haskell.Liquid.Constraint.Split
-=======
-import Language.Haskell.Liquid.Constraint.Split ( splitC, splitW )
->>>>>>> fe1c99abf820d3f40ea435d70fc8a69f0f3206c0
+import           Language.Haskell.Liquid.Constraint.Split ( splitC, splitW )
 import           Language.Haskell.Liquid.Constraint.Relational (consAssmRel, consRelTop)
 import           Language.Haskell.Liquid.Types hiding (binds, Loc, loc, Def)
 import           Language.Haskell.Liquid.Constraint.Types
@@ -64,13 +57,8 @@ import           Language.Haskell.Liquid.Constraint.Termination
 import           Language.Haskell.Liquid.Transforms.CoreToLogic (weakenResult, runToLogic, coreToLogic)
 import           Language.Haskell.Liquid.Bare.DataType (dataConMap, makeDataConChecker)
 
-<<<<<<< HEAD
 import           Language.Haskell.Liquid.Types hiding (binds, Loc, loc, Def)
 
--- import Debug.Trace (trace)
-
-=======
->>>>>>> fe1c99abf820d3f40ea435d70fc8a69f0f3206c0
 --------------------------------------------------------------------------------
 -- | Constraint Generation: Toplevel -------------------------------------------
 --------------------------------------------------------------------------------
