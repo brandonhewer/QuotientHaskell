@@ -16,8 +16,9 @@ module Language.Haskell.Liquid.Constraint.Types
     -- * Logical constraints (FIXME: related to bounds?)
   , LConstraint (..)
 
-    -- * Quotient rewrite rules
+    -- * Quotient Types
   , QuotientRewrite (..)
+  , QuotientTypeDef (..)
 
     -- * Fixpoint environment
   , FEnv (..)
@@ -55,6 +56,7 @@ module Language.Haskell.Liquid.Constraint.Types
   , getTemplates
 
   , getLocation
+
   ) where
 
 import Prelude hiding (error)
@@ -109,10 +111,8 @@ data CGEnv = CGE
   , cerr   :: !(Maybe (TError SpecType))             -- ^ error that should be reported at the user
   , cgInfo :: !TargetInfo                            -- ^ top-level TargetInfo
   , cgVar  :: !(Maybe Var)                           -- ^ top level function being checked
-  , cgQuotTyCons   :: !(M.HashMap F.Symbol SpecQuotientType)  -- ^ Quotient type constructors
-  , cgQuotients    :: !(M.HashMap F.Symbol SpecQuotient)      -- ^ Quotient constructors
-  , cgQuotRewrites :: !(M.HashMap F.Symbol [QuotientRewrite]) -- ^ Quotient rewrite rules
-  , cgQuotDataCons :: !(M.HashMap F.Symbol SpecType)          -- ^ Refinements of data constructors for quotient types
+  , cgQuotTyDefs   :: !(M.HashMap F.Symbol QuotientTypeDef) -- ^ Quotient type definitions
+  , cgQuotDataCons :: !(M.HashMap F.Symbol SpecType)        -- ^ Refinements of data constructors for quotient types
   } -- deriving (Data, Typeable)
 
 instance HasConfig CGEnv where
@@ -137,7 +137,7 @@ getLocation :: CGEnv -> SrcSpan
 getLocation = srcSpan . cgLoc
 
 --------------------------------------------------------------------------------
--- | Quotients rewriting type --------------------------------------------------
+-- | Quotient Types        -----------------------------------------------------
 --------------------------------------------------------------------------------
 
 data QuotientRewrite
@@ -151,6 +151,16 @@ data QuotientRewrite
         -- | ^ The precondition for when this rewrite rule should be applied
       , rwFreeVars     :: !(S.HashSet F.Symbol)
         -- | ^ The free variables that appear in rwPattern and rwExpr
+      }
+
+data QuotientTypeDef
+  = QuotientTypeDef
+      { qtdName     :: !F.LocSymbol
+      , qtdType     :: !SpecType
+      , qtdQuots    :: ![SpecQuotient]
+      , qtdRewrites :: ![QuotientRewrite]
+      , qtdTyVars   :: ![RTyVar]
+      , qtdArity    :: !Int
       }
 
 --------------------------------------------------------------------------------
@@ -457,7 +467,7 @@ instance NFData RInv where
   rnf (RInv x y z) = rnf x `seq` rnf y `seq` rnf z
 
 instance NFData CGEnv where
-  rnf (CGE x1 _ x3 _ x4 x5 x55 x6 x7 x8 x9 _ _ _ x10 _ _ _ _ _ _ _ _ _ _ _ _ _ _)
+  rnf (CGE x1 _ x3 _ x4 x5 x55 x6 x7 x8 x9 _ _ _ x10 _ _ _ _ _ _ _ _ _ _ _ _)
     = x1 `seq` {- rnf x2 `seq` -} seq x3
          `seq` rnf x5
          `seq` rnf x55

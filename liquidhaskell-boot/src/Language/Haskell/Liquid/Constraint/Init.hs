@@ -199,9 +199,7 @@ measEnv sp xts cbs _tcb lt1s lt2s asms itys hs qcons info = CGE
   , cerr     = Nothing
   , cgInfo   = info
   , cgVar    = Nothing
-  , cgQuotTyCons   = gsQuotTyCons $ gsQuots sp
-  , cgQuotients    = gsQuotients $ gsQuots sp
-  , cgQuotRewrites = makeQuotientRewrites allQuotients
+  , cgQuotTyDefs   = makeQuotTyDef <$> gsQuotTyCons (gsQuots sp)
   , cgQuotDataCons = qcons
   }
   where
@@ -209,11 +207,34 @@ measEnv sp xts cbs _tcb lt1s lt2s asms itys hs qcons info = CGE
       filterHO xs = if higherOrderFlag sp then xs else filter (F.isFirstOrder . snd) xs
       lts         = lt1s ++ lt2s
       tcb'        = []
+      quots       = gsQuotients $ gsQuots sp
 
-      allQuotients
-        = [ (s, mapMaybe (`M.lookup` gsQuotients (gsQuots sp)) $ qtyQuots qt)
-          | (s, qt) <- M.toList (gsQuotTyCons $ gsQuots sp)
-          ]
+      makeQuotTyDef :: SpecQuotientType -> QuotientTypeDef
+      makeQuotTyDef sqt
+        = QuotientTypeDef
+            { qtdName     = qtyName sqt
+            , qtdType     = qtyType sqt
+            , qtdQuots    = quotients
+            , qtdTyVars   = qtyTyVars sqt 
+            , qtdArity    = qtyArity sqt
+            , qtdRewrites = rewrites
+            }
+          where
+            (quotients, rewrites)
+              = foldr
+                  (\q (qs, rws) -> case M.lookup q quots of
+                      Nothing -> (qs, rws)
+                      Just sq -> (sq : qs, makeQuotRewrite sq : rws)
+                  ) ([], []) $ qtyQuots sqt
+
+      makeQuotRewrite :: SpecQuotient -> QuotientRewrite
+      makeQuotRewrite sq
+        = QuotientRewrite
+            { rwPattern      = F.val $ qtLeft sq
+            , rwExpr         = F.val $ qtRight sq
+            , rwFreeVars     = M.keysSet $ qtVars sq
+            , rwPrecondition = getQuotientReft sq
+            }
 
 assm :: TargetInfo -> [(Var, SpecType)]
 assm = assmGrty (giImpVars . giSrc)
@@ -348,18 +369,6 @@ refineQuotDataCons tc qs t
             }
         | otherwise = t
       tyConRefine t = t
-
-makeQuotientRewrites :: [(F.Symbol, [SpecQuotient])] -> M.HashMap F.Symbol [QuotientRewrite]
-makeQuotientRewrites = M.fromList . map (second (map makeRewrite))
-  where
-    makeRewrite :: SpecQuotient -> QuotientRewrite
-    makeRewrite q@Quotient {..}
-      = QuotientRewrite
-          { rwPattern      = F.val qtLeft
-          , rwExpr         = F.val qtRight
-          , rwPrecondition = getQuotientReft q
-          , rwFreeVars     = M.keysSet qtVars
-          }
 
 getQuotientReft :: SpecQuotient -> Maybe F.Expr
 getQuotientReft Quotient { qtVars }

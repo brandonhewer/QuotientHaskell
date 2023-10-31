@@ -30,8 +30,7 @@ import qualified Language.Haskell.Liquid.GHC.Misc              as GM -- ( isInte
 import Text.PrettyPrint.HughesPJ ( text )
 import           Control.Monad.State
 import qualified Data.Bifunctor                                as BF
-import           Data.Maybe                                    (fromMaybe, catMaybes, isJust, mapMaybe, fromJust)
-import           Data.Maybe                                    (fromMaybe, catMaybes, isJust, mapMaybe, fromJust)
+import           Data.Maybe                                    (fromMaybe, isJust, mapMaybe)
 import           Data.Either.Extra                             (eitherToMaybe)
 import qualified Data.HashMap.Strict                           as M
 import qualified Data.HashSet                                  as S
@@ -56,8 +55,6 @@ import           Language.Haskell.Liquid.Constraint.Template
 import           Language.Haskell.Liquid.Constraint.Termination
 import           Language.Haskell.Liquid.Transforms.CoreToLogic (weakenResult, runToLogic, coreToLogic)
 import           Language.Haskell.Liquid.Bare.DataType (dataConMap, makeDataConChecker)
-
-import           Language.Haskell.Liquid.Types hiding (binds, Loc, loc, Def)
 
 --------------------------------------------------------------------------------
 -- | Constraint Generation: Toplevel -------------------------------------------
