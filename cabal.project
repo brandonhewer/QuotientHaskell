@@ -1,4 +1,4 @@
-with-compiler: ghc-9.2.5
+with-compiler: ghc-9.2.8
 
 packages: .
           ./liquid-fixpoint
@@ -11,6 +11,7 @@ packages: .
           ./tests/benchmarks/popl18/lib
           ./benchmark-timings
           ./scripts/plot-performance
+          ./scripts/profiling-driver
 
 source-repository-package
     type: git
