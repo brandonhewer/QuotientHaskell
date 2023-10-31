@@ -27,6 +27,7 @@ import           Control.Monad                              (forM, mplus)
 import           Control.Applicative                        ((<|>))
 import qualified Control.Exception                          as Ex
 import qualified Data.Binary                                as B
+import qualified Data.Foldable                              as Fold
 import qualified Data.Maybe                                 as Mb
 import qualified Data.List                                  as L
 import qualified Data.HashMap.Strict                        as M
@@ -40,9 +41,9 @@ import           Language.Fixpoint.Misc                     as Misc
 import           Language.Fixpoint.Types                    hiding (dcFields, DataDecl, Error, panic)
 import qualified Language.Fixpoint.Types                    as F
 import qualified Language.Haskell.Liquid.Misc               as Misc -- (nubHashOn)
-import qualified Liquid.GHC.Misc           as GM
+import qualified Language.Haskell.Liquid.GHC.Misc           as GM
 import qualified Liquid.GHC.API            as Ghc
-import           Liquid.GHC.Types          (StableName)
+import           Language.Haskell.Liquid.GHC.Types          (StableName)
 import           Language.Haskell.Liquid.Types
 import           Language.Haskell.Liquid.WiredIn
 import qualified Language.Haskell.Liquid.Measure            as Ms
@@ -374,11 +375,11 @@ makeSpecQuots
   -> [(ModName, Ms.BareSpec)]
   -> Bare.Lookup GhcSpecQuots
 makeSpecQuots env specs
-  = Ghc.foldrM (\ms gs -> (gs <>) <$> makeSpecQuot ms) mempty specs
+  = Fold.foldrM (\ms gs -> (gs <>) <$> makeSpecQuot ms) mempty specs
   where
     makeSpecQuot :: (ModName, Ms.BareSpec) -> Bare.Lookup GhcSpecQuots
     makeSpecQuot (mname, spec)
-      = Ghc.foldrM (addQuotDecl mname) mempty (quotDecls spec)
+      = Fold.foldrM (addQuotDecl mname) mempty (quotDecls spec)
 
     addQuotDecl :: ModName -> QuotDecl -> GhcSpecQuots -> Bare.Lookup GhcSpecQuots
     addQuotDecl mname qdecl spec
@@ -735,18 +736,13 @@ makeSpecRefl cfg src menv specs env name sig tycEnv = do
   rwrWith  <- makeRewriteWith env name mySpec
   wRefls   <- Bare.wiredReflects cfg env name sig
   xtes     <- Bare.makeHaskellAxioms cfg src env tycEnv name lmap sig mySpec
-  let lxtes    =
-        [ (x, lt, e { eqRec = S.member s (exprSymbolsSet (eqBody e)) })
-        | (x, lt, e) <- xtes
-        , let s = symbol x
-        ]
-      myAxioms =
+  let myAxioms =
         [ Bare.qualifyTop
             env
             name
             (F.loc lt)
-            e { eqName = s }
-        | (x, lt, e) <- lxtes
+            e {eqName = s, eqRec = S.member s (exprSymbolsSet (eqBody e))}
+        | (x, lt, e) <- xtes
         , let s = symbol x
         ]
   let sigVars  = F.notracepp "SIGVARS" $ (fst3 <$> xtes)            -- reflects
@@ -758,7 +754,7 @@ makeSpecRefl cfg src menv specs env name sig tycEnv = do
     , gsImpAxioms  = concatMap (Ms.axeqs . snd) (M.toList specs)
     , gsMyAxioms   = F.notracepp "gsMyAxioms" myAxioms
     , gsReflects   = F.notracepp "gsReflects" (lawMethods ++ filter (isReflectVar rflSyms) sigVars ++ wRefls)
-    , gsHAxioms    = F.notracepp "gsHAxioms" lxtes
+    , gsHAxioms    = F.notracepp "gsHAxioms" xtes
     , gsWiredReft  = wRefls
     , gsRewrites   = rwr
     , gsRewritesWith = rwrWith
@@ -1020,10 +1016,7 @@ allAsmSigs env myName specs = do
     lookupImportedSymMaybe (mm, s) = do
       mts <- M.lookup s (Bare._reTyThings env)
       m <- mm
-      ty <- lookup m mts
-      case ty of
-        Ghc.AnId v -> Just v
-        _ -> Nothing
+      Mb.listToMaybe [ v | (k, Ghc.AnId v) <- mts, k == m ]
 
     isAbsoluteQualifiedSym (Just m) =
        not $ M.member m $ qiNames (Bare.reQualImps env)

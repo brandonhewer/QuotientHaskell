@@ -7,7 +7,7 @@
 {-# LANGUAGE RecordWildCards       #-}
 {-# LANGUAGE TupleSections         #-}
 
-{- Module for handling quotient type checks during constraint generation
+{- Module for handling quotient type checking during constraint generation
 
    Includes implementation of normalisation by evaluation with built-in
    rewriting via quotients.
@@ -20,7 +20,7 @@ module Language.Haskell.Liquid.Constraint.Quotient
   ) where
 
 import           Control.Applicative                      ((<|>))
-import           Control.Monad.Extra                      (anyM, allM, whenJust)
+import           Control.Monad.Extra                      (anyM, allM, whenJust, whenJustM)
 import           Control.Monad.Reader                     (MonadReader)
 import qualified Control.Monad.Reader                     as RD
 import           Control.Monad.State.Strict               (MonadState)
@@ -43,8 +43,7 @@ import qualified Data.Text.Encoding                       as Text
 
 import qualified Language.Fixpoint.Solver.Simplify        as F
 import           Language.Fixpoint.Types
-  ( Brel
-  , Constant
+  ( Constant
   , Equation
   , Expr
   , QPattern
@@ -54,12 +53,16 @@ import qualified Language.Fixpoint.Types                  as F
 import qualified Language.Haskell.Liquid.Bare.DataType    as Bare
 import qualified Language.Haskell.Liquid.Constraint.Env   as CG
 import qualified Language.Haskell.Liquid.Constraint.Monad as CG
-import           Language.Haskell.Liquid.Constraint.Types (CG, CGEnv, QuotientRewrite)
+import           Language.Haskell.Liquid.Constraint.Types
+  ( CG
+  , CGEnv
+  , QuotientRewrite
+  , QuotientTypeDef
+  )
 import qualified Language.Haskell.Liquid.Constraint.Types as CG
 import           Language.Haskell.Liquid.Types
   ( LocSpecType
   , SpecQuotient
-  , SpecQuotientType
   , SpecType
   )
 import qualified Language.Haskell.Liquid.Types            as LH
@@ -78,6 +81,7 @@ import qualified Language.Haskell.Liquid.Transforms.CoreToLogic as CL
 
 import Debug.Trace (trace)
 
+-- | A normalisation approach for function application.
 data AppNormaliser m
   = AppNormaliser
       { argumentTypes  :: [SpecType]
@@ -115,7 +119,7 @@ data NBEEnv
       , nbeDataCons  :: !(HashMap Symbol SpecType)
         -- | ^ Reflected data constructors.
       , nbeGuards    :: ![Expr]
-        -- | ^ List of (normalised) axioms.
+        -- | ^ List of (normalised) axioms in scope.
       , nbeRewrites  :: !(M.HashMap F.Symbol [QuotientRewrite])
         -- | ^ List of rewrite rules that can be applied, map from Quotient TyCon.
       }
@@ -307,10 +311,10 @@ applyRewrites :: MonadReader NBEEnv m => Maybe SpecType -> ([QuotientRewrite] ->
 applyRewrites (Just (LH.RApp (LH.QTyCon nm _ _ _ _ _) _ _ _)) f
   = RD.asks (f . MB.fromMaybe [] . M.lookup (F.symbol nm) . nbeRewrites)
 applyRewrites (Just t) f
-  = let rep = LH.toRTypeRep t
-     in case LH.ty_res rep of
+  = let LH.RTypeRep { ty_res, ty_args } = LH.toRTypeRep t
+     in case ty_res of
           LH.RApp (LH.QTyCon nm _ _ _ _ _) _ _ _
-            | null (LH.ty_args rep) ->
+            | null ty_args ->
                 RD.asks (f . MB.fromMaybe [] . M.lookup (F.symbol nm) . nbeRewrites)
             | otherwise -> return $ f []
           _ -> return $ f []
@@ -520,10 +524,9 @@ normalise t (F.PNot e) = do
     Left  e     -> normaliseNot e
 normalise t (F.PImp i a) = normaliseImp (t <|> Just boolType) i a
 normalise t (F.PIff l r) = normaliseIff (t <|> Just boolType) l r
-normalise t (F.PAtom r x y) = do
-  let u = if canPropagateRelType r then t else Nothing
-  nx <- normalise u x
-  ny <- normalise u y
+normalise _ (F.PAtom r x y) = do
+  nx <- normalise Nothing x
+  ny <- normalise Nothing y
   forEachPure2 nx ny $ F.applyBooleanFolding r
 normalise _ e@(F.PKVar _ _) = return $ pureResult e
 normalise t (F.PAll [] e) = normalise t e
@@ -914,11 +917,6 @@ resolveJoins (Just (LH.RApp tc _ _ _))
       updateJoin x               = x
 resolveJoins _ = id
 
-canPropagateRelType :: Brel -> Bool
-canPropagateRelType F.Eq = False
-canPropagateRelType F.Ne = False
-canPropagateRelType _    = True
-
 -----------------------------------------------------------------------
 --  Rewrite utility functions
 -----------------------------------------------------------------------
@@ -983,6 +981,13 @@ conRewrites
   -> NBEResult Expr
 conRewrites fvs app c as = getRewritesWith app getResult
   where
+    addToAnd :: [Expr] -> Maybe Expr -> Maybe Expr
+    addToAnd [] p                  = p
+    addToAnd ps (Just (F.PAnd qs)) = Just $ F.PAnd (ps ++ qs)
+    addToAnd [p] Nothing           = Just p
+    addToAnd ps  Nothing           = Just $ F.PAnd ps
+    addToAnd ps  (Just p)          = Just $ F.PAnd (p : ps)
+
     getResult :: QuotientRewrite -> Maybe (RewriteResult Expr)
     getResult CG.QuotientRewrite {..}
       = case rwPattern of
@@ -994,37 +999,98 @@ conRewrites fvs app c as = getRewritesWith app getResult
               }
           F.QPCons m c' ps
             | m == length as && c == c' -> do
-                sub <- subsumesAll (S.union fvs rwFreeVars) ps as
-                Just $ RWResult
-                  { rwCondition   = rwPrecondition
-                  , rwResult      = F.subst (F.Su sub) rwExpr
-                  , rwQuantifiers = S.difference rwFreeVars (M.keysSet sub)
+                PatternUnifier {..} <- subsumesAll (S.union fvs rwFreeVars) ps as
+                Just RWResult
+                  { rwCondition   = addToAnd conditions rwPrecondition
+                  , rwResult      = F.subst (F.Su substitution) rwExpr
+                  , rwQuantifiers = S.difference rwFreeVars (M.keysSet substitution)
                   }
             | otherwise -> Nothing
           _ -> Nothing
 
-subsumesAll :: HashSet Symbol -> [QPattern] -> [Expr] -> Maybe (HashMap Symbol Expr)
-subsumesAll fvs ps es = do
-  Fold.foldlM
-    (\sub (np, ne) -> do
-        nsub <- subsumes fvs np ne
-        F.mergeSubst fvs sub nsub
-    ) mempty (zip ps es)
+-----------------------------------------------------------------------
+--  Subsumption and unification for quotient patterns and expressions
+-----------------------------------------------------------------------
 
-subsumes :: HashSet Symbol -> QPattern -> Expr -> Maybe (HashMap Symbol Expr)
-subsumes _ (F.QPLit c) (F.ECon c')
-  | c == c'   = Just mempty
-  | otherwise = Nothing
-subsumes fvs (F.QPVar v) e
-  | S.member v fvs = Just (M.singleton v e)
-  | otherwise      = Nothing
-subsumes fvs (F.QPCons n c ps) (F.EApp e a)
-  = case getAppArgs e a of
-      (F.EVar c', as)
-        | c' == c && length as == n -> subsumesAll fvs ps as
-        | otherwise                 -> Nothing
-      _ -> Nothing
-subsumes _ _ _ = Nothing
+-- | A pattern unifier corresponds to the unification result between a
+--   pattern that appears on the left-hand side of a quotient equality
+--   and an arbitrary expression in the refinement logic. The resulting
+--   substitution is to be applied to the pattern and the necessary
+--   unification property only holds up to logical equality and only
+--   when the list of equational preconditions is satisfied.
+--    
+data PatternUnifier
+  = PatternUnifier
+      { substitution :: HashMap Symbol Expr
+      -- ^ The resulting substitution to be applied to the pattern.
+      , conditions   :: [Expr]
+      -- ^ The preconditions that must hold for the substitution to be valid.
+      }
+
+emptyPatternUnifier :: PatternUnifier
+emptyPatternUnifier
+  = PatternUnifier
+      { substitution = mempty
+      , conditions   = mempty
+      }
+
+doesNotUnify :: MonadState (Maybe PatternUnifier) m => m ()
+doesNotUnify = ST.put Nothing
+
+doesUnify :: MonadState (Maybe PatternUnifier) m => m ()
+doesUnify = return ()
+
+doesUnifyWith
+  :: MonadState (Maybe PatternUnifier) m
+  => Symbol
+  -> Expr
+  -> m ()
+doesUnifyWith v e
+  = whenJustM ST.get
+      $ \PatternUnifier {..} -> do
+          let (condition, nsubstitution) = M.alterF addSubst v substitution
+          ST.put
+            $ Just PatternUnifier
+                { substitution = nsubstitution
+                , conditions   = MB.maybe conditions (:conditions) condition
+                }
+  where
+    addSubst :: Maybe Expr -> (Maybe Expr, Maybe Expr)
+    addSubst Nothing   = (Nothing, Just e)
+    addSubst (Just e')
+      | e == e'   = (Nothing, Just e')
+      | otherwise = (Just $ F.PAtom F.Eq e' e, Just e')
+
+subsumesAll :: HashSet Symbol -> [QPattern] -> [Expr] -> Maybe PatternUnifier
+subsumesAll fvs ps es = ST.execState (subsumesAllM fvs ps es) (Just emptyPatternUnifier)
+  where
+    subsumesAllM
+      :: MonadState (Maybe PatternUnifier) m
+      => HashSet Symbol
+      -> [QPattern]
+      -> [Expr]
+      -> m ()
+    subsumesAllM fvs ps es = Fold.traverse_ (uncurry $ subsumesM fvs) $ zip ps es
+
+    subsumesM
+      :: MonadState (Maybe PatternUnifier) m
+      => HashSet Symbol
+      -> QPattern
+      -> Expr
+      -> m ()
+    subsumesM _ (F.QPLit c) (F.ECon c')
+      | c == c'   = doesUnify
+      | otherwise = doesNotUnify
+    subsumesM fvs (F.QPVar v) e
+      | S.member v fvs = doesUnifyWith v e
+      | otherwise      = doesNotUnify
+    subsumesM fvs (F.QPCons n c ps) (F.EApp e a)
+      = case getAppArgs e a of
+          (F.EVar c', as)
+            | c' == c && length as == n -> subsumesAllM fvs ps as
+            | otherwise                 -> doesNotUnify
+          _ -> doesNotUnify
+    subsumesM _ _ _ = doesNotUnify
 
 -----------------------------------------------------------------------
 --  Constructing an expression from result of NBE
@@ -1143,7 +1209,7 @@ data QuotientCase
   = QuotientCase
       { scrutinee       :: !GHC.Var
         -- | ^ The bound variable (scrutinee)
-      , quotientType    :: !SpecQuotientType
+      , quotientType    :: !QuotientTypeDef
         -- | ^ The (quotient) type of the scrutinee
       , altCases        :: ![CoreAlt]
         -- | ^ The case alternatives
@@ -1162,12 +1228,12 @@ initNBEEnv γ = do
   rs <- ST.gets getReflects
   ss <- ST.gets getSelectors
   dc <- ST.gets getDataCons
-  trace ("DC: " ++ show (M.union (CG.cgQuotDataCons γ) dc)) $ return NBE
+  return NBE
     { nbeDefs      = rs
     , nbeSelectors = ss
     , nbeDataCons  = M.union (CG.cgQuotDataCons γ) dc
     , nbeGuards    = []
-    , nbeRewrites  = CG.cgQuotRewrites γ
+    , nbeRewrites  = CG.qtdRewrites <$> CG.cgQuotTyDefs γ
     }
   where
     getReflects :: CG.CGInfo -> HashMap Symbol NBEDefinition
@@ -1219,18 +1285,18 @@ performQuotientChecks
 performQuotientChecks γ x alts γs τ ty
   = whenJust (CG.lookupREnv (F.symbol x) (CG.renv γ)) $ \case
       LH.RApp (LH.QTyCon nm _ _ _ vs _) ts _ _ ->
-        whenJust (M.lookup (F.val nm) (CG.cgQuotTyCons γ))
-        $ \qty ->
-            checkRespectfulness γ
-              $ QuotientCase
-                  { scrutinee       = x
-                  , quotientType    = qty
-                  , altCases        = alts
-                  , altEnvironments = γs
-                  , ghcCaseType     = τ
-                  , caseType        = ty
-                  , tyVarSubst      = zip vs $ map (const () <$>) ts
-                  }
+        whenJust (M.lookup (F.val nm) (CG.cgQuotTyDefs γ))
+          $ \qty ->
+              checkRespectfulness γ
+                $ QuotientCase
+                    { scrutinee       = x
+                    , quotientType    = qty
+                    , altCases        = alts
+                    , altEnvironments = γs
+                    , ghcCaseType     = τ
+                    , caseType        = ty
+                    , tyVarSubst      = zip vs $ map (const () <$>) ts
+                    }
       _                                -> return ()
 
 checkRespectfulness :: CGEnv -> QuotientCase -> CG ()
@@ -1238,7 +1304,7 @@ checkRespectfulness γ QuotientCase {..} = do
   lc     <- caseBody
   nbeEnv <- initNBEEnv γ
   let alts = zip altEnvironments altCases
-  Fold.traverse_ (uncurry $ checkAlt nbeEnv lc quotients) alts
+  Fold.traverse_ (uncurry $ checkAlt nbeEnv lc $ CG.qtdQuots quotientType) alts
   where
     -- | Translated to an open term with `scrutinee` as a free variable
     ghcCase :: CoreExpr
@@ -1252,12 +1318,6 @@ checkRespectfulness γ QuotientCase {..} = do
       = unsafeCoreToLogic γ
           ("Failed to translate GHC case body to CoreExpr: " ++)
           ghcCase
-
-    quotients :: [SpecQuotient]
-    quotients
-      = MB.mapMaybe
-          (`M.lookup` CG.cgQuotients γ)
-          (LH.qtyQuots quotientType)
 
     checkAlt :: NBEEnv -> Expr -> [SpecQuotient] -> CGEnv -> CoreAlt -> CG ()
     checkAlt nbeEnv ce qs cγ alt = Fold.traverse_ (checkRespects nbeEnv cγ ce alt) qs
