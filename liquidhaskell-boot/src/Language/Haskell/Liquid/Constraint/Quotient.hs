@@ -79,8 +79,6 @@ import qualified Liquid.GHC.API                           as GHC
 import           Language.Haskell.Liquid.Constraint.ToFixpoint  (makeSimplify)
 import qualified Language.Haskell.Liquid.Transforms.CoreToLogic as CL
 
-import Debug.Trace (trace)
-
 -- | A normalisation approach for function application.
 data AppNormaliser m
   = AppNormaliser
@@ -135,7 +133,7 @@ data NBEState
         --     Act as free variables in open terms for the purpose of rewriting.
       , nbeUnfoldCount :: !(HashMap Symbol Int)
         -- | ^ The number of times each definition has been unfolded
-      } 
+      }
 
 newtype NBEResult a
   = NBEResult [RewriteResult a]
@@ -197,7 +195,7 @@ getAppArgs :: Expr -> Expr -> (Expr, [Expr])
 getAppArgs f a = go [a] f
   where
     go acc (F.EApp g e) = go (e:acc) g
-    go acc e            = (e, acc)    
+    go acc e            = (e, acc)
 
 getLamBinds :: Expr -> [Expr] -> (HashMap Symbol Expr, Expr)
 getLamBinds = go mempty
@@ -498,7 +496,7 @@ normalise t (F.EVar v)
           whenJust t $ updateBindType v
           makeRewriteResult t (varRewrites v)
       Just d -> normaliseDefinition v d
-normalise t (F.EApp ie ia) = normaliseApp t ie ia
+normalise t e@(F.EApp ie ia) = normaliseApp t ie ia
 normalise t (F.ENeg e) = do
   ne <- normalise t e
   forEachPure ne normaliseNeg
@@ -606,7 +604,7 @@ normaliseApp t ie ia = do
 
     (f', as') = getAppArgs ie ia
 
-isRecAppReducible :: MonadReader NBEEnv m => Expr -> m (Bool, Expr) 
+isRecAppReducible :: MonadReader NBEEnv m => Expr -> m (Bool, Expr)
 isRecAppReducible (F.EVar v) = do
   isDC <- isDataCons v
   if isDC then
@@ -681,7 +679,7 @@ getAppNormaliser t (F.EIte p ib eb) = do
         neb <- runAppNormaliser (ean { argumentTypes = types }) as
         forEachPure2 nib neb (F.EIte p)
     }
-getAppNormaliser t f 
+getAppNormaliser t f
   = return AppNormaliser
       { argumentTypes  = []
       , doNormaliseApp = normaliseLamApp t f
@@ -1116,7 +1114,7 @@ getConditionExpr _             = Nothing
 
 makeRespectCondition :: NBEResult Expr -> NBEResult Expr -> Maybe Expr
 makeRespectCondition (NBEResult lhs) (NBEResult rhs)
-  = trace (show $ LH.pprint $ MB.mapMaybe getConditionExpr conditions) $ if alwaysRespects then
+  = if alwaysRespects then
       Nothing
     else case MB.mapMaybe getConditionExpr conditions of
       []  -> Nothing
@@ -1248,8 +1246,7 @@ initNBEEnv γ = do
     getSelectors :: CG.CGInfo -> HashMap Symbol (Symbol, Int)
     getSelectors
       = M.fromList
-      . MB.mapMaybe makeSel
-      . concatMap makeSimplify
+      . concatMap (MB.mapMaybe makeSel . makeSimplify)
       . CG.dataConTys
 
     getDataCons :: CG.CGInfo -> HashMap Symbol SpecType
@@ -1260,13 +1257,14 @@ initNBEEnv γ = do
 
     mkNBEDefinition :: (Var, LocSpecType, Equation) -> (Symbol, NBEDefinition)
     mkNBEDefinition (v, t, F.Equ {..})
-      = ( F.symbol v
-        , NBEDefinition
-            { nbeType        = F.val t
-            , nbeDefinition  = foldr F.ELam eqBody eqArgs
-            , nbeIsRecursive = eqRec
-            }
-        )
+      = let s = F.symbol v
+         in ( s
+            , NBEDefinition
+                { nbeType        = F.val t
+                , nbeDefinition  = foldr F.ELam eqBody eqArgs
+                , nbeIsRecursive = S.member s (F.exprSymbolsSet eqBody)
+                }
+            )
 
     makeSel :: F.Rewrite -> Maybe (Symbol, (Symbol, Int))
     makeSel rw

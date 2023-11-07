@@ -1,3 +1,5 @@
+{-@ LIQUID "--reflection" @-}
+
 module Mobiles where
 
 data Tree a = Leaf | Bin a (Tree a) (Tree a)

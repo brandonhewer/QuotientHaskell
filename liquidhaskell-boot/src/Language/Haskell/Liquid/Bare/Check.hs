@@ -96,8 +96,7 @@ checkBareSpec _ sp
 dataDeclFields :: DataDecl -> [F.LocSymbol]
 dataDeclFields = filter (not . GM.isTmpSymbol . F.val)
                . Misc.hashNubWith val
-               . concatMap dataCtorFields
-               . fromMaybe []
+               . maybe [] (concatMap dataCtorFields)
                . tycDCons
 
 dataCtorFields :: DataCtor -> [F.LocSymbol]
@@ -896,7 +895,7 @@ containsQTyCon s (RApp (QTyCon nm ut _ _ _ _) ts ps _)
             tsc = firstJustMap (containsQTyCon s) ts
             psc = firstJustMap (refContainsQTyCon s) ps
          in firstJust utc (firstJust tsc psc)
-containsQTyCon _ (RApp {}) = Nothing 
+containsQTyCon _ (RApp {}) = Nothing
 containsQTyCon s (RFun _ _ t1 t2 _)
   = firstJust (containsQTyCon s t1) (containsQTyCon s t2)
 containsQTyCon _ (RVar _ _)         = Nothing

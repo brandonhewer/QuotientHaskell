@@ -1,3 +1,5 @@
+{-@ LIQUID "--reflection" @-}
+
 module Boom where
 
 data Tree a = Empty | Leaf a | Join (Tree a) (Tree a)
