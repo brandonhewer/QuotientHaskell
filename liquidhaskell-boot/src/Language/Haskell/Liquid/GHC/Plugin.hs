@@ -351,7 +351,6 @@ liquidHaskellCheck pipelineData modSummary tcGblEnv = do
         { proofLogicEval      = True
         , oldPLE              = False
         , fuel                = Nothing
-        , reflection          = True
         , proofLogicEvalLocal = True
         , interpreter         = True
         , noLazyPLE           = False
