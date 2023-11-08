@@ -188,19 +188,20 @@ makeContext1 l c c' s = vcat [ text " "
 --------------------------------------------------------------------------------
 
 data Oblig
-  = OTerm -- ^ Obligation that proves termination
-  | OInv  -- ^ Obligation that proves invariants
-  | OCons -- ^ Obligation that proves subtyping constraints
-  | OQuot !Symbol
+  = OTerm                         -- ^ Obligation that proves termination
+  | OInv                          -- ^ Obligation that proves invariants
+  | OCons                         -- ^ Obligation that proves subtyping constraints
+  | OQuot !Symbol !(Maybe Symbol) -- ^ Obligation that proves quotient respectfulness
   deriving (Eq, Generic, Data, Typeable)
   deriving Hashable via Generically Oblig
 
 instance B.Binary Oblig
 instance Show Oblig where
-  show OTerm     = "termination-condition"
-  show OInv      = "invariant-obligation"
-  show OCons     = "constraint-obligation"
-  show (OQuot q) = "respectfulness of quotient " ++ show q
+  show OTerm              = "termination-condition"
+  show OInv               = "invariant-obligation"
+  show OCons              = "constraint-obligation"
+  show (OQuot q Nothing)  = "respectfulness of quotient " ++ show q
+  show (OQuot q (Just f)) = "respectfulness of quotient " ++ show q ++ " by function " ++ show f
 
 instance NFData Oblig
 
@@ -208,10 +209,13 @@ instance PPrint Oblig where
   pprintTidy _ = ppOblig
 
 ppOblig :: Oblig -> Doc
-ppOblig OCons     = text "Constraint Check"
-ppOblig OTerm     = text "Termination Check"
-ppOblig OInv      = text "Invariant Check"
-ppOblig (OQuot q) = text "Quotient Respectfulness Check for" <+> pprint q
+ppOblig OCons              = text "Constraint Check"
+ppOblig OTerm              = text "Termination Check"
+ppOblig OInv               = text "Invariant Check"
+ppOblig (OQuot q Nothing)  = text "Quotient Respectfulness Check for" <+> pprint q
+ppOblig (OQuot q (Just f))
+  =   text "Quotient Respectfulness Check of function "
+  <+> pprint f <+> " for quotient " <+> pprint q
 
 --------------------------------------------------------------------------------
 -- | Generic Type for Error Messages -------------------------------------------

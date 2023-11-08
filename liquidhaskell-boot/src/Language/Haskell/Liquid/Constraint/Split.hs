@@ -307,9 +307,9 @@ splitC _ (SubR γ o r)
     ci  = Ci src err (cgVar γ)
 
     err = case o of
-            OQuot _ ->
-              Just $ ErrAssTypeQ src o (text $ show o ++ "type error") g
-                       (F.reftPred $ ur_reft r)
+            OQuot _ _ ->
+              let F.Reft (_, F.PIff _ p) = rr
+               in Just $ ErrAssTypeQ src o (text $ show o ++ "type error") g p
             _       -> Just $ ErrAssType src o (text $ show o ++ "type error") g (rHole rr)
 
     rr  = F.toReft r

@@ -67,6 +67,14 @@ tidyErrContext k _ e@(ErrAssType {})
       xs      = F.syms p
       p       = cond e
 
+tidyErrContext k _ e@(ErrAssTypeQ {})
+  = e { ctx = c', qcond = F.subst θ p }
+    where
+      m       = ctx e
+      (θ, c') = tidyCtx k xs m
+      xs      = F.syms p
+      p       = qcond e
+
 tidyErrContext _ _ e
   = e
 

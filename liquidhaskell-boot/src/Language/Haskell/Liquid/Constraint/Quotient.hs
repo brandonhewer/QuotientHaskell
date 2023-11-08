@@ -80,8 +80,6 @@ import qualified Liquid.GHC.API                           as GHC
 import           Language.Haskell.Liquid.Constraint.ToFixpoint  (makeSimplify)
 import qualified Language.Haskell.Liquid.Transforms.CoreToLogic as CL
 
-import Debug.Trace (trace)
-
 -- | A normalisation approach for function application.
 data AppNormaliser m
   = AppNormaliser
@@ -366,9 +364,6 @@ getUnfoldCount = ST.gets nbeUnfoldCount
 setUnfoldCount :: MonadState NBEState m => HashMap Symbol Int -> m ()
 setUnfoldCount c = ST.modify $ \st -> st { nbeUnfoldCount = c }
 
-getFreeVariables :: MonadState NBEState m  => m (HashSet Symbol)
-getFreeVariables = ST.gets (M.keysSet . nbeBinds)
-
 getBinder :: MonadState NBEState m => Symbol -> m (Maybe BinderType)
 getBinder sym = ST.gets (M.lookup sym . nbeBinds)
 
@@ -499,7 +494,7 @@ normalise t (F.EVar v)
           whenJust t $ updateBindType v
           makeRewriteResult t (varRewrites v)
       Just d -> normaliseDefinition v d
-normalise t e@(F.EApp ie ia) = normaliseApp t ie ia
+normalise t (F.EApp ie ia) = normaliseApp t ie ia
 normalise t (F.ENeg e) = do
   ne <- normalise t e
   forEachPure ne normaliseNeg
@@ -711,9 +706,8 @@ normaliseDataConApp
   -> [Expr]
   -> m (NBEResult Expr)
 normaliseDataConApp t c as = do
-  fvs <- getFreeVariables
   let app = Fold.foldl' F.EApp (F.EVar c) as
-  makeRewriteResult t (conRewrites fvs app c as)
+  makeRewriteResult t (conRewrites app c as)
 
 normaliseVarApp
   :: (MonadReader NBEEnv m, MonadState NBEState m)
@@ -977,13 +971,12 @@ varRewrites s = getRewritesWith (F.EVar s) getResult
           _ -> Nothing
 
 conRewrites
-  :: HashSet Symbol    -- | Free variables
-  -> Expr              -- | Data constructor application expression
+  :: Expr              -- | Data constructor application expression
   -> Symbol            -- | Data constructor that was applied
   -> [Expr]            -- | Arguments to data constructor
   -> [QuotientRewrite] -- | Rewrites that can be applied
   -> NBEResult Expr
-conRewrites fvs app c as = getRewritesWith app getResult
+conRewrites app c as = getRewritesWith app getResult
   where
     addToAnd :: [Expr] -> Maybe Expr -> Maybe Expr
     addToAnd [] p                  = p
@@ -1395,8 +1388,8 @@ checkRespectfulness γ QuotientCase {..} = do
 
     mkConstraint :: CGEnv -> Symbol -> String -> F.Expr -> CG ()
     mkConstraint γ' qsym msg p
-      = CG.addC (CG.SubR γ' (LH.OQuot qsym) $ LH.uReft (F.vv_, F.PIff (F.EVar F.vv_) p)) msg
-        -- CG.addC (CG.SubR γ' (LH.OQuot qsym) $ LH.uReft (F.vv_, p)) msg
+      = CG.addC (CG.SubR γ' (LH.OQuot qsym (F.symbol . CG.tldName <$> CG.cgTopLevel γ))
+          $ LH.uReft (F.vv_, F.PIff (F.EVar F.vv_) p)) msg
 
 normaliseWithEnv :: NBEEnv -> NBEState -> SpecType -> Expr -> NBEResult Expr
 normaliseWithEnv env st t e

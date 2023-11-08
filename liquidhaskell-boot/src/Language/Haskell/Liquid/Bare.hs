@@ -65,8 +65,6 @@ import           Control.Arrow                    (second)
 import Data.Hashable (Hashable)
 import qualified Language.Haskell.Liquid.Bare.Slice as Dg
 
-import Debug.Trace (trace)
-
 --------------------------------------------------------------------------------
 -- | De/Serializing Spec files
 --------------------------------------------------------------------------------
