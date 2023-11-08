@@ -44,6 +44,9 @@ module Language.Haskell.Liquid.Constraint.Env (
   -- * Lookup CGEnv
  , getLocation
 
+  -- * Add a top-level function argument to CGEnv
+ , addTopLevelArg
+ , mkTopLevelDefinition
 ) where
 
 
@@ -109,7 +112,7 @@ lookupREnv :: F.Symbol -> REnv -> Maybe SpecType
 lookupREnv x rE = msum $ M.lookup x <$> renvMaps rE
 
 memberREnv :: F.Symbol -> REnv -> Bool
-memberREnv x rE = or   $ M.member x <$> renvMaps rE
+memberREnv x rE = any (M.member x) (renvMaps rE)
 
 globalREnv :: REnv -> REnv
 globalREnv (REnv gM lM) = REnv gM' M.empty
@@ -241,18 +244,10 @@ addSEnv :: CGEnv -> (String, F.Symbol, SpecType) -> CG CGEnv
 --------------------------------------------------------------------------------
 addSEnv γ = addCGEnv (addRTyConInv (invs γ)) γ
 
+--------------------------------------------------------------------------------
 addEEnv :: CGEnv -> (F.Symbol, SpecType) -> CG CGEnv
-addEEnv γ (x,t')= do
-  idx   <- fresh
-  -- allowHOBinders <- allowHO <$> get
-  let t  = addRTyConInv (invs γ) $ normalize idx t'
-  let l  = getLocation γ
-  let γ' = γ { renv = insertREnv x t (renv γ) }
-  tem   <- getTemplates
-  is    <- (:) <$> addBind l x (rTypeSortedReft' γ' tem t) <*> addClassBind γ' l t
-  modify (\s -> s { ebinds = ebinds s ++ (snd <$> is)})
-  return $ γ' { fenv = insertsFEnv (fenv γ) is }
-
+--------------------------------------------------------------------------------
+addEEnv γ (x, t') = γ ++= ("", x, t')
 
 (+++=) :: (CGEnv, String) -> (F.Symbol, CoreExpr, SpecType) -> CG CGEnv
 (γ, _) +++= (x, e, t) = (γ {lcb = M.insert x e (lcb γ) }) += ("+++=", x, t)
@@ -294,3 +289,26 @@ setTRec γ xts  = γ' {trec = Just $ M.fromList xts' `M.union` trec'}
     γ'         = γ `setRecs` (fst <$> xts)
     trec'      = fromMaybe M.empty $ trec γ
     xts'       = first F.symbol <$> xts
+
+------------------------------------------------------------------------
+addTopLevelArg :: CGEnv -> F.Symbol -> SpecType -> CGEnv
+------------------------------------------------------------------------
+addTopLevelArg γ x t = γ { cgTopLevel = addArg <$> cgTopLevel γ }
+  where
+    addArg :: TopLevelDefinition -> TopLevelDefinition
+    addArg tld
+      = tld
+          { tldArguments = x : tldArguments tld
+          , tldArgTypes  = t : tldArgTypes tld
+          }
+
+------------------------------------------------------------------------
+mkTopLevelDefinition :: CGEnv -> Var -> TopLevelDefinition
+------------------------------------------------------------------------
+mkTopLevelDefinition γ name
+  = TopLevelDefinition
+      { tldName      = name
+      , tldEnv       = γ
+      , tldArguments = []
+      , tldArgTypes  = []
+      }

@@ -28,20 +28,20 @@ lfilter p (Leaf x)
   | otherwise = Empty
 lfilter p (Join x y) = Join (lfilter p x) (lfilter p y)
 
+{-
 {-@ reflect notAllow @-}
 {-@ notAllow :: List a -> Tree a @-}
 notAllow :: Tree a -> Tree a
 notAllow Empty = Empty
 notAllow (Leaf a) = Leaf a
-notAllow (Join x y) = Join x y
+notAllow (Join x y) = Join x y-}
 
-{-
 {-@ reflect sumT @-}
 {-@ sumT :: List Int -> Int @-}
 sumT :: Tree Int -> Int
 sumT Empty      = 0
 sumT (Leaf n)   = n
-sumT (Join x y) = sumT x + sumT y-}
+sumT (Join x y) = sumT x + sumT y
 
 {-
 {-@ reflect subtr @-}

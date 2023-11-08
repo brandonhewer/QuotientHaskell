@@ -199,6 +199,7 @@ measEnv sp xts cbs _tcb lt1s lt2s asms itys hs qcons info = CGE
   , cerr     = Nothing
   , cgInfo   = info
   , cgVar    = Nothing
+  , cgTopLevel     = Nothing
   , cgQuotTyDefs   = makeQuotTyDef <$> gsQuotTyCons (gsQuots sp)
   , cgQuotDataCons = qcons
   }

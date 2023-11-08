@@ -58,6 +58,7 @@ import           Language.Haskell.Liquid.Constraint.Types
   , CGEnv
   , QuotientRewrite
   , QuotientTypeDef
+  , TopLevelDefinition
   )
 import qualified Language.Haskell.Liquid.Constraint.Types as CG
 import           Language.Haskell.Liquid.Types
@@ -78,6 +79,8 @@ import qualified Liquid.GHC.API                           as GHC
 
 import           Language.Haskell.Liquid.Constraint.ToFixpoint  (makeSimplify)
 import qualified Language.Haskell.Liquid.Transforms.CoreToLogic as CL
+
+import Debug.Trace (trace)
 
 -- | A normalisation approach for function application.
 data AppNormaliser m
@@ -570,7 +573,7 @@ normaliseApp t ie ia = do
         Nothing                 -> return (Nothing, pureResult f', as')
         Just NBEDefinition {..} ->
           if nbeIsRecursive then do
-            (nas, canReduce) <- Fold.foldrM checkRecArg ([], False) as'
+            (nas, canReduce) <- isRecAppReducible as'
 
             if canReduce then do
               (uc, nf) <- tryUnfold v nbeDefinition
@@ -592,10 +595,6 @@ normaliseApp t ie ia = do
       else
         return (Nothing, pureResult f')
 
-    checkRecArg e (es, b) = do
-      (b', e') <- isRecAppReducible e
-      return (e' : es, b || b')
-
     getAndUpdate :: Maybe Int -> (Bool, Maybe Int)
     getAndUpdate Nothing = (True, Just 1)
     getAndUpdate (Just n)
@@ -604,24 +603,31 @@ normaliseApp t ie ia = do
 
     (f', as') = getAppArgs ie ia
 
-isRecAppReducible :: MonadReader NBEEnv m => Expr -> m (Bool, Expr)
-isRecAppReducible (F.EVar v) = do
+isRecAppReducible :: MonadReader NBEEnv m => [Expr] -> m ([Expr], Bool)
+isRecAppReducible as = Fold.foldrM checkRecArg ([], False) as
+  where
+    checkRecArg e (es, b) = do
+      (b', e') <- isRecArgReducible e
+      return (e' : es, b || b')
+
+isRecArgReducible :: MonadReader NBEEnv m => Expr -> m (Bool, Expr)
+isRecArgReducible (F.EVar v) = do
   isDC <- isDataCons v
   if isDC then
     return (True, F.EVar v)
   else do
     def <- getDefinition v
     return (MB.isJust def, F.EVar v)
-isRecAppReducible e@(F.EApp f as) = do
+isRecArgReducible e@(F.EApp f as) = do
   let (f', as') = getAppArgs f as
   case (f', as') of
     (F.EVar fv, [a]) -> getSelector fv >>= \case
       Just sel -> case tryNormaliseSelector fv sel a of
         Nothing -> return (False, e)
-        Just ne -> isRecAppReducible ne
+        Just ne -> isRecArgReducible ne
       Nothing  -> return (True, e)
     _  -> return (True, e)
-isRecAppReducible e = return (True, e)
+isRecArgReducible e = return (True, e)
 
 runAppNormaliser
   :: (MonadReader NBEEnv m, MonadState NBEState m)
@@ -997,7 +1003,7 @@ conRewrites fvs app c as = getRewritesWith app getResult
               }
           F.QPCons m c' ps
             | m == length as && c == c' -> do
-                PatternUnifier {..} <- subsumesAll (S.union fvs rwFreeVars) ps as
+                PatternUnifier {..} <- subsumesAll ps as
                 Just RWResult
                   { rwCondition   = addToAnd conditions rwPrecondition
                   , rwResult      = F.subst (F.Su substitution) rwExpr
@@ -1059,36 +1065,35 @@ doesUnifyWith v e
       | e == e'   = (Nothing, Just e')
       | otherwise = (Just $ F.PAtom F.Eq e' e, Just e')
 
-subsumesAll :: HashSet Symbol -> [QPattern] -> [Expr] -> Maybe PatternUnifier
-subsumesAll fvs ps es = ST.execState (subsumesAllM fvs ps es) (Just emptyPatternUnifier)
+subsumesAll :: [QPattern] -> [Expr] -> Maybe PatternUnifier
+subsumesAll ps es = ST.execState (subsumesAllM ps es) (Just emptyPatternUnifier)
   where
     subsumesAllM
       :: MonadState (Maybe PatternUnifier) m
-      => HashSet Symbol
-      -> [QPattern]
+      => [QPattern]
       -> [Expr]
       -> m ()
-    subsumesAllM fvs ps es = Fold.traverse_ (uncurry $ subsumesM fvs) $ zip ps es
+    subsumesAllM ps es = Fold.traverse_ (uncurry subsumesM) $ zip ps es
 
     subsumesM
       :: MonadState (Maybe PatternUnifier) m
-      => HashSet Symbol
-      -> QPattern
+      => QPattern
       -> Expr
       -> m ()
-    subsumesM _ (F.QPLit c) (F.ECon c')
+    subsumesM (F.QPLit c) (F.ECon c')
       | c == c'   = doesUnify
       | otherwise = doesNotUnify
-    subsumesM fvs (F.QPVar v) e
-      | S.member v fvs = doesUnifyWith v e
-      | otherwise      = doesNotUnify
-    subsumesM fvs (F.QPCons n c ps) (F.EApp e a)
+    subsumesM (F.QPVar v) e = doesUnifyWith v e
+    subsumesM (F.QPCons _ c []) (F.EVar v)
+      | c == v    = doesUnify
+      | otherwise = doesNotUnify
+    subsumesM (F.QPCons n c ps) (F.EApp e a)
       = case getAppArgs e a of
           (F.EVar c', as)
-            | c' == c && length as == n -> subsumesAllM fvs ps as
+            | c' == c && length as == n -> subsumesAllM ps as
             | otherwise                 -> doesNotUnify
           _ -> doesNotUnify
-    subsumesM _ _ _ = doesNotUnify
+    subsumesM _ _ = doesNotUnify
 
 -----------------------------------------------------------------------
 --  Constructing an expression from result of NBE
@@ -1273,12 +1278,14 @@ initNBEEnv γ = do
       | otherwise = Nothing
 
 performQuotientChecks
-  :: CGEnv
-  -> GHC.Var
-  -> [CoreAlt]
-  -> [CGEnv]
-  -> GHC.Type
-  -> SpecType
+  :: CGEnv      -- | The constraint generation environment
+  -> GHC.Var    -- | The scrutinee of the case expression to check whose type is
+                --   to be found within the CG environment
+  -> [CoreAlt]  -- | The case expression alternatives
+  -> [CGEnv]    -- | The constraint generation environments for each of the alternatives
+                --   whereby the necessary bound variables are included
+  -> GHC.Type   -- | The underlying GHC type for the body of the case expression
+  -> SpecType   -- | The refined type for the body of the case expression
   -> CG ()
 performQuotientChecks γ x alts γs τ ty
   = whenJust (CG.lookupREnv (F.symbol x) (CG.renv γ)) $ \case
@@ -1318,7 +1325,8 @@ checkRespectfulness γ QuotientCase {..} = do
           ghcCase
 
     checkAlt :: NBEEnv -> Expr -> [SpecQuotient] -> CGEnv -> CoreAlt -> CG ()
-    checkAlt nbeEnv ce qs cγ alt = Fold.traverse_ (checkRespects nbeEnv cγ ce alt) qs
+    checkAlt nbeEnv ce qs cγ alt
+      = Fold.traverse_ (checkRespects nbeEnv cγ ce alt) qs
 
     makeAltExpr :: CoreExpr -> CG Expr
     makeAltExpr ae
@@ -1326,11 +1334,11 @@ checkRespectfulness γ QuotientCase {..} = do
           ("Failed to translate GHC case alternative to CoreExpr: " ++) ae
 
     checkRespects
-      :: NBEEnv
-      -> CGEnv
-      -> Expr
-      -> CoreAlt
-      -> SpecQuotient
+      :: NBEEnv       -- | The NBE environment for rewriting and normalisation
+      -> CGEnv        -- | The constraint generation environment
+      -> Expr         -- | The lambda case expression that is being checked
+      -> CoreAlt      -- | The case alternative that is being checked for respectfulness
+      -> SpecQuotient -- | The quotient that the case alternative is being checked against
       -> CG ()
     checkRespects nbeEnv cγ ce (GHC.Alt ac bs ae) LH.Quotient {..} = do
       let freeEnv = CG.toMapREnv (CG.renv cγ)
@@ -1341,36 +1349,54 @@ checkRespectfulness γ QuotientCase {..} = do
           let domain = M.delete v qtVars'
               rhs    = F.subst1 (F.val qtRight) (v, F.expr p)
 
-          γ'  <- Fold.foldlM CG.addEEnv cγ $ M.toList domain
           lhs <- makeAltExpr ae
-
-          doCheck nbeEnv γ' qsym (M.union freeEnv domain) ce lhs rhs
+          doCheck nbeEnv cγ (M.toList domain) qsym (M.union freeEnv domain) ce lhs rhs
         AltDidSubsume sub  -> do
-          γ'  <- Fold.foldlM CG.addEEnv cγ $ M.toList qtVars'
           lhs <- F.subst (F.Su $ F.expr <$> sub) <$> makeAltExpr ae
-
-          doCheck nbeEnv γ' qsym (M.union freeEnv qtVars') ce lhs $ F.val qtRight
+          doCheck nbeEnv cγ (M.toList qtVars') qsym (M.union freeEnv qtVars') ce lhs $ F.val qtRight
 
     doCheck
-      :: NBEEnv
-      -> CGEnv
-      -> Symbol
-      -> HashMap Symbol SpecType
-      -> Expr
-      -> Expr
-      -> Expr
+      :: NBEEnv                   -- | The NBE environment to be used when normalising both
+                                  --   sides of the generated respectfulness theorem
+      -> CGEnv                    -- | The local constraint generation environment
+      -> [(Symbol, SpecType)]     -- | The domain of the generated respectfulness theorem
+      -> Symbol                   -- | The name of the quotient being checked: used in
+                                  --   error reporting
+      -> HashMap Symbol SpecType  -- | An environment consisting of the variables that might
+                                  --   appear free in the generated respectfulness theorem
+      -> Expr                     -- | The body of the lambda case expression being checked
+      -> Expr                     -- | The left hand side of the quotient equality
+      -> Expr                     -- | The right hand side of the quotient equality
       -> CG ()
-    doCheck nbeEnv cγ qsym fvs f lhs rhs = do
-      let frhs      = F.subst1 f (scrutineeSym, rhs)
+    doCheck nbeEnv cγ domain qsym fvs f lhs rhs = do
+      let frhs      = mkRHS nbeEnv (CG.cgTopLevel γ) f rhs
           st        = NBEState { nbeBinds = KnownType <$> fvs, nbeUnfoldCount = mempty }
           lResult   = normaliseWithEnv nbeEnv st caseType lhs
           rResult   = normaliseWithEnv nbeEnv st caseType frhs
           condition = makeRespectCondition lResult rResult
-      whenJust condition $ mkConstraint cγ qsym ""
+      γ' <- mkEnv cγ domain $ CG.cgTopLevel γ
+      whenJust condition $ mkConstraint γ' qsym ""
+
+    mkEnv :: CGEnv -> [(Symbol, SpecType)] -> Maybe TopLevelDefinition -> CG CGEnv
+    mkEnv cγ domain Nothing   = Fold.foldlM CG.addEEnv cγ domain
+    mkEnv _ domain (Just CG.TopLevelDefinition {..}) = do
+      γ' <- Fold.foldlM CG.addEEnv tldEnv domain
+      Fold.foldlM CG.addEEnv γ' (safeTail $ zip tldArguments tldArgTypes)
+
+    mkRHS :: NBEEnv -> Maybe TopLevelDefinition -> Expr -> Expr -> Expr
+    mkRHS _ Nothing f a = F.subst1 f (scrutineeSym, a)
+    mkRHS nbeEnv (Just CG.TopLevelDefinition {..}) f a
+      = let (canReduce, na) = RD.runReader (isRecArgReducible a) nbeEnv
+            appVar v f      = F.EApp f (F.EVar v)
+         in if canReduce then
+              F.subst1 f (scrutineeSym, na)
+            else
+              F.EApp (Fold.foldr appVar (F.EVar $ F.symbol tldName) (safeTail tldArguments)) na
 
     mkConstraint :: CGEnv -> Symbol -> String -> F.Expr -> CG ()
     mkConstraint γ' qsym msg p
-      = CG.addC (CG.SubR γ' (LH.OQuot qsym) $ LH.uReft (F.vv_, p)) msg
+      = CG.addC (CG.SubR γ' (LH.OQuot qsym) $ LH.uReft (F.vv_, F.PIff (F.EVar F.vv_) p)) msg
+        -- CG.addC (CG.SubR γ' (LH.OQuot qsym) $ LH.uReft (F.vv_, p)) msg
 
 normaliseWithEnv :: NBEEnv -> NBEState -> SpecType -> Expr -> NBEResult Expr
 normaliseWithEnv env st t e

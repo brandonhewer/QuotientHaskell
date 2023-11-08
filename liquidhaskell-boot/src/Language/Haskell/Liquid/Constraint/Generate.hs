@@ -110,13 +110,14 @@ consClass _ _
 consCBLet :: CGEnv -> CoreBind -> CG CGEnv
 --------------------------------------------------------------------------------
 consCBLet γ cb = do
+  let γ' = γ { cgTopLevel = Nothing }
   oldtcheck <- gets tcheck
-  isStr     <- doTermCheck (getConfig γ) cb
+  isStr     <- doTermCheck (getConfig γ') cb
   -- TODO: yuck.
   modify $ \s -> s { tcheck = oldtcheck && isStr }
-  γ' <- consCB (mkTCheck oldtcheck isStr) γ cb
+  γ'' <- consCB (mkTCheck oldtcheck isStr) γ' cb
   modify $ \s -> s{tcheck = oldtcheck}
-  return γ'
+  return $ γ'' { cgTopLevel = cgTopLevel γ }
 
 --------------------------------------------------------------------------------
 -- | Constraint Generation: Corebind -------------------------------------------
@@ -138,8 +139,10 @@ consCBTop _ _ γ cb
        isStr     <- doTermCheck (getConfig γ) cb
        modify $ \s -> s { tcheck = oldtcheck && isStr}
        -- remove invariants that came from the cb definition
-       let (γ', i) = removeInvariant γ cb                 --- DIFF
-       γ'' <- consCB (mkTCheck oldtcheck isStr) (γ'{cgVar = topBind cb}) cb
+       let (γ', i)   = removeInvariant γ cb                 --- DIFF
+           topBinder = topBind cb
+       γ'' <- consCB (mkTCheck oldtcheck isStr)
+                     (γ' { cgVar = topBinder, cgTopLevel = mkTopLevelDefinition γ' <$> topBinder }) cb
        modify $ \s -> s { tcheck = oldtcheck}
        return $ restoreInvariant γ'' i                    --- DIFF
     where
@@ -342,7 +345,7 @@ cconsE' γ (Lam α e) (RAllT α' t r) | isTyVar α
 
 cconsE' γ (Lam x e) (RFun y i ty t r)
   | not (isTyVar x)
-  = do γ' <- γ += ("cconsE", x', ty)
+  = do γ' <- addTopLevelArg γ x' ty += ("cconsE", x', ty)
        cconsE γ' e t'
        addFunctionConstraint γ x e (RFun x' i ty t' r')
        addIdA x (AnnDef ty)
@@ -532,7 +535,7 @@ consE γ (Lam α e) | isTyVar α
 
 consE γ  e@(Lam x e1)
   = do tx      <- freshTyType (typeclass (getConfig γ)) LamE (Var x) τx
-       γ'      <- γ += ("consE", F.symbol x, tx)
+       γ'      <- addTopLevelArg γ x' tx += ("consE", x', tx)
        t1      <- consE γ' e1
        addIdA x $ AnnDef tx
        addW     $ WfC γ tx
@@ -540,6 +543,7 @@ consE γ  e@(Lam x e1)
        lamSing <- lambdaSingleton γ tce x e1
        return   $ RFun (F.symbol x) (mkRFInfo $ getConfig γ) tx t1 lamSing
     where
+      x' = F.symbol x
       FunTy { ft_arg = τx } = exprType e
 
 consE γ e@(Let _ _)
