@@ -13,6 +13,7 @@ module Language.Haskell.Liquid.Constraint.Fresh
   ( -- module Language.Haskell.Liquid.Types.Fresh
     -- , 
     refreshArgsTop
+  , freshTyTypeE
   , freshTyType
   , freshTyExpr
   , trueTy
@@ -66,9 +67,15 @@ refreshArgsTop (x, t)
 --   invariant is /obviously/ enforced.
 --   Constraint generation should ONLY use @freshTyType@ and @freshTyExpr@
 
+freshTyTypeE       :: Bool -> KVKind -> F.Expr -> Type -> CG SpecType
+freshTyTypeE allowTC k e τ
+  =   F.notracepp ("freshTyType: " ++ F.showpp k ++ F.showpp e)
+  <$> freshTyReftype allowTC k (ofType τ)
+
 freshTyType        :: Bool -> KVKind -> CoreExpr -> Type -> CG SpecType
-freshTyType allowTC k e τ  =  F.notracepp ("freshTyType: " ++ F.showpp k ++ GM.showPpr e)
-                   <$> freshTyReftype allowTC k (ofType τ)
+freshTyType allowTC k e τ
+  =   F.notracepp ("freshTyType: " ++ F.showpp k ++ GM.showPpr e)
+  <$> freshTyReftype allowTC k (ofType τ)
 
 freshTyExpr        :: Bool -> KVKind -> CoreExpr -> Type -> CG SpecType
 freshTyExpr allowTC k e _  = freshTyReftype allowTC k $ exprRefType e

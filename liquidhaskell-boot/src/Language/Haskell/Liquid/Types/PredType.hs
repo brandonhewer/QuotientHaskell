@@ -439,8 +439,8 @@ substPredP :: [Char]
            -> (RPVar, Ref RSort (RRType RReft))
            -> Ref RSort (RType RTyCon RTyVar RReft)
            -> Ref RSort SpecType
-substPredP _ su p@(RProp _ (RHole _))
-  = panic Nothing ("PredType.substPredP1 called on invalid inputs: " ++ showpp (su, p))
+substPredP msg su p@(RProp _ (RHole _))
+  = panic Nothing ("PredType.substPredP1 called on invalid inputs: " ++ showpp (su, p) ++ "\nMSG:" ++ msg)
 substPredP msg (p, RProp ss prop) (RProp s t)
   = RProp ss' $ substPred (msg ++ ": substPredP") (p, RProp ss {- (subst su prop) -} prop ) t
  where

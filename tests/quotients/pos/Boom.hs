@@ -1,4 +1,6 @@
 {-@ LIQUID "--reflection" @-}
+{-@ LIQUID "--scrape-imports" @-}
+{-@ LIQUID "--typeclass" @-}
 
 module Boom where
 
@@ -32,9 +34,8 @@ lfilter p (Join x y) = Join (lfilter p x) (lfilter p y)
 {-@ reflect notAllow @-}
 {-@ notAllow :: List a -> Tree a @-}
 notAllow :: Tree a -> Tree a
-notAllow Empty = Empty
-notAllow (Leaf a) = Leaf a
-notAllow (Join x y) = Join x y-}
+notAllow x = x
+-}
 
 {-@ reflect sumT @-}
 {-@ sumT :: List Int -> Int @-}
@@ -42,6 +43,19 @@ sumT :: Tree Int -> Int
 sumT Empty      = 0
 sumT (Leaf n)   = n
 sumT (Join x y) = sumT x + sumT y
+
+{-@ type Magnitude = { r:Double | r >= 0 } @-}
+
+{-@
+data Polar
+  =  (Magnitude, Int)
+  |/ turn :: r:Magnitude -> a:Int -> (r, a) == (r, a + 360)
+@-}
+
+{-@ reflect rotate @-}
+{-@ rotate :: Int -> Polar -> Polar @-}
+rotate :: Int -> (Double, Int) -> (Double, Int)
+rotate x (r, a) = (r, a + x)
 
 {-
 {-@ reflect subtr @-}

@@ -72,7 +72,7 @@ initEnv info
        let cbs   = giCbs . giSrc $ info
        rTrue   <- mapM (mapSndM (true allowTC)) f6
        let dconM = M.fromList (map (first F.symbol) f4)
-       let qcons = makeQuotDataCons (gsQuotCons $ gsQuots sp) (gsDconsP $ gsName sp) dconM
+       qcons   <- makeQuotDataCons (gsQuotCons $ gsQuots sp) (gsDconsP $ gsName sp) dconM
        let γ0    = measEnv sp (head bs) cbs tcb lt1s lt2s (f6 ++ bs!!3) (bs!!5) hs qcons info
        γ  <- globalize <$> foldM (+=) γ0 ( [("initEnv", x, y) | (x, y) <- concat (rTrue:tail bs)])
        return γ {invs = is (invs1 ++ invs2)}
@@ -340,26 +340,35 @@ makeQuotDataCons
   :: M.HashMap TyCon (M.HashMap F.Symbol [SpecType])
   -> [F.Located DataCon]
   -> M.HashMap F.Symbol SpecType
-  -> M.HashMap F.Symbol SpecType
-makeQuotDataCons rs dds ts = L.foldl' makeDataCons mempty dds
+  -> CG (M.HashMap F.Symbol SpecType)
+makeQuotDataCons rs dds ts = foldM makeDataCons mempty dds
   where
-    makeDataCons :: M.HashMap F.Symbol SpecType -> F.Located DataCon -> M.HashMap F.Symbol SpecType
-    makeDataCons us (F.Loc _ _ dc)
-      = let tc = dataConTyCon dc
-         in case M.lookup tc rs of
-              Nothing -> us
-              Just qs -> case M.lookup (F.symbol dc) ts of
-                Nothing -> us
-                Just t  -> M.insert (F.symbol dc) (refineQuotDataCons tc qs t) us
+    getRefinedType :: DataCon -> Maybe SpecType
+    getRefinedType dc = do
+      let tc = dataConTyCon dc
+      qs <- M.lookup tc rs
+      t  <- M.lookup (F.symbol dc) ts
+      refineQuotDataCons tc qs t
 
-refineQuotDataCons :: TyCon -> M.HashMap F.Symbol [SpecType] -> SpecType -> SpecType
+    makeDataCons :: M.HashMap F.Symbol SpecType -> F.Located DataCon -> CG (M.HashMap F.Symbol SpecType)
+    makeDataCons us (F.Loc _ _ dc)
+      = case getRefinedType dc of
+          Nothing -> return us
+          Just t  -> do
+            t' <- refreshArgs t
+            return $ M.insert (F.symbol dc) t' us
+
+refineQuotDataCons :: TyCon -> M.HashMap F.Symbol [SpecType] -> SpecType -> Maybe SpecType
 refineQuotDataCons tc qs t
-  = let trep = toRTypeRep t
-     in fromRTypeRep $ trep
-          { ty_vars  = map (first (mapTyCon tyConRefine <$>)) $ ty_vars trep
-          , ty_preds = map (mapTyCon tyConRefine <$>) $ ty_preds trep
-          , ty_args  = map (mapTyCon tyConRefine) $ ty_args trep
-          }
+  = let trep@RTypeRep{ty_vars, ty_preds, ty_args, ty_res} = toRTypeRep t
+     in if any (doesContainTyCon tc) ty_args then
+          Just $ fromRTypeRep $ trep
+            { ty_vars  = map (first (mapTyCon tyConRefine <$>)) ty_vars
+            , ty_preds = map (mapTyCon tyConRefine <$>) ty_preds
+            , ty_args  = map (mapTyCon tyConRefine) ty_args
+            , ty_res   = mapTyCon tyConRefine ty_res
+            }
+        else Nothing
     where
       tyConRefine :: RTyCon -> RTyCon
       tyConRefine t@(RTyCon c _ inf)
@@ -370,6 +379,37 @@ refineQuotDataCons tc qs t
             }
         | otherwise = t
       tyConRefine t = t
+
+doesContainTyCon :: TyCon -> SpecType -> Bool
+doesContainTyCon c (RAllP _ t)
+  = doesContainTyCon c t
+doesContainTyCon c (RAllT _ t _)
+  = doesContainTyCon c t
+doesContainTyCon c (RFun _ _ t t' _)
+  = doesContainTyCon c t || doesContainTyCon c t'
+doesContainTyCon c (RApp (RTyCon {rtc_tc}) ts _ _)
+  | c == rtc_tc = True
+  | otherwise   = any (doesContainTyCon c) ts
+doesContainTyCon c (RApp (QTyCon {qtc_type}) ts _ _)
+  = doesContainTyCon c qtc_type || any (doesContainTyCon c) ts
+doesContainTyCon c (RApp (JoinTyCon {jtc_base}) ts _ _)
+  | c == jtc_base = True
+  | otherwise     = any (doesContainTyCon c) ts
+doesContainTyCon _ (RVar _ _)
+  = False
+doesContainTyCon c (RAllE _ tx t)
+  = doesContainTyCon c tx || doesContainTyCon c t
+doesContainTyCon c (REx _ tx t)
+  = doesContainTyCon c tx || doesContainTyCon c t 
+doesContainTyCon _ (RExprArg _)
+  = False
+doesContainTyCon c (RAppTy t t' _)
+  = doesContainTyCon c t || doesContainTyCon c t'
+doesContainTyCon _ (RHole _)
+  = False
+doesContainTyCon c (RRTy e _ _ t)
+  = doesContainTyCon c t || any (doesContainTyCon c . snd) e
+
 
 getQuotientReft :: SpecQuotient -> Maybe F.Expr
 getQuotientReft Quotient { qtVars }

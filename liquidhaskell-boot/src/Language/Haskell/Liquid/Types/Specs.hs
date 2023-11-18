@@ -365,6 +365,9 @@ type SpecQuotientType = QuotientType RTyCon RTyVar RReft
 deriving instance Show BareQuotientType
 deriving instance Show SpecQuotientType
 
+instance F.PPrint (QuotientType c tv r) where
+  pprintTidy k qty = text "Quotient Type: " <+> F.pprintTidy k (qtyName qty)
+
 data GhcSpecQuots = SpQuots
   { gsQuotTyCons   :: !(M.HashMap F.Symbol SpecQuotientType)
   , gsQuotients    :: !(M.HashMap F.Symbol SpecQuotient)

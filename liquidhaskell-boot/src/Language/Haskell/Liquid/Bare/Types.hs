@@ -21,7 +21,10 @@ module Language.Haskell.Liquid.Bare.Types
   , MeasEnv (..)
 
     -- * Quotient related environment
-  , QuotMap (..)
+  , QuotEnv (..)
+  , BareQuotMap
+  , BareQuotTypeMap
+  , SpecQuotTypeMap
 
     -- * Misc 
   , PlugTV (..)
@@ -70,7 +73,7 @@ plugSrc _        = Nothing
 -------------------------------------------------------------------------------
 data Env = RE 
   { reLMap      :: !LogicMap
-  , reQuotMap   :: !(M.HashMap ModName QuotMap)
+  , reQuotEnv   :: !QuotEnv
   , reSyms      :: ![(F.Symbol, Ghc.Var)]    -- ^ see "syms" in old makeGhcSpec'
   , _reSubst    :: !F.Subst                  -- ^ see "su"   in old makeGhcSpec'
   , _reTyThings :: !TyThingMap 
@@ -168,17 +171,29 @@ isTargetModName env name = name == _giTargetMod (reSrc env)
 -- | Quotient environment types
 -------------------------------------------------------------------------------
 
-data QuotMap = QuotMap
-  { quotTyMap :: !(M.HashMap F.Symbol BareQuotientType)
-  , quotMap   :: !(M.HashMap F.Symbol BareQuotient)
+type SymMap a = M.HashMap F.Symbol [(F.Symbol, a)]
+type BareQuotTypeMap = SymMap BareQuotientType
+type BareQuotMap     = SymMap BareQuotient
+type SpecQuotTypeMap = SymMap (RTyCon, SpecQuotientType)
+
+data QuotEnv = QuotEnv
+  { qeBareTypeMap :: !BareQuotTypeMap
+  , qeBareQuotMap :: !BareQuotMap
+  , qeSpecTypeMap :: !SpecQuotTypeMap
   }
 
-instance Semigroup QuotMap where
-  q1 <> q2
-    = QuotMap
-        { quotTyMap = quotTyMap q1 <> quotTyMap q2
-        , quotMap   = quotMap   q1 <> quotMap   q2
+instance Semigroup QuotEnv where
+  e1 <> e2
+    = QuotEnv
+        { qeBareTypeMap = qeBareTypeMap e1 <> qeBareTypeMap e2
+        , qeBareQuotMap = qeBareQuotMap e1 <> qeBareQuotMap e2
+        , qeSpecTypeMap = qeSpecTypeMap e1 <> qeSpecTypeMap e2
         }
 
-instance Monoid QuotMap where
-  mempty = QuotMap { quotTyMap = mempty, quotMap = mempty }
+instance Monoid QuotEnv where
+  mempty
+    = QuotEnv
+        { qeBareTypeMap = mempty
+        , qeBareQuotMap = mempty
+        , qeSpecTypeMap = mempty
+        }

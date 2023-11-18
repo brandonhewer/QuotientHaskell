@@ -1638,7 +1638,7 @@ dataOrQuotDeclBodyP pos x = do
 
 quotDeclBodyP :: SourcePos -> LocSymbol -> [Symbol] -> Parser QuotDecl
 quotDeclBodyP pos x as = do
-  utype <- reservedOp "=" >> (_pct <$> btP)
+  utype <- reservedOp "=" >> bareTypeP
   qtors <- some (reservedOp "|/" >> quotConP as)
   return $ QuotDecl x as utype qtors pos
 
@@ -1711,7 +1711,7 @@ quotPatternP
         [p] -> p
         ps  -> do
           let len  = length ps
-          let cons = symbol $ "(" ++ replicate len ',' ++ ")"  -- stored in prefix form
+          let cons = symbol $ "(" ++ replicate (len - 1) ',' ++ ")"  -- stored in prefix form
            in QPCons len cons ps
 
     consPat :: Symbol -> Parser QPattern

@@ -29,14 +29,13 @@ import qualified Language.Haskell.Liquid.GHC.SpanStack         as Sp
 import qualified Language.Haskell.Liquid.GHC.Misc              as GM -- ( isInternal, collectArguments, tickSrcSpan, showPpr )
 import Text.PrettyPrint.HughesPJ ( text )
 import           Control.Monad.State
-import qualified Data.Bifunctor                                as BF
 import           Data.Maybe                                    (fromMaybe, isJust, mapMaybe)
 import           Data.Either.Extra                             (eitherToMaybe)
+import           Data.Functor.Identity
 import qualified Data.HashMap.Strict                           as M
 import qualified Data.HashSet                                  as S
 import qualified Data.List                                     as L
 import qualified Data.Foldable                                 as F
-import qualified Data.Functor.Identity
 import Language.Fixpoint.Misc ( (<<=), errorP, mapSnd, safeZip )
 import           Language.Fixpoint.Types.Visitor
 import qualified Language.Fixpoint.Types                       as F
@@ -55,8 +54,6 @@ import           Language.Haskell.Liquid.Constraint.Template
 import           Language.Haskell.Liquid.Constraint.Termination
 import           Language.Haskell.Liquid.Transforms.CoreToLogic (weakenResult, runToLogic, coreToLogic)
 import           Language.Haskell.Liquid.Bare.DataType (dataConMap, makeDataConChecker)
-
-import Debug.Trace (trace)
 
 --------------------------------------------------------------------------------
 -- | Constraint Generation: Toplevel -------------------------------------------
@@ -80,6 +77,8 @@ consAct γ cfg info = do
   let sSpc = gsSig . giSpec $ info
   let gSrc = giSrc info
   when (gradual cfg) (mapM_ (addW . WfC γ . val . snd) (gsTySigs sSpc ++ gsAsmSigs sSpc))
+  -- Quotient checking
+  -- mapM_ (consQuotientType γ) (cgQuotTyDefs γ)
   γ' <- foldM (consCBTop cfg info) γ (giCbs gSrc)
   -- Relational Checking: the following only runs when the list of relational specs is not empty
   (ψ, γ'') <- foldM (consAssmRel cfg info) ([], γ') (gsAsmRel sSpc ++ gsRelation sSpc)
@@ -369,8 +368,8 @@ cconsE' γ e@(Cast e' c) t
        addC (SubC γ (F.notracepp ("Casted Type for " ++ GM.showPpr e ++ "\n init type " ++ showpp t) t') t) ("cconsE Cast: " ++ GM.showPpr e)
 
 cconsE' γ e t
-  = do te  <- consE γ e
-       te' <- instantiatePreds γ e te >>= addPost γ
+  = do te  <- instJoinTyCons t <$> consE γ e
+       te' <- instantiatePreds "cconsE" γ e te >>= addPost γ
        addC (SubC γ te' t) ("cconsE: " ++ "\n t = " ++ showpp t ++ "\n te = " ++ showpp te ++ GM.showPpr e)
 
 lambdaSingleton :: CGEnv -> F.TCEmb TyCon -> Var -> CoreExpr -> CG (UReft F.Reft)
@@ -430,15 +429,16 @@ splitConstraints _ t
 --   of a @RType@, generates fresh @Ref@ for them and substitutes them
 --   in the body.
 -------------------------------------------------------------------
-instantiatePreds :: CGEnv
+instantiatePreds :: String
+                 -> CGEnv
                  -> CoreExpr
                  -> SpecType
                  -> CG SpecType
-instantiatePreds γ e (RAllP π t)
+instantiatePreds s γ e (RAllP π t)
   = do r <- freshPredRef γ e π
-       instantiatePreds γ e $ replacePreds "consE" t [(π, r)]
+       instantiatePreds s γ e $ replacePreds ("consE - " ++ s) t [(π, r)]
 
-instantiatePreds _ _ t0
+instantiatePreds _ _ _ t0
   = return t0
 
 -------------------------------------------------------------------
@@ -499,7 +499,7 @@ consE γ e'@(App e a@(Type τ))
                          else trueTy (typeclass (getConfig γ)) τ
        addW          $ WfC γ t
        t'           <- refreshVV t
-       tt0          <- instantiatePreds γ e' (subsTyVarMeet' (ty_var_value α, t') te)
+       tt0          <- instantiatePreds "App Ty" γ e' (subsTyVarMeet' (ty_var_value α, t') te)
        let tt        = makeSingleton γ (simplify e') $ subsTyReft γ (ty_var_value α) τ tt0
        return $ case rTVarToBind α of
          Just (x, _) -> maybe (checkUnbound γ e' x tt a) (F.subst1 tt . (x,)) (argType τ)
@@ -512,7 +512,7 @@ consE γ e'@(App e a) | Just aDict <- getExprDict γ a
       Just riSig -> return $ fromRISig riSig
       _          -> do
         ([], πs, te) <- bkUniv <$> consE γ e
-        te'          <- instantiatePreds γ e' $ foldr RAllP te πs
+        te'          <- instantiatePreds "App Dict" γ e' $ foldr RAllP te πs
         (γ', te''')  <- dropExists γ te'
         te''         <- dropConstraints γ te'''
         updateLocA {- πs -} (exprLoc e) te''
@@ -522,7 +522,7 @@ consE γ e'@(App e a) | Just aDict <- getExprDict γ a
 
 consE γ e'@(App e a)
   = do ([], πs, te) <- bkUniv <$> consE γ {- GM.tracePpr ("APP-EXPR: " ++ GM.showPpr (exprType e)) -} e
-       te1        <- instantiatePreds γ e' $ foldr RAllP te πs
+       te1        <- instantiatePreds "App" γ e' $ foldr RAllP te πs
        (γ', te2)  <- dropExists γ te1
        te3        <- dropConstraints γ te2
        updateLocA (exprLoc e) te3
@@ -865,8 +865,8 @@ caseEnv γ x _ (DataAlt c) ys pIs = do
   xt0             <- checkTyCon ("checkTycon cconsCase", x) γ <$> γ ??= x
   let rt           = shiftVV xt0 x'
   tdc             <- getDataConType γ (dataConWorkId c) >>= refreshVV
-  let tdc' = instJoinTyCons tdc rt
-  let (rtd,yts',_) = unfoldR tdc' rt ys
+  let tdc'         = instJoinTyCons rt tdc
+  let (rtd,yts',_) = unfoldR tdc' (unfoldQuot rt) ys
   yts             <- projectTypes (typeclass (getConfig γ))  pIs yts'
   let ys''         = F.symbol <$> filter (not . if allowTC then GM.isEmbeddedDictVar else GM.isEvVar) ys
   let r1           = dataConReft   c   ys''
@@ -887,13 +887,7 @@ caseEnv γ x acs a _ _ = do
 -- | Instantiate a data constructor type with a specific type constructor application
 --   by replacing Join type constructors appropriately.
 instJoinTyCons :: SpecType -> SpecType -> SpecType
-instJoinTyCons init (RApp tcon _ _ _)
-  = let trep = toRTypeRep init
-     in fromRTypeRep trep
-          { ty_vars  = map (BF.first (mapTyCon tyConInstFun <$>)) $ ty_vars trep
-          , ty_preds = map (mapTyCon tyConInstFun <$>) $ ty_preds trep
-          , ty_args  = map (mapTyCon tyConInstFun) $ ty_args trep
-          }
+instJoinTyCons (RApp tcon _ _ _) init = mapTyCon tyConInstFun init
     where
       tyConInstFun :: RTyCon -> RTyCon
       tyConInstFun = case tcon of
@@ -908,7 +902,7 @@ instJoinTyCons init (RApp tcon _ _ _)
             Nothing  -> u
           u -> u
         _ -> id
-instJoinTyCons t _ = t
+instJoinTyCons _ t = t
 
 ------------------------------------------------------
 -- SELF special substitutions
@@ -946,6 +940,11 @@ altReft γ acs DEFAULT    = mconcat ([notLiteralReft l | LitAlt l <- acs] ++ [no
                      | otherwise = mempty
 altReft _ _ _            = panic Nothing "Constraint : altReft"
 
+unfoldQuot :: SpecType -> SpecType
+unfoldQuot (RApp (QTyCon _ ut _ _ vs _) ts _ _) =
+  unfoldQuot $ F.foldl' (flip subsTyVarMeet') ut (zip vs ts)
+unfoldQuot t = t
+
 unfoldR :: SpecType -> SpecType -> [Var] -> (SpecType, [SpecType], SpecType)
 unfoldR td (RApp _ ts rs _) ys = (t3, tvys ++ yts, ignoreOblig rt)
   where
@@ -959,7 +958,6 @@ unfoldR td (RApp _ ts rs _) ys = (t3, tvys ++ yts, ignoreOblig rt)
         tvs' :: [SpecType]
         tvs'                 = rVar <$> αs
         tvys                 = ofType . varType <$> αs
-
 unfoldR _  _                _  = panic Nothing "Constraint.hs : unfoldR"
 
 instantiateTys :: SpecType -> [SpecType] -> SpecType
@@ -1082,7 +1080,7 @@ dataRefType :: (?callStack :: CallStack) => CGEnv -> Var -> CG SpecType
 --------------------------------------------------------------------------------
 dataRefType γ x = case M.lookup (F.symbol x) (cgQuotDataCons γ) of
   Nothing -> varRefType γ x
-  Just t  -> return $ varRefType' γ x t
+  Just t  -> varRefType' γ x <$> refreshTy t
 
 -- | create singleton types for function application
 makeSingleton :: CGEnv -> CoreExpr -> SpecType -> SpecType

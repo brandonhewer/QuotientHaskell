@@ -197,6 +197,7 @@ import GHC.Builtin.Types              as Ghc
     , charDataCon
     , charTyCon
     , consDataCon
+    , doubleTyCon
     , falseDataCon
     , falseDataConId
     , intDataCon

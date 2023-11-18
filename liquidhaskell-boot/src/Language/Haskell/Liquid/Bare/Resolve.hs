@@ -6,16 +6,19 @@
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE LambdaCase            #-}
+{-# LANGUAGE NamedFieldPuns        #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE ConstraintKinds       #-}
 {-# LANGUAGE TupleSections         #-}
+{-# LANGUAGE InstanceSigs #-}
 
 module Language.Haskell.Liquid.Bare.Resolve
   ( -- * Creating the Environment
     makeEnv
 
     -- * Resolving symbols
+  , BareMatchTyCon (..)
   , ResolveSym (..)
   , Qualify (..)
   , Lookup
@@ -28,6 +31,7 @@ module Language.Haskell.Liquid.Bare.Resolve
   , lookupGhcTyCon
   , lookupGhcVar
   , lookupGhcNamedVar
+  , bareMatchTyCon
 
   -- * Checking if names exist
   , knownGhcVar
@@ -36,11 +40,16 @@ module Language.Haskell.Liquid.Bare.Resolve
   , knownGhcType
 
   -- * Misc
+  , Expandable
+  , bareTCApp
   , srcVars
   , coSubRReft
+  , resolveReft
+  , resolveSpecQuotientTyCon
   , unQualifySymbol
 
   -- * Conversions from Bare
+  , ofBSortE
   , ofBareTypeE
   , ofBareType
   , ofBPVar
@@ -57,6 +66,7 @@ module Language.Haskell.Liquid.Bare.Resolve
 import qualified Control.Exception                 as Ex
 import           Control.Monad (mplus)
 import           Data.Bifunctor                    (second)
+import           Data.Hashable                     (Hashable)
 import qualified Data.List                         as L
 import qualified Data.HashSet                      as S
 import qualified Data.Maybe                        as Mb
@@ -78,7 +88,6 @@ import           Language.Haskell.Liquid.Types.Visitors
 import           Language.Haskell.Liquid.Bare.Types
 import           Language.Haskell.Liquid.Bare.Misc
 import           Language.Haskell.Liquid.WiredIn
-import           Language.Haskell.Liquid.Types.Variance (Variance (..), flipVariance)
 
 myTracepp :: (F.PPrint a) => String -> a -> a
 myTracepp = F.notracepp
@@ -93,7 +102,7 @@ makeEnv :: Config -> GhcSrc -> LogicMap -> [(ModName, BareSpec)] -> Env
 makeEnv cfg src lmap specs = RE
   { reLMap      = lmap
   , reSyms      = syms
-  , reQuotMap   = makeQuotMaps specs
+  , reQuotEnv   = makeQuotEnv specs
   , _reSubst    = makeVarSubst   src
   , _reTyThings = makeTyThingMap src
   , reQualImps  = _gsQualImps     src
@@ -461,10 +470,20 @@ substEnv :: (F.Subable a) => Env -> ModName -> F.SourcePos -> [F.Symbol] -> a ->
 substEnv env name l bs = F.substa (qualifySymbol env name l bs)
 
 instance Qualify SpecType where
-  qualify x1 x2 x3 x4 x5 = emapReft (substFreeEnv x1 x2 x3) x4 x5
+  qualify x1 x2 x3 x4 x5
+    = emapReftAndTyCon (qualifyQuotCon x1 x2 x3 x4) (substFreeEnv x1 x2 x3) x4 x5
 
 instance Qualify BareType where
   qualify x1 x2 x3 x4 x5 = emapReft (substFreeEnv x1 x2 x3) x4 x5
+
+qualifyQuotCon :: Env -> ModName -> F.SourcePos -> [F.Symbol] -> RTyCon -> RTyCon
+qualifyQuotCon env name l bs qtc@(QTyCon n t qs _ _ _)
+    = qtc
+        { qtc_name  = qualify env name l bs n
+        , qtc_type  = qualify env name l bs t
+        , qtc_quots = qualify env name l bs qs
+        }
+qualifyQuotCon _ _ _ _ tyc = tyc
 
 substFreeEnv :: (F.Subable a) => Env -> ModName -> F.SourcePos -> [F.Symbol] -> a -> a
 substFreeEnv env name l bs = F.substf (F.EVar . qualifySymbol env name l bs)
@@ -575,6 +594,7 @@ instance ResolveSym Ghc.Var where
                     _          -> Nothing
 
 instance ResolveSym Ghc.TyCon where
+  resolveLocSym :: Env -> ModName -> String -> LocSymbol -> Lookup Ghc.TyCon
   resolveLocSym = resolveWith "type constructor" $ \case
                     Ghc.ATyCon x -> Just x
                     _            -> Nothing
@@ -585,16 +605,34 @@ instance ResolveSym Ghc.DataCon where
                     _                                -> Nothing
 
 instance ResolveSym MatchTyCon where
-  resolveLocSym env mname s loc
-    = case resolveWith "" tryGHC env mname s loc of
+  resolveLocSym env mname s l
+    = case resolveWith "" tryGHC env mname s l of
         Right tc -> Right (GhcTyCon tc)
-        _        -> QuotTyCon <$> resolveQuotTyConWith "type constructor" env mname s loc
-    where
-      tryGHC (Ghc.ATyCon x) = Just x
-      tryGHC _              = Nothing
+        _        -> QuotTyCon . fst <$> (resolveLocSym env mname s l :: Lookup (RTyCon, SpecQuotientType))
+      where
+        tryGHC (Ghc.ATyCon x) = Just x
+        tryGHC _              = Nothing
 
-instance ResolveSym (BareQuotientType, [BareQuotient]) where
-  resolveLocSym = resolveQuotTyWith "quotient type constructor"
+instance ResolveSym BareMatchTyCon where
+  resolveLocSym env mname s lc
+    = case resolveWith' "" tryGHC (lookupTyThing env mname lc) s lc of
+        Right tc -> Right (BareGhcTyCon tc)
+        _        ->
+          BareQuotTyCon
+            <$> keyedResolveWith "type constructor"
+                  Just (lookupBareQuotientType env mname lc) s lc
+      where
+        tryGHC (Ghc.ATyCon x) = Just x
+        tryGHC _              = Nothing
+
+instance ResolveSym BareQuotientType where
+  resolveLocSym = resolveBareQuotientType "type constructor"
+
+instance ResolveSym (RTyCon, SpecQuotientType) where
+  resolveLocSym = resolveSpecQuotientType "type constructor"
+
+instance ResolveSym BareQuotient where
+  resolveLocSym = resolveBareQuotient "quotient constructor"
 
 {- Note [ResolveSym for Symbol]
 
@@ -655,11 +693,35 @@ instance ResolveSym F.Symbol where
         Ghc.AConLike (Ghc.RealDataCon x) -> Just (Ghc.dataConWorkId x)
         _                                -> Nothing
 
+keyedResolveWith
+  :: (PPrint a, PPrint b)
+  => PJ.Doc
+  -> (a -> Maybe b)
+  -> [((Int, F.Symbol), a)]
+  -> String
+  -> LocSymbol
+  -> Lookup (F.Symbol, b)
+keyedResolveWith kind f ts str lx =
+  -- case Mb.mapMaybe f things of
+  case keyedRankedThings f things of
+    Nothing              -> Left [errResolve kind str lx]
+    Just ((_, m), b, []) -> Right (m, b)
+    Just (_, b, bs)      -> Left [ErrDupNames sp (pprint (F.val lx)) (pprint <$> (b:bs))]
+  where
+    _xSym   = F.val lx
+    sp      = GM.fSrcSpanSrcSpan (F.srcSpan lx)
+    things  = myTracepp msg ts
+    msg     = "keyedResolveWith: " ++ str ++ " " ++ F.showpp (val lx)
 
-
-resolveWith :: (PPrint a) => PJ.Doc -> (Ghc.TyThing -> Maybe a) -> Env -> ModName -> String -> LocSymbol
-            -> Lookup a
-resolveWith kind f env name str lx =
+resolveWith'
+  :: (PPrint a, PPrint b)
+  => PJ.Doc
+  -> (a -> Maybe b)
+  -> [((Int, F.Symbol), a)]
+  -> String
+  -> LocSymbol
+  -> Lookup b
+resolveWith' kind f ts str lx =
   -- case Mb.mapMaybe f things of
   case rankedThings f things of
     []  -> Left [errResolve kind str lx]
@@ -668,14 +730,69 @@ resolveWith kind f env name str lx =
   where
     _xSym   = F.val lx
     sp      = GM.fSrcSpanSrcSpan (F.srcSpan lx)
-    things  = myTracepp msg $ lookupTyThing env name lx
+    things  = myTracepp msg ts
     msg     = "resolveWith: " ++ str ++ " " ++ F.showpp (val lx)
 
+resolveWith :: (PPrint a) => PJ.Doc -> (Ghc.TyThing -> Maybe a) -> Env -> ModName -> String -> LocSymbol
+            -> Lookup a
+resolveWith kind f env name s lx = resolveWith' kind f (lookupTyThing env name lx) s lx
+
+resolveBareQuotientTypeWith
+  :: (PPrint a)
+  => PJ.Doc
+  -> (BareQuotientType -> Maybe a)
+  -> Env
+  -> ModName
+  -> String
+  -> LocSymbol
+  -> Lookup a
+resolveBareQuotientTypeWith kind f env name s lx
+  = resolveWith' kind f (lookupBareQuotientType env name lx) s lx
+
+resolveBareQuotientWith
+  :: (PPrint a)
+  => PJ.Doc
+  -> (BareQuotient -> Maybe a)
+  -> Env
+  -> ModName
+  -> String
+  -> LocSymbol
+  -> Lookup a
+resolveBareQuotientWith kind f env name s lx
+  = resolveWith' kind f (lookupBareQuotient env name lx) s lx
+
+resolveSpecQuotientTypeWith
+  :: (PPrint a)
+  => PJ.Doc
+  -> ((RTyCon, SpecQuotientType) -> Maybe a)
+  -> Env
+  -> ModName
+  -> String
+  -> LocSymbol
+  -> Lookup a
+resolveSpecQuotientTypeWith kind f env name s lx
+  = resolveWith' kind f (lookupSpecQuotientType env name lx) s lx
+
+resolveSpecQuotientTyCon
+  :: Env
+  -> ModName
+  -> LocSymbol
+  -> SpecQuotTypeMap
+  -> Lookup (RTyCon, SpecQuotientType)
+resolveSpecQuotientTyCon env mname sym sqtys
+  = resolveWith' "Quotient TyCon" Just (lookupTypeThingsWith env sqtys mname sym) "" sym
 
 rankedThings :: (Misc.EqHash k) => (a -> Maybe b) -> [(k, a)] -> [b]
 rankedThings f ias = case Misc.sortOn fst (Misc.groupList ibs) of
                        (_,ts):_ -> ts
                        []       -> []
+  where
+    ibs            = Mb.mapMaybe (\(k, x) -> (k,) <$> f x) ias
+
+keyedRankedThings :: (Misc.EqHash k) => (a -> Maybe b) -> [(k, a)] -> Maybe (k, b, [b])
+keyedRankedThings f ias = case Misc.sortOn fst (Misc.groupList ibs) of
+                            (k, b:bs):_ -> Just (k, b, bs)
+                            _           -> Nothing
   where
     ibs            = Mb.mapMaybe (\(k, x) -> (k,) <$> f x) ias
 
@@ -688,12 +805,20 @@ rankedThings f ias = case Misc.sortOn fst (Misc.groupList ibs) of
 -------------------------------------------------------------------------------
 lookupTyThing :: Env -> ModName -> LocSymbol -> [((Int, F.Symbol), Ghc.TyThing)]
 -------------------------------------------------------------------------------
-lookupTyThing env mdname lsym = [ (k, t) | (k, ts) <- ordMatches, t <- ts]
+lookupTyThing env = lookupTypeThingsWith env (_reTyThings env)
 
+lookupTypeThingsWith
+  :: F.PPrint a
+  => Env
+  -> M.HashMap F.Symbol [(F.Symbol, a)]
+  -> ModName
+  -> LocSymbol
+  -> [((Int, F.Symbol), a)]
+lookupTypeThingsWith env tyts mdname lsym = [ (k, t) | (k, ts) <- ordMatches, t <- ts]
   where
     ordMatches             = Misc.sortOn fst (Misc.groupList matches)
     matches                = myTracepp ("matches-" ++ msg)
-                             [ ((k, m), t) | (m, t) <- lookupThings env x
+                             [ ((k, m), t) | (m, t) <- lookupThingsWith tyts x
                                            , k      <- myTracepp msg $ mm nameSym m mds ]
     msg                    = "lookupTyThing: " ++ F.showpp (lsym, x, mds)
     (x, mds)               = symbolModules env (F.val lsym)
@@ -701,11 +826,20 @@ lookupTyThing env mdname lsym = [ (k, t) | (k, ts) <- ordMatches, t <- ts]
     mm name m mods         = myTracepp ("matchMod: " ++ F.showpp (lsym, name, m, mods)) $
                                matchMod env name m mods
 
-lookupThings :: Env -> F.Symbol -> [(F.Symbol, Ghc.TyThing)]
-lookupThings env x = myTracepp ("lookupThings: " ++ F.showpp x)
+lookupThingsWith :: F.PPrint a => M.HashMap F.Symbol [(F.Symbol, a)] -> F.Symbol -> [(F.Symbol, a)]
+lookupThingsWith mp x = myTracepp ("lookupThings: " ++ F.showpp x)
                    $ Mb.fromMaybe [] $ get x `mplus` get (GM.stripParensSym x)
   where
-    get z          = M.lookup z (_reTyThings env)
+    get z          = M.lookup z mp
+
+lookupBareQuotientType :: Env -> ModName -> LocSymbol -> [((Int, F.Symbol), BareQuotientType)]
+lookupBareQuotientType env = lookupTypeThingsWith env (qeBareTypeMap $ reQuotEnv env)
+
+lookupSpecQuotientType :: Env -> ModName -> LocSymbol -> [((Int, F.Symbol), (RTyCon, SpecQuotientType))]
+lookupSpecQuotientType env = lookupTypeThingsWith env (qeSpecTypeMap $ reQuotEnv env)
+
+lookupBareQuotient :: Env -> ModName -> LocSymbol -> [((Int, F.Symbol), BareQuotient)]
+lookupBareQuotient env = lookupTypeThingsWith env (qeBareQuotMap $ reQuotEnv env)
 
 matchMod :: Env -> F.Symbol -> F.Symbol -> Maybe [F.Symbol] -> [Int]
 matchMod env tgtName defName = go
@@ -902,8 +1036,7 @@ ofBRType env name f l = go []
         (F.Loc x y (GhcTyCon tc)) ->
           bareTCApp <$> goReft bs r <*> return (F.Loc x y tc) <*> mapM (goRef bs) rs <*> mapM (go bs) ts
         (F.Loc _ _ (QuotTyCon tc)) -> do
-          as <- traverse (go bs) ts
-          bareQCApp env name l r tc as
+          RApp tc <$> mapM (go bs) ts <*> mapM (goRef bs) rs <*> goReft bs r
       where
         lc'                    = F.atLoc lc <$> matchTyCon env name lc (length ts)
         lc                     = btc_tc tc
@@ -928,62 +1061,42 @@ ofBRType env name f l = go []
 
 -}
 
+data BareMatchTyCon
+  = BareGhcTyCon  Ghc.TyCon
+  | BareQuotTyCon (F.Symbol, BareQuotientType)
+
+instance F.PPrint BareMatchTyCon where
+  pprintTidy k (BareGhcTyCon tc)       = pprintTidy k tc
+  pprintTidy k (BareQuotTyCon (_, ty)) = pprintTidy k ty
+
 data MatchTyCon
   = GhcTyCon  Ghc.TyCon
-  | QuotTyCon BareQuotientType
+  | QuotTyCon RTyCon
 
-matchTyCon :: Env -> ModName -> LocSymbol -> Int -> Lookup MatchTyCon
-matchTyCon env name lc@(Loc _ _ c) arity
-  | isList c && arity == 1  = Right $ GhcTyCon Ghc.listTyCon
-  | isTuple c               = Right $ GhcTyCon tuplTc
+matchTyConWith
+  :: ResolveSym a
+  => (Ghc.TyCon -> a)
+  -> Env -> ModName -> LocSymbol -> Int -> Lookup a
+matchTyConWith f env name lc@(Loc _ _ c) arity
+  | isList c && arity == 1  = Right $ f Ghc.listTyCon
+  | isTuple c               = Right $ f tuplTc
   | otherwise               = resolveLocSym env name msg lc
   where
     msg                     = "matchTyCon: " ++ F.showpp c
     tuplTc                  = Ghc.tupleTyCon Ghc.Boxed arity
 
-bareQCApp :: (Expandable r)
-          => Env
-          -> ModName
-          -> F.SourcePos
-          -> r
-          -> BareQuotientType
-          -- -> [RTProp RTyCon RTyVar r]
-          -> [RType RTyCon RTyVar r]
-          -> Lookup (RType RTyCon RTyVar r)
-bareQCApp env modname pos r (QuotientType name ty quots vs arity) ts
-  | length vs < length ts = Left [err]
-  | otherwise             = Right $ RApp tycon ts [] r
-  where
-    tycon :: RTyCon
-    tycon =
-      QTyCon
-        { qtc_name      = name
-        , qtc_type      = ofBareType env modname pos Nothing ty
-        , qtc_quots     = quots
-        , qtc_tyvars    = ftvs
-        , qtc_arity     = arity
-        , qtc_variances = [ Mb.fromMaybe Invariant (M.lookup v variances) | v <- ftvs ]
-        }
+bareMatchTyCon
+  :: Env -> ModName -> LocSymbol -> Int -> Lookup BareMatchTyCon
+bareMatchTyCon env mname lc@(Loc _ _ c) arity
+  | isList c && arity == 1 = Right $ BareGhcTyCon Ghc.listTyCon
+  | isTuple c              = Right $ BareGhcTyCon tuplTc
+  | otherwise              = resolveLocSym env mname msg lc
+    where
+      msg                   = "bareMatchTyCon: " ++ F.showpp c
+      tuplTc                = Ghc.tupleTyCon Ghc.Boxed arity
 
-    utype :: SpecType
-    utype = ofBareType env modname pos Nothing ty
-
-    variances :: M.HashMap RTyVar Variance
-    variances = computeVariances utype $ M.fromList [ (tv, Invariant) | tv <- ftvs ]
-  
-    ftvs :: [RTyVar]
-    ftvs 
-      = let tvs = ofBareType env modname pos Nothing . flip RVar mempty <$> vs
-         in [ tv | (RVar tv _) <- tvs ] -- map symbolRTyVar vs
-
-    err :: Error
-    err = ErrAliasApp (GM.sourcePosSrcSpan $ F.loc name)
-                      (pprint name)
-                      (GM.sourcePosSrcSpan $ F.loc name)
-                      (PJ.hcat [ PJ.text "Expects "
-                                , pprint (length vs)
-                                , PJ.text " arguments, but is given"
-                                , pprint (length ts) ] )
+matchTyCon :: Env -> ModName -> LocSymbol -> Int -> Lookup MatchTyCon
+matchTyCon = matchTyConWith GhcTyCon
 
 bareTCApp :: (Expandable r)
           => r
@@ -1048,7 +1161,7 @@ txRefSort :: TyConMap -> F.TCEmb Ghc.TyCon -> LocSpecType -> LocSpecType
 txRefSort tyi tce t = F.atLoc t $ mapBot (addSymSort (GM.fSrcSpan t) tce tyi) (val t)
 
 addSymSort :: Ghc.SrcSpan -> F.TCEmb Ghc.TyCon -> TyConMap -> SpecType -> SpecType
-addSymSort sp tce tyi (RApp rc@RTyCon{} ts rs rr)
+addSymSort sp tce tyi (RApp rc ts rs rr)
   = RApp rc ts (zipWith3 (addSymSortRef sp rc) pvs rargs [1..]) r2
   where
     (_, pvs)           = RT.appRTyCon tce tyi rc ts
@@ -1159,115 +1272,74 @@ partitionLocalBinds = L.partition (Mb.isJust . localKey . fst)
 -- | Quotient related environment functions
 -------------------------------------------------------------------------------
 
--- | Quotient map construction
-makeQuotMaps :: [(ModName, BareSpec)] -> M.HashMap ModName QuotMap
-makeQuotMaps = L.foldl' updateQuotMap mempty
+makeQuotEnv :: [(ModName, BareSpec)] -> QuotEnv
+makeQuotEnv = L.foldl' updateQuotEnv mempty
   where
-    updateQuotMap :: M.HashMap ModName QuotMap -> (ModName, BareSpec) -> M.HashMap ModName QuotMap
-    updateQuotMap mp (modName, spec)
-      = M.insertWith (<>) modName (L.foldl' addQuotDecl mempty (quotDecls spec)) mp
+    updateQuotEnv :: QuotEnv -> (ModName, BareSpec) -> QuotEnv
+    updateQuotEnv env (mname, spec)
+      = L.foldl' (addQuotDecl mname) env (quotDecls spec)
 
-addQuotDecl :: QuotMap -> QuotDecl -> QuotMap
-addQuotDecl qm qd
-  = QuotMap
-      { quotTyMap = M.insert (F.val $ qtycName qd) quotTy $ quotTyMap qm
-      , quotMap   = L.foldl' (\m (k, v)-> M.insert (F.val k) v m) (quotMap qm) quotients
+addToMap :: Hashable k => k -> v -> M.HashMap k [v] -> M.HashMap k [v]
+addToMap k v = M.alter (maybe (Just [v]) (Just . (v :))) k
+
+addQuotDecl :: ModName -> QuotEnv -> QuotDecl -> QuotEnv
+addQuotDecl mname env@QuotEnv {qeBareTypeMap, qeBareQuotMap} qd
+  = env
+      { qeBareTypeMap
+          = addToMap (F.val $ qtycName qd) (F.symbol mname, quotientType) qeBareTypeMap
+      , qeBareQuotMap = L.foldl' addQuotient qeBareQuotMap $ qtycQuots qd
       }
-  where
-    quotients :: [(F.LocSymbol, BareQuotient)]
-    quotients = map (makeQuotient $ qtycName qd) $ qtycQuots qd
+    where
+      addQuotient
+        :: M.HashMap F.Symbol [(F.Symbol, BareQuotient)]
+        -> QuotCtor
+        -> M.HashMap F.Symbol [(F.Symbol, BareQuotient)]
+      addQuotient m ctr
+        = addToMap (F.val $ qcName ctr) (F.symbol mname, makeQuotient (qtycName qd) ctr) m
 
-    quotTy :: BareQuotientType
-    quotTy
-      = QuotientType
-          { qtyName   = qtycName qd
-          , qtyType   = qtycType qd
-          , qtyQuots  = F.val . fst <$> quotients
-          , qtyTyVars = BTV <$> qtycTyVars qd
-          , qtyArity  = length $ qtycTyVars qd
-          }
+      quotientType :: BareQuotientType
+      quotientType
+        = QuotientType
+            { qtyName   = qtycName qd
+            , qtyType   = qtycType qd
+            , qtyQuots  = map (F.val . qcName) $ qtycQuots qd
+            , qtyTyVars = BTV <$> qtycTyVars qd
+            , qtyArity  = length $ qtycTyVars qd
+            }
 
-makeQuotient :: F.LocSymbol -> QuotCtor -> (F.LocSymbol, BareQuotient)
+makeQuotient :: F.LocSymbol -> QuotCtor -> BareQuotient
 makeQuotient qtTyCon qctor
-  = ( qcName qctor
-    , Quotient
-        { qtName   = qcName qctor
-        , qtTyCon  = qtTyCon
-        , qtVars   = M.fromList (qcBinds qctor)
-        , qtLeft   = qcLeft qctor
-        , qtRight  = qcRight qctor
-        }
-    )
+  = Quotient
+      { qtName   = qcName qctor
+      , qtTyCon  = qtTyCon
+      , qtVars   = M.fromList (qcBinds qctor)
+      , qtLeft   = qcLeft qctor
+      , qtRight  = qcRight qctor
+      }
 
-resolveQuotTyConWith
+resolveSpecQuotientType
+  :: PJ.Doc
+  -> Env
+  -> ModName
+  -> String
+  -> LocSymbol
+  -> Lookup (RTyCon, SpecQuotientType)
+resolveSpecQuotientType kind = resolveSpecQuotientTypeWith kind Just
+
+resolveBareQuotientType
   :: PJ.Doc
   -> Env
   -> ModName
   -> String
   -> LocSymbol
   -> Lookup BareQuotientType
-resolveQuotTyConWith kind env name str lx
-  = case qTy of
-      Nothing -> Left [errResolve kind str lx]
-      Just qt -> Right qt
-    where
-      qTy :: Maybe BareQuotientType
-      qTy = do
-        qm  <- M.lookup name (reQuotMap env)
-        M.lookup (F.val lx) (quotTyMap qm)
+resolveBareQuotientType kind = resolveBareQuotientTypeWith kind Just
 
-resolveQuotTyWith
+resolveBareQuotient
   :: PJ.Doc
   -> Env
   -> ModName
   -> String
   -> LocSymbol
-  -> Lookup (BareQuotientType, [BareQuotient])
-resolveQuotTyWith kind env name str lx
-  = case qTy of
-      Nothing -> Left [errResolve kind str lx]
-      Just qt -> Right qt
-  where
-    qTy :: Maybe (BareQuotientType, [BareQuotient])
-    qTy = do
-      qm  <- M.lookup name (reQuotMap env)
-      qty <- M.lookup (F.val lx) (quotTyMap qm)
-      qs  <- traverse (`M.lookup` quotMap qm) $ qtyQuots qty
-      return (qty, qs)
-
-computeVariances
-  :: RType RTyCon RTyVar r
-  -> M.HashMap RTyVar Variance
-  -> M.HashMap RTyVar Variance
-computeVariances = go Covariant
-  where
-    joinVariance :: Variance -> Variance -> Variance
-    joinVariance v Invariant = v
-    joinVariance Invariant v = v
-    joinVariance Bivariant _ = Bivariant
-    joinVariance _ Bivariant = Bivariant
-    joinVariance v1 v2
-      | v1 == v2  = v1
-      | otherwise = Bivariant
-
-    go :: Variance -> RType RTyCon RTyVar r -> M.HashMap RTyVar Variance -> M.HashMap RTyVar Variance
-    go p (RVar t _)               mp = M.update (Just . joinVariance p) t mp
-    go p (RFun _ _ t1 t2 _)       mp = go (flipVariance p) t1 $ go p t2 mp
-    go p (RAllT (RTVar tv _) t _) mp
-      = case M.lookup tv mp of
-          Nothing -> go p t mp
-          Just v  -> M.insert tv v $ go p t (M.delete tv mp)
-    go p (RAllP _ t)              mp = go p t mp
-    go p (RApp c ts _ _)          mp
-      = case c of
-          RTyCon _ _ inf
-            -> foldr (uncurry go) mp $ zip (map (joinVariance p) (varianceTyArgs inf)) ts
-          QTyCon {qtc_type = utype, qtc_tyvars = tvs, qtc_variances = vs}
-            -> go p utype (M.fromList $ zip tvs vs)
-          _ -> mp
-    go p (RAllE _ t1 t2)          mp = go p t2 $ go p t1 mp
-    go p (REx _ t1 t2)            mp = go p t2 $ go p t1 mp
-    go _ (RExprArg _)             mp = mp
-    go p (RAppTy t1 t2 _)         mp = go p t2 $ go p t1 mp
-    go p (RRTy _ _ _ t)           mp = go p t mp
-    go _ (RHole _)                mp = mp
+  -> Lookup BareQuotient
+resolveBareQuotient kind = resolveBareQuotientWith kind Just

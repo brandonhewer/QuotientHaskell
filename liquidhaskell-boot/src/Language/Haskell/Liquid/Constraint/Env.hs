@@ -18,6 +18,7 @@ module Language.Haskell.Liquid.Constraint.Env (
   , (+=)
   , extendEnvWithVV
   , addBinders
+  , addQuotientBinders
   , addSEnv
   , addEEnv
   , (-=)
@@ -153,6 +154,11 @@ extendEnvWithVV γ t
   = return γ
   where
     vv = rTypeValueVar t
+
+addQuotientBinders :: CGEnv -> [(F.Symbol, SpecType)] -> CG CGEnv
+addQuotientBinders γ bs = foldM addBind γ bs
+  where
+    addBind γ' (x, s) = γ' ++= ("addQuotientBinders", x, expandQuotTyCons s)
 
 addBinders :: CGEnv -> F.Symbol -> [(F.Symbol, SpecType)] -> CG CGEnv
 addBinders γ0 x' cbs   = foldM (++=) (γ0 -= x') [("addBinders", x, t) | (x, t) <- cbs]

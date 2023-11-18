@@ -2,9 +2,12 @@
 --   and the pipeline for "cooking" a @BareType@ into a @SpecType@.
 --   TODO: _only_ export `makeRTEnv`, `cookSpecType` and maybe `qualifyExpand`...
 
+{-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE FlexibleInstances     #-}
+{-# LANGUAGE NamedFieldPuns        #-}
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE TupleSections         #-}
 
 module Language.Haskell.Liquid.Bare.Expand
   ( -- * Create alias expansion environment
@@ -17,6 +20,7 @@ module Language.Haskell.Liquid.Bare.Expand
   , cookSpecType
   , cookSpecTypeE
   , specExpandType
+  , cookSpecQuotTypes
 
     -- * Re-exported for data-constructors
   , plugHoles
@@ -28,6 +32,7 @@ import Data.Maybe
 
 import           Control.Monad
 import           Control.Monad.State
+import           Control.Monad.Except (MonadError, throwError)
 import           Data.Functor ((<&>))
 import qualified Control.Exception         as Ex
 import qualified Data.HashMap.Strict       as M
@@ -281,6 +286,7 @@ qualifyExpand env name rtEnv l bs
     qualifiedRTEnv = rtEnv { typeAliases = M.map (Bare.qualify env name l bs) (typeAliases rtEnv) }
 
 ----------------------------------------------------------------------------------
+
 expandLoc :: (Expand a) => BareRTEnv -> Located a -> Located a
 expandLoc rtEnv lx = expand rtEnv (F.loc lx) <$> lx
 
@@ -337,6 +343,18 @@ instance Expand DataDecl where
     , tycPropTy = expand rtEnv l (tycPropTy d)
     }
 
+instance Expand QuotCtor where
+  expand rtEnv l qc = qc
+    { qcBinds = [ (v, expand rtEnv l t) | (v, t) <- qcBinds qc ]
+    , qcRight = expand rtEnv l $ qcRight qc
+    }
+
+instance Expand QuotDecl where
+  expand rtEnv l qd = qd
+    { qtycType  = expand rtEnv l $ qtycType qd
+    , qtycQuots = expand rtEnv l <$> qtycQuots qd
+    } 
+
 instance Expand BareMeasure where
   expand rtEnv l m = m
     { msSort = expand rtEnv l (msSort m)
@@ -379,6 +397,7 @@ expandBareSpec rtEnv l sp = sp
   , ialiases   = [ (f x, f y) | (x, y) <- ialiases sp ]
   , dataDecls  = expand rtEnv l (dataDecls  sp)
   , newtyDecls = expand rtEnv l (newtyDecls sp)
+  , quotDecls  = expand rtEnv l (quotDecls  sp)
   }
   where f      = expand rtEnv l
 
@@ -486,26 +505,28 @@ cookSpecType env sigEnv name x bt
     z    = Bare.plugSrc x
 
 
------------------------------------------------------------------------------------------
-cookSpecTypeE :: Bare.Env -> Bare.SigEnv -> ModName -> Bare.PlugTV Ghc.Var -> LocBareType
-              -> Bare.Lookup LocSpecType
------------------------------------------------------------------------------------------
-cookSpecTypeE env sigEnv name@(ModName _ _) x bt
-  = fmap f . bareSpecType env name $ bareExpandType rtEnv bt
+postSpecTypeE
+  :: Bare.Env
+  -> Bare.SigEnv
+  -> ModName
+  -> Bare.PlugTV Ghc.Var
+  -> LocSpecType
+  -> LocSpecType
+postSpecTypeE env sigEnv@Bare.SigEnv {..} name x t
+  = (if doplug || not allowTC then plugHoles allowTC sigEnv name x else id)
+    . fmap (addTyConInfo sigEmbs sigTyRTyMap)
+    . Bare.txRefSort sigTyRTyMap sigEmbs
+    . fmap txExpToBind -- What does this function DO
+    . (specExpandType sigRTEnv . fmap (generalizeWith x))
+    . (if doplug || not allowTC then maybePlug allowTC sigEnv name x else id)
+    -- we do not qualify/resolve Expr/Pred when typeclass is enabled
+    -- since ghci will not be able to recognize fully qualified names
+    -- instead, we leave qualification to ghc elaboration
+    . Bare.qualifyTop env name (F.loc t)
+    $ t
   where
-    f = (if doplug || not allowTC then plugHoles allowTC sigEnv name x else id)
-        . fmap (addTyConInfo embs tyi)
-        . Bare.txRefSort tyi embs
-        . fmap txExpToBind -- What does this function DO
-        . (specExpandType rtEnv . fmap (generalizeWith x))
-        . (if doplug || not allowTC then maybePlug allowTC sigEnv name x else id)
-        -- we do not qualify/resolve Expr/Pred when typeclass is enabled
-        -- since ghci will not be able to recognize fully qualified names
-        -- instead, we leave qualification to ghc elaboration
-        . Bare.qualifyTop env name l
-
     allowTC = typeclass (getConfig env)
-    -- modT   = mname `S.member` wiredInMods
+
     doplug
       | Bare.LqTV v <- x
       , GM.isMethod v || GM.isSCSel v
@@ -513,11 +534,231 @@ cookSpecTypeE env sigEnv name@(ModName _ _) x bt
       = False
       | otherwise
       = True
+
+-----------------------------------------------------------------------------------------
+cookSpecTypeE :: Bare.Env -> Bare.SigEnv -> ModName -> Bare.PlugTV Ghc.Var -> LocBareType
+              -> Bare.Lookup LocSpecType
+-----------------------------------------------------------------------------------------
+cookSpecTypeE env sigEnv name@(ModName _ _) x bt
+  = fmap f . bareSpecType env name $ bareExpandType rtEnv bt
+  where
+    f      = postSpecTypeE env sigEnv name x
     _msg i = "cook-" ++ show i ++ " : " ++ F.showpp x
     rtEnv  = Bare.sigRTEnv    sigEnv
-    embs   = Bare.sigEmbs     sigEnv
-    tyi    = Bare.sigTyRTyMap sigEnv
-    l      = F.loc bt
+
+cookSpecQuotTypes
+  :: Bare.Env
+  -> Bare.SigEnv
+  -> ModName
+  -> Bare.BareQuotTypeMap
+  -> Bare.Lookup Bare.SpecQuotTypeMap
+cookSpecQuotTypes env sigEnv@Bare.SigEnv {..} mname bt
+  = execStateT (traverse (mapM_ (uncurry cookSpecQuotType)) bt) mempty
+  where
+    cookSpecQuotType
+      :: ( MonadState Bare.SpecQuotTypeMap m
+         , MonadError [Error] m
+         )
+      => F.Symbol -> BareQuotientType -> m RTyCon
+    cookSpecQuotType md QuotientType {..} = do
+      qtycs <- get
+
+      case Bare.resolveSpecQuotientTyCon env mname qtyName qtycs of
+        Right (qtyc, _) -> return qtyc
+        Left _          -> do
+          let pos = F.loc qtyName
+              bty = expand sigRTEnv pos qtyType
+
+          utype <- toSpecType pos (mkReft pos bty) [] bty
+
+          let sqty  = QuotientType
+                        { qtyName   = Bare.qualifyTop env mname pos qtyName
+                        , qtyType   = postSpec pos utype
+                        , qtyQuots  = map (Bare.qualifyTop env mname pos) qtyQuots
+                        , qtyTyVars = map RT.bareRTyVar qtyTyVars
+                        , qtyArity
+                        }
+              tycon = mkQuotTyCon sqty
+
+          modify $ M.alter (insertOrAdd (md, (mkQuotTyCon sqty, sqty))) (F.val qtyName)
+          return tycon
+
+    insertOrAdd v = maybe (Just [v]) (Just . (v :))
+
+    postSpec :: F.SourcePos -> SpecType -> SpecType
+    postSpec pos
+      = F.val
+      . postSpecTypeE env sigEnv mname Bare.RawTV
+      . F.atLoc pos
+
+    mkReft :: F.SourcePos -> BareType -> [F.Symbol] -> RReft -> RReft
+    mkReft pos = Bare.resolveReft env mname pos Nothing
+
+    toSpecType
+      :: ( Bare.Expandable r
+         , MonadState Bare.SpecQuotTypeMap m
+         , MonadError [Error] m
+         )
+      => F.SourcePos
+      -> ([F.Symbol] -> r -> r)
+      -> [F.Symbol]
+      -> BRType r
+      -> m (RRType r)
+    toSpecType l f bs (RAppTy t1 t2 r)
+      = RAppTy <$> toSpecType l f bs t1 <*> toSpecType l f bs t2 <*> return (f bs r)
+    toSpecType l f bs (RApp tc ts rs r) = do
+      let tcsym = btc_tc tc
+      qtycs <- get
+
+      case Bare.resolveSpecQuotientTyCon env mname tcsym qtycs of
+        Right (qtyc, _) -> bareAppWith l f bs (bareQApp qtyc) ts rs r
+        Left _          -> case Bare.bareMatchTyCon env mname tcsym (length ts) of
+          Left  es                        -> throwError es
+          Right (Bare.BareQuotTyCon (m, bqty)) -> do
+            let QuotientType {qtyArity, qtyName} = bqty
+            qtyc <- cookSpecQuotType m bqty
+            bareAppWith l f bs (bareAppCheck qtyArity qtyName qtyc) ts rs r
+          Right (Bare.BareGhcTyCon tc)    ->
+            Bare.bareTCApp (f bs r) (F.atLoc (F.loc tcsym) tc)
+                <$> traverse (toSpecProp l f bs) rs
+                <*> traverse (toSpecType l f bs) ts
+    toSpecType l f bs (RFun x i t1 t2 r) = do
+      let mkFun = RFun x i { permitTC = Just (typeclass $ getConfig env) }
+       in mkFun
+            <$> (rebind x <$> toSpecType l f bs t1)
+            <*> toSpecType l f (x:bs) t2
+            <*> return (f bs r)
+    toSpecType _ f bs (RVar a r) = return $ RVar (RT.bareRTyVar a) (f bs r)
+    toSpecType l f bs (RAllT a t r) = do
+      let a' = dropTyVarInfo (mapTyVarValue RT.bareRTyVar a)
+      RAllT a' <$> toSpecType l f bs t <*> return (f bs r)
+    toSpecType l f bs (RAllP a t)
+      = RAllP (Bare.ofBPVar env mname l a) <$> toSpecType l f bs t
+    toSpecType l f bs (RAllE x t1 t2)
+      = RAllE x <$> toSpecType l f bs t1 <*> toSpecType l f bs t2
+    toSpecType l f bs (REx x t1 t2)
+      = REx x <$> toSpecType l f bs t1 <*> toSpecType l f (x:bs) t2
+    toSpecType l f bs (RRTy xts r o t) = do
+      xts' <- traverse (Misc.mapSndM (toSpecType l f bs)) xts
+      RRTy xts' (f bs r) o <$> toSpecType l f bs t
+    toSpecType _ f bs (RHole r)
+      = return $ RHole (f bs r)
+    toSpecType l _ bs (RExprArg le)
+      = return $ RExprArg (Bare.qualify env mname l bs le)
+
+    toSpecProp
+      :: ( Bare.Expandable r
+         , MonadState Bare.SpecQuotTypeMap m
+         , MonadError [Error] m
+         )
+      => F.SourcePos
+      -> ([F.Symbol] -> r -> r)
+      -> [F.Symbol]
+      -> RTProp BTyCon BTyVar r
+      -> m (RTProp RTyCon RTyVar r)
+    toSpecProp l f bs (RProp ss (RHole r))
+      = rPropP <$> traverse (propSyms l) ss <*> return (f bs r)
+    toSpecProp l f bs (RProp ss t)
+      = RProp  <$> traverse (propSyms l) ss <*> toSpecType l f bs t
+
+    rebind :: Bare.Expandable r => F.Symbol -> RRType r -> RRType r
+    rebind x t = F.subst1 t (x, F.EVar $ rTypeValueVar t)
+
+    propSyms
+      :: ( MonadState Bare.SpecQuotTypeMap m
+         , MonadError [Error] m
+         )
+      => F.SourcePos -> (a, BSort) -> m (a, RSort)
+    propSyms l (x, t) = (x,) <$> toSpecType l (const id) [] t
+
+    bareQApp :: MonadError [Error] m => RTyCon -> [RRType r] -> [RRProp r] -> r -> m (RRType r)
+    bareQApp c@(QTyCon {qtc_name, qtc_arity}) ts rs r
+      = bareAppCheck qtc_arity qtc_name c ts rs r
+    bareQApp c ts rs r = return $ RApp c ts rs r
+
+    bareAppCheck
+      :: MonadError [Error] m
+      => Int -> LocSymbol -> RTyCon -> [RRType r] -> [RRProp r] -> r -> m (RRType r)
+    bareAppCheck arity sym c ts rs r
+      | arity < length ts = argLengthMismatch sym arity $ length ts
+      | otherwise         = return $ RApp c ts rs r
+
+    bareAppWith
+      :: ( Bare.Expandable r
+         , MonadState Bare.SpecQuotTypeMap m
+         , MonadError [Error] m
+         )
+      => F.SourcePos
+      -> ([F.Symbol] -> r -> r)
+      -> [F.Symbol]
+      -> ([RRType r] -> [RRProp r] -> r -> m (RRType r))
+      -> [BRType r] -> [BRProp r] -> r -> m (RRType r)
+    bareAppWith l f bs doApp bts bps r = do
+      sts <- traverse (toSpecType l f bs) bts
+      sps <- traverse (toSpecProp l f bs) bps
+      doApp sts sps (f bs r)
+
+    mkQuotTyCon :: SpecQuotientType -> RTyCon
+    mkQuotTyCon QuotientType {..}
+      = let variances = computeVariances qtyType $ M.fromList [ (tv, Invariant) | tv <- qtyTyVars ]
+         in QTyCon
+              { qtc_name      = qtyName
+              , qtc_type      = qtyType
+              , qtc_quots     = qtyQuots
+              , qtc_tyvars    = qtyTyVars
+              , qtc_arity     = qtyArity
+              , qtc_variances = [ fromMaybe Invariant (M.lookup v variances) | v <- qtyTyVars ]
+              }
+
+    argLengthMismatch :: MonadError [Error] m => LocSymbol -> Int -> Int -> m a
+    argLengthMismatch name exp act
+      = throwError
+          [ ErrAliasApp
+              (GM.sourcePosSrcSpan $ F.loc name)
+              (pprint name)
+              (GM.sourcePosSrcSpan $ F.loc name)
+              (PJ.hcat [ PJ.text "Expects "
+                        , pprint exp
+                        , PJ.text " arguments, but is given"
+                        , pprint act ])
+          ]
+
+computeVariances
+  :: RType RTyCon RTyVar r
+  -> M.HashMap RTyVar Variance
+  -> M.HashMap RTyVar Variance
+computeVariances = go Covariant
+  where
+    joinVariance :: Variance -> Variance -> Variance
+    joinVariance v Invariant = v
+    joinVariance Invariant v = v
+    joinVariance Bivariant _ = Bivariant
+    joinVariance _ Bivariant = Bivariant
+    joinVariance v1 v2
+      | v1 == v2  = v1
+      | otherwise = Bivariant
+
+    go :: Variance -> RType RTyCon RTyVar r -> M.HashMap RTyVar Variance -> M.HashMap RTyVar Variance
+    go p (RVar t _)               mp = M.update (Just . joinVariance p) t mp
+    go p (RFun _ _ t1 t2 _)       mp = go (flipVariance p) t1 $ go p t2 mp
+    go p (RAllT (RTVar tv _) t _) mp
+      = case M.lookup tv mp of
+          Nothing -> go p t mp
+          Just v  -> M.insert tv v $ go p t (M.delete tv mp)
+    go p (RAllP _ t)              mp = go p t mp
+    go p (RApp c ts _ _)          mp
+      = case c of
+          RTyCon _ _ inf
+            -> foldr (uncurry go) mp $ zip (map (joinVariance p) (varianceTyArgs inf)) ts
+          QTyCon {qtc_type = utype, qtc_tyvars = tvs, qtc_variances = vs}
+            -> go p utype (M.fromList $ zip tvs vs)
+          _ -> mp
+    go p (RAllE _ t1 t2)          mp = go p t2 $ go p t1 mp
+    go p (REx _ t1 t2)            mp = go p t2 $ go p t1 mp
+    go _ (RExprArg _)             mp = mp
+    go p (RAppTy t1 t2 _)         mp = go p t2 $ go p t1 mp
+    go p (RRTy _ _ _ t)           mp = go p t mp
+    go _ (RHole _)                mp = mp
 
 -- | We don't want to generalize type variables that maybe bound in the
 --   outer scope, e.g. see tests/basic/pos/LocalPlug00.hs

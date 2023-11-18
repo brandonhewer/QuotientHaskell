@@ -152,7 +152,7 @@ module Language.Haskell.Liquid.Types.Types (
 
   -- * Traversing `RType`
   , efoldReft, foldReft, foldReft'
-  , emapReft, mapReft, mapReftM, mapPropM
+  , emapReft, emapReftAndTyCon, mapReft, mapReftM, mapPropM
   , mapExprReft
   , mapBot, mapBind, mapRFInfo, mapTyCon
   , foldRType
@@ -1251,6 +1251,8 @@ instance Show (Axiom Var Type CoreExpr) where
                                          "\nArguments:" ++ showPpr bs  ++
                                          -- "\nTypes    :" ++ (showPpr ts)  ++
                                          "\nLHS      :" ++ showPpr lhs ++
+                                         
+                                         -- "\nTypes    :" ++ (showPpr ts)  ++
                                          "\nRHS      :" ++ showPpr rhs
 
 --------------------------------------------------------------------------------
@@ -1497,6 +1499,9 @@ instance F.Symbolic (Quotient c tv r) where
 
 instance (NFData c, NFData tv, NFData r) => NFData (Quotient c tv r)
 
+instance F.PPrint BareQuotient where
+  pprintTidy k qt = text "Quotient: " <+> F.pprintTidy k (qtName qt)
+
 --------------------------------------------------------------------------------
 -- | Refinement Type Aliases
 --------------------------------------------------------------------------------
@@ -1577,8 +1582,8 @@ bkFun t                 = ([], [], [], [], t)
 safeBkArrow ::(F.PPrint (RType t t1 a))
             => RType t t1 a -> ( ([Symbol], [RFInfo], [RType t t1 a], [a])
                                , RType t t1 a )
-safeBkArrow t@RAllT {} = Prelude.error {- panic Nothing -} $ "safeBkArrow on RAllT" ++ F.showpp t
-safeBkArrow (RAllP _ _)     = Prelude.error {- panic Nothing -} "safeBkArrow on RAllP"
+safeBkArrow t@RAllT {}      = Prelude.error {- panic Nothing -} $ "safeBkArrow on RAllT " ++ F.showpp t
+safeBkArrow t@(RAllP _ _)   = Prelude.error {- panic Nothing -} $ "safeBkArrow on RAllP " ++ F.showpp t
 safeBkArrow t               = bkArrow t
 
 mkUnivs :: (Foldable t, Foldable t1)
@@ -1784,6 +1789,36 @@ emapReft f γ (RAppTy t t' r)   = RAppTy (emapReft f γ t) (emapReft f γ t') (f
 emapReft f γ (RRTy e r o t)    = RRTy  (mapSnd (emapReft f γ) <$> e) (f γ r) o (emapReft f γ t)
 emapReft f γ (RHole r)         = RHole (f γ r)
 
+emapReftAndTyCon
+  :: (c1 -> c2)
+  -> ([Symbol] -> r1 -> r2)
+  -> [Symbol]
+  -> RType c1 tv r1
+  -> RType c2 tv r2
+emapReftAndTyCon _ rf γ (RVar α r)
+  = RVar  α (rf γ r)
+emapReftAndTyCon cf rf γ (RAllT α t r)
+  = RAllT (mapTyCon cf <$> α) (emapReftAndTyCon cf rf γ t) (rf γ r)
+emapReftAndTyCon cf rf γ (RAllP π t)
+  = RAllP (mapTyCon cf <$> π) (emapReftAndTyCon cf rf γ t)
+emapReftAndTyCon cf rf γ (RFun x i t t' r)
+  = RFun  x i (emapReftAndTyCon cf rf γ t) (emapReftAndTyCon cf rf (x:γ) t') (rf (x:γ) r)
+emapReftAndTyCon cf rf γ (RApp c ts rs r)
+  = RApp  (cf c) (emapReftAndTyCon cf rf γ <$> ts) (emapRef rf γ . mapTyConRef cf <$> rs) (rf γ r)
+emapReftAndTyCon cf rf γ (RAllE z t t')
+  = RAllE z (emapReftAndTyCon cf rf γ t) (emapReftAndTyCon cf rf γ t')
+emapReftAndTyCon cf rf γ (REx z t t')
+  = REx   z (emapReftAndTyCon cf rf γ t) (emapReftAndTyCon cf rf γ t')
+emapReftAndTyCon _ _ _ (RExprArg e)
+  = RExprArg e
+emapReftAndTyCon cf rf γ (RAppTy t t' r)
+  = RAppTy (emapReftAndTyCon cf rf γ t) (emapReftAndTyCon cf rf γ t') (rf γ r)
+emapReftAndTyCon cf rf γ (RRTy e r o t)
+  = RRTy  (mapSnd (emapReftAndTyCon cf rf γ) <$> e) (rf γ r) o (emapReftAndTyCon cf rf γ t)
+emapReftAndTyCon _ rf γ (RHole r)
+  = RHole (rf γ r)
+
+
 emapRef :: ([Symbol] -> t -> s) ->  [Symbol] -> RTProp c tv t -> RTProp c tv s
 emapRef  f γ (RProp s (RHole r))  = RProp s $ RHole (f γ r)
 emapRef  f γ (RProp s t)         = RProp s $ emapReft f γ t
@@ -1856,7 +1891,7 @@ hasHoleTy (REx _ t t')      = hasHoleTy t || hasHoleTy t'
 hasHoleTy (RExprArg _)      = False
 hasHoleTy (RAppTy t t' _)   = hasHoleTy t || hasHoleTy t'
 hasHoleTy (RHole _)         = True
-hasHoleTy (RRTy xts _ _ t)  = hasHoleTy t || any hasHoleTy (snd <$> xts)
+hasHoleTy (RRTy xts _ _ t)  = hasHoleTy t || any (hasHoleTy . snd) xts
 
 isFunTy :: RType t t1 t2 -> Bool
 isFunTy (RAllE _ _ t)    = isFunTy t
@@ -2125,7 +2160,7 @@ type REnv = AREnv SpecType
 data AREnv t = REnv
   { reGlobal :: M.HashMap Symbol t -- ^ the "global" names for module
   , reLocal  :: M.HashMap Symbol t -- ^ the "local" names for sub-exprs
-  }
+  } deriving Show
 
 instance Functor AREnv where
   fmap f (REnv g l) = REnv (fmap f g) (fmap f l)
@@ -2391,7 +2426,6 @@ instance F.PPrint a => F.PPrint (Def t a) where
 instance (F.PPrint t, F.PPrint a) => F.PPrint (Measure t a) where
   pprintTidy k (M n s eqs _ _) =  F.pprintTidy k n <+> {- parens (pprintTidy k (loc n)) <+> -} "::" <+> F.pprintTidy k s
                                   $$ vcat (F.pprintTidy k `fmap` eqs)
-
 
 instance F.PPrint (Measure t a) => Show (Measure t a) where
   show = F.showpp

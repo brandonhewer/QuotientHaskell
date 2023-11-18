@@ -1,3 +1,5 @@
+{-# LANGUAGE FlexibleContexts      #-}
+{-# LANGUAGE NamedFieldPuns        #-}
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE PartialTypeSignatures #-}
 
@@ -250,9 +252,9 @@ subRTVar su a@(RTVar v i) = Mb.maybe a (`RTVar` i) (lookup v su)
 
 goPlug :: F.TCEmb Ghc.TyCon -> Bare.TyConMap -> (Doc -> Doc -> Error) -> (SpecType -> RReft -> RReft) -> SpecType -> SpecType
        -> SpecType
-goPlug tce tyi err f = go
+goPlug tce tyi err f = go mempty
   where
-    go st (RHole r) = (addHoles t') { rt_reft = f st r }
+    go _ st (RHole r) = (addHoles t') { rt_reft = f st r }
       where
         t'         = everywhere (mkT $ addRefs tce tyi) st
         addHoles   = everywhere (mkT addHole)
@@ -262,26 +264,35 @@ goPlug tce tyi err f = go
         addHole t@(RApp c ts ps _) = RApp c ts ps (f t (uReft ("v", hole)))
         addHole t                  = t
 
-    go (RVar _ _)       v@(RVar _ _)       = v
-    go (RFun _ _ i o _) (RFun x ii i' o' r)               = RFun x ii    (go i i')   (go o o') r
-    go (RAllT _ t _)    (RAllT a t' r)     = RAllT a    (go t t') r
-    go (RAllT a t r)    t'                 = RAllT a    (go t t') r
-    go t                (RAllP p t')       = RAllP p    (go t t')
-    go t                (RAllE b a t')     = RAllE b a  (go t t')
-    go t                (REx b x t')       = REx b x    (go t t')
-    go t                (RRTy e r o t')    = RRTy e r o (go t t')
-    go (RAppTy t1 t2 _) (RAppTy t1' t2' r) = RAppTy     (go t1 t1') (go t2 t2') r
+    go _ (RVar _ _)       v@(RVar _ _)       = v
+    go ss t               v@(RVar tv _)
+      | isVarSubst ss tv t = v
+    go qbs (RFun _ _ i o _) (RFun x ii i' o' r)               = RFun x ii    (go qbs i i')   (go qbs o o') r
+    go qbs (RAllT _ t _)    (RAllT a t' r)     = RAllT a    (go qbs t t') r
+    go qbs (RAllT a t r)    t'                 = RAllT a    (go qbs t t') r
+    go qbs t                (RAllP p t')       = RAllP p    (go qbs t t')
+    go qbs t                (RAllE b a t')     = RAllE b a  (go qbs t t')
+    go qbs t                (REx b x t')       = REx b x    (go qbs t t')
+    go qbs t                (RRTy e r o t')    = RRTy e r o (go qbs t t')
+    go qbs (RAppTy t1 t2 _) (RAppTy t1' t2' r) = RAppTy     (go qbs t1 t1') (go qbs t2 t2') r
+    go qbs hsT (RApp c@QTyCon{qtc_type, qtc_tyvars, qtc_arity} ts p r)
+      | length ts == qtc_arity =
+          let bs = M.fromList (zip qtc_tyvars ts)
+           in RApp c { qtc_type = go (bs:qbs) hsT qtc_type } ts p r
     -- zipWithDefM: if ts and ts' have different length then the liquid and haskell types are different.
     -- keep different types for now, as a pretty error message will be created at Bare.Check
-    go (RApp _ ts _ _)  (RApp c ts' p r)
-      | length ts == length ts'            = RApp c     (Misc.zipWithDef go ts $ Bare.matchKindArgs ts ts') p r
-    go hsT lqT                             = Ex.throw (err (F.pprint hsT) (F.pprint lqT))
+    go qbs (RApp _ ts _ _)  (RApp c ts' p r)
+      | length ts == length ts'            = RApp c     (Misc.zipWithDef (go qbs) ts $ Bare.matchKindArgs ts ts') p r
+    go _ hsT lqT                         = Ex.throw (err (F.pprint hsT) (F.pprint lqT))
 
-    -- otherwise                          = Ex.throw err
-    -- If we reach the default case, there's probably an error, but we defer
-    -- throwing it as checkGhcSpec does a much better job of reporting the
-    -- problem to the user.
-    -- go st               _                 = st
+    isVarSubst []       _ _ = False
+    isVarSubst [s]      v t = Just t == M.lookup v s
+    isVarSubst (s : ss) v t
+      = case M.lookup v s of
+          Nothing -> isVarSubst ss v t
+          Just t' -> t == L.foldr applySubst t' ss
+
+    applySubst s t = L.foldr subsTyVarMeet' t (M.toList s)
 
 addRefs :: F.TCEmb Ghc.TyCon -> TyConMap -> SpecType -> SpecType
 addRefs tce tyi (RApp c ts _ r) = RApp c' ts ps r

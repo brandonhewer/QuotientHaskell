@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleContexts          #-}
+{-# LANGUAGE NamedFieldPuns            #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
 {-# LANGUAGE ScopedTypeVariables       #-}
 {-# LANGUAGE TupleSections             #-}
@@ -23,7 +24,7 @@ module Language.Haskell.Liquid.Bare (
   ) where
 
 import           Prelude                                    hiding (error)
-import           Control.Monad                              (forM, mplus)
+import           Control.Monad                              (forM, mplus, (>=>))
 import           Control.Applicative                        ((<|>))
 import qualified Control.Exception                          as Ex
 import qualified Data.Binary                                as B
@@ -234,24 +235,25 @@ makeGhcSpec0 cfg src lmap mspecsNoCls = do
   tycEnv <- makeTycEnv1 name env (tycEnv0, datacons) coreToLg simplifier
   let tyi      = Bare.tcTyConMap   tycEnv
   let sigEnv   = makeSigEnv  embs tyi (_gsExports src) rtEnv
+  let qenv     = addSpecQuots name sigEnv env
   let lSpec1   = lSpec0 <> makeLiftedSpec1 cfg src tycEnv lmap mySpec1
   let mySpec   = mySpec2 <> lSpec1
   let specs    = M.insert name mySpec iSpecs2
-  let myRTE    = myRTEnv       src env sigEnv rtEnv
-  let (dg5, measEnv) = withDiagnostics $ makeMeasEnv      env tycEnv sigEnv       specs
-  let (dg4, sig) = withDiagnostics $ makeSpecSig cfg name specs env sigEnv   tycEnv measEnv (_giCbs src)
+  let myRTE    = myRTEnv       src qenv sigEnv rtEnv
+  let (dg5, measEnv) = withDiagnostics $ makeMeasEnv      qenv tycEnv sigEnv       specs
+  let (dg4, sig) = withDiagnostics $ makeSpecSig cfg name specs qenv sigEnv   tycEnv measEnv (_giCbs src)
   elaboratedSig <-
     if allowTC then Bare.makeClassAuxTypes (elaborateSpecType coreToLg simplifier) datacons instMethods
                               >>= elaborateSig sig
                else pure sig
-  let qual     = makeSpecQual cfg env tycEnv measEnv rtEnv specs
-  let sData    = makeSpecData  src env sigEnv measEnv elaboratedSig specs
-  let (dg1, spcVars) = withDiagnostics $ makeSpecVars cfg src mySpec env measEnv
-  let (dg2, spcTerm) = withDiagnostics $ makeSpecTerm cfg     mySpec env       name
-  let (dg3, refl)    = withDiagnostics $ makeSpecRefl cfg src measEnv specs env name elaboratedSig tycEnv
-  let laws           = makeSpecLaws env sigEnv (gsTySigs elaboratedSig ++ gsAsmSigs elaboratedSig) measEnv specs
-  let (dg6, quots)   = withDiagnostics $ makeSpecQuots env (M.toList specs)
-  let finalLiftedSpec = makeLiftedSpec name src env refl sData elaboratedSig qual myRTE lSpec1
+  let qual     = makeSpecQual cfg qenv tycEnv measEnv rtEnv specs
+  let sData    = makeSpecData  src qenv sigEnv measEnv elaboratedSig specs
+  let (dg1, spcVars) = withDiagnostics $ makeSpecVars cfg src mySpec qenv measEnv
+  let (dg2, spcTerm) = withDiagnostics $ makeSpecTerm cfg     mySpec qenv       name
+  let (dg3, refl)    = withDiagnostics $ makeSpecRefl cfg src measEnv specs qenv name elaboratedSig tycEnv
+  let laws           = makeSpecLaws qenv sigEnv (gsTySigs elaboratedSig ++ gsAsmSigs elaboratedSig) measEnv specs
+  let (dg6, quots)   = withDiagnostics $ makeSpecQuots qenv sigEnv (M.toList specs)
+  let finalLiftedSpec = makeLiftedSpec name src qenv refl sData elaboratedSig qual myRTE lSpec1
   let diags    = mconcat [dg0, dg1, dg2, dg3, dg4, dg5, dg6]
 
   pure (diags, SP
@@ -337,6 +339,12 @@ makeGhcSpec0 cfg src lmap mspecsNoCls = do
     name     = F.notracepp ("ALL-SPECS" ++ zzz) $ _giTargetMod  src
     zzz      = F.showpp (fst <$> mspecs)
 
+addSpecQuots :: ModName -> Bare.SigEnv -> Bare.Env -> Bare.Env
+addSpecQuots mname sigEnv env@Bare.RE{reQuotEnv}
+  = case Bare.cookSpecQuotTypes env sigEnv mname (Bare.qeBareTypeMap reQuotEnv) of
+      Left  _     -> env
+      Right sqtys -> env { Bare.reQuotEnv = reQuotEnv { Bare.qeSpecTypeMap = sqtys } }
+
 splitSpecs :: ModName -> GhcSrc -> [(ModName, Ms.BareSpec)] -> (Ms.BareSpec, Bare.ModSpecs)
 splitSpecs name src specs = (mySpec, iSpecm)
   where
@@ -372,71 +380,63 @@ deriving instance Show GhcSpecQuots
 
 makeSpecQuots
   :: Bare.Env
+  -> Bare.SigEnv
   -> [(ModName, Ms.BareSpec)]
   -> Bare.Lookup GhcSpecQuots
-makeSpecQuots env specs
-  = Fold.foldrM (\ms gs -> (gs <>) <$> makeSpecQuot ms) mempty specs
+makeSpecQuots env sigEnv
+  = Fold.foldrM (\ms gs -> (gs <>) <$> makeSpecQuot ms) mempty
   where
     makeSpecQuot :: (ModName, Ms.BareSpec) -> Bare.Lookup GhcSpecQuots
     makeSpecQuot (mname, spec)
       = Fold.foldrM (addQuotDecl mname) mempty (quotDecls spec)
 
     addQuotDecl :: ModName -> QuotDecl -> GhcSpecQuots -> Bare.Lookup GhcSpecQuots
-    addQuotDecl mname qdecl spec
-      = case Bare.maybeResolveSym env mname "quotient-spec" (qtycName qdecl) of
-          Just (qt :: BareQuotientType, qs) -> do
-            tcs   <- toSpecQuotientTy mname qt
-            quots <- traverse (toSpecQuotient mname) qs
-            return $ spec
-              { gsQuotTyCons
-                  = M.insert (F.val $ qtyName tcs) tcs (gsQuotTyCons spec)
+    addQuotDecl mname QuotDecl { qtycName } spec
+      = case Bare.maybeResolveSym env mname "Quotient TyCon" qtycName of
+          Just (_ :: RTyCon, spqty@QuotientType{..}) -> do
+            let pos = F.loc qtyName
+            quots <-
+              traverse
+                (   (Bare.resolveLocSym env mname "Quotient" . F.atLoc pos)
+                >=> toSpecQuotient mname
+                ) qtyQuots
+            return spec
+              { gsQuotTyCons = M.insert (F.val qtyName) spqty (gsQuotTyCons spec)
               , gsQuotients
-                  =  gsQuotients spec
-                  <> M.fromList [ (F.val $ qtName q, q) | q <- quots ]
-              , gsQuotCons = addQuotDataRef tcs (gsQuotCons spec) 
+                  = gsQuotients spec <> M.fromList [ (F.val $ qtName q, q) | q <- quots ]
+              , gsQuotCons = addQuotDataRef spqty (gsQuotCons spec)
               }
-          Nothing                  -> return spec
-
-    toSpecQuotientTy :: ModName -> BareQuotientType -> Bare.Lookup SpecQuotientType
-    toSpecQuotientTy mname qt = do
-      let pos = F.loc $ qtyName qt
-      utype <- Bare.ofBareTypeE env mname pos Nothing $ qtyType qt
-      return QuotientType
-        { qtyName   = Bare.qualifyTop env mname pos $ qtyName qt
-        , qtyType   = Bare.qualifyTop env mname pos utype
-        , qtyQuots  = Bare.qualifyTop env mname pos <$> qtyQuots qt
-        , qtyTyVars = map bareRTyVar $ qtyTyVars qt
-        , qtyArity  = qtyArity qt
-        }
+          Nothing    -> return spec
 
     toSpecQuotient :: ModName -> BareQuotient -> Bare.Lookup SpecQuotient
-    toSpecQuotient mname q = do
-      let pos = F.loc $ qtName q
+    toSpecQuotient mname Quotient {..} = do
+      let pos = F.loc qtName
       vars <- traverse
-                ( (Bare.qualifyTop env mname pos <$>)
-                . Bare.ofBareTypeE env mname pos Nothing) (qtVars q
-                )
+                ( fmap F.val
+                . Bare.cookSpecTypeE env sigEnv mname Bare.RawTV
+                . F.atLoc pos
+                ) qtVars
       return
         Quotient
-          { qtName   = Bare.qualifyTop env mname pos $ qtName q
-          , qtTyCon  = Bare.qualifyTop env mname pos $ qtTyCon q
+          { qtName   = Bare.qualifyTop env mname pos qtName
+          , qtTyCon  = Bare.qualifyTop env mname pos qtTyCon
           , qtVars   = vars
-          , qtLeft   = Bare.qualifyTop env mname pos $ qtLeft q
-          , qtRight  = Bare.qualifyTop env mname pos $ qtRight q
+          , qtLeft   = Bare.qualifyTop env mname pos qtLeft
+          , qtRight  = Bare.qualifyTop env mname pos qtRight
           }
 
 addQuotDataRef
   :: SpecQuotientType
   -> M.HashMap Ghc.TyCon (M.HashMap F.Symbol [SpecType])
   -> M.HashMap Ghc.TyCon (M.HashMap F.Symbol [SpecType])
-addQuotDataRef qt drefs
-  = case expandQuotTyCons (qtyType qt) of
+addQuotDataRef QuotientType {..} drefs
+  = case expandQuotTyCons qtyType of
       RApp (RTyCon c _ _) ts _ _ ->
         M.alter (makeQuotDataRef ts) c drefs
       _                          -> drefs
     where
       qtSymbol :: F.Symbol
-      qtSymbol = F.symbol $ qtyName qt
+      qtSymbol = F.symbol qtyName
 
       makeQuotDataRef
         :: [SpecType]
@@ -505,9 +505,8 @@ uniqNub xs = M.elems $ M.fromList [ (index x, x) | x <- xs ]
 
 reflectedTyCons :: Config -> TCEmb Ghc.TyCon -> [Ghc.CoreBind] -> Ms.BareSpec -> [Ghc.TyCon]
 reflectedTyCons cfg embs cbs spec
-  | exactDCFlag cfg = filter (not . isEmbedded embs)
-                    $ concatMap varTyCons
-                    $ reflectedVars spec cbs ++ measureVars spec cbs
+  | exactDCFlag cfg = concatMap (filter (not . isEmbedded embs) . varTyCons)
+                                (reflectedVars spec cbs ++ measureVars spec cbs)
   | otherwise       = []
 
 -- | We cannot reflect embedded tycons (e.g. Bool) as that gives you a sort
@@ -1407,7 +1406,6 @@ normalizeBareAlias env sigEnv name lx = fixRTA <$> lx
             . F.val
             . Bare.cookSpecType env sigEnv name Bare.RawTV
             . F.atLoc lx
-
 
 withDiagnostics :: (Monoid a) => Bare.Lookup a -> (Diagnostics, a)
 withDiagnostics (Left es) = (mkDiagnostics [] es, mempty)
