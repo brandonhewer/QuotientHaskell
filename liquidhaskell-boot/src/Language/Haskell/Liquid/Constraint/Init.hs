@@ -128,7 +128,7 @@ makeSizedDataCons dcts x' n = (toRSort $ ty_res trep, (x, fromRTypeRep trep{ty_r
       tres   = ty_res trep `strengthen` MkUReft (F.Reft (F.vv_, F.PAtom F.Eq (lenOf F.vv_) computelen)) mempty
 
       recarguments = filter (\(t,_) -> toRSort t == toRSort tres) (zip (ty_args trep) (ty_binds trep))
-      computelen   = foldr (F.EBin F.Plus) (F.ECon $ F.I n) (lenOf .  snd <$> recarguments)
+      computelen   = foldr (F.EBin F.Plus . lenOf .  snd) (F.ECon $ F.I n) recarguments
 
 mergeDataConTypes ::  F.TCEmb TyCon -> [(Var, SpecType)] -> [(Var, SpecType)] -> [(Var, SpecType)]
 mergeDataConTypes tce xts yts = merge (L.sortBy f xts) (L.sortBy f yts)
@@ -216,7 +216,7 @@ measEnv sp xts cbs _tcb lt1s lt2s asms itys hs qcons info = CGE
             { qtdName     = qtyName sqt
             , qtdType     = qtyType sqt
             , qtdQuots    = quotients
-            , qtdTyVars   = qtyTyVars sqt 
+            , qtdTyVars   = qtyTyVars sqt
             , qtdArity    = qtyArity sqt
             , qtdRewrites = rewrites
             }
@@ -400,7 +400,7 @@ doesContainTyCon _ (RVar _ _)
 doesContainTyCon c (RAllE _ tx t)
   = doesContainTyCon c tx || doesContainTyCon c t
 doesContainTyCon c (REx _ tx t)
-  = doesContainTyCon c tx || doesContainTyCon c t 
+  = doesContainTyCon c tx || doesContainTyCon c t
 doesContainTyCon _ (RExprArg _)
   = False
 doesContainTyCon c (RAppTy t t' _)
@@ -410,29 +410,19 @@ doesContainTyCon _ (RHole _)
 doesContainTyCon c (RRTy e _ _ t)
   = doesContainTyCon c t || any (doesContainTyCon c . snd) e
 
-
 getQuotientReft :: SpecQuotient -> Maybe F.Expr
 getQuotientReft Quotient { qtVars }
-  = case mapMaybe getReftExpr (M.elems qtVars) of
+  = case mapMaybe getReftExpr (M.toList qtVars) of
       [] -> Nothing
       es -> Just $ F.PAnd es
     where
-      getReftExpr :: SpecType -> Maybe F.Expr
-      getReftExpr = filterTrivial . (F.reftPred . ur_reft <$>) . getReft
+      getReftExpr :: (F.Symbol, SpecType) -> Maybe F.Expr
+      getReftExpr = filterTrivial . substReft . fmap (fmap ur_reft . stripRTypeBase)
 
       filterTrivial :: Maybe F.Expr -> Maybe F.Expr
-      filterTrivial (Just F.PTrue) = Nothing 
+      filterTrivial (Just F.PTrue) = Nothing
       filterTrivial e              = e
 
-      getReft :: SpecType -> Maybe RReft
-      getReft (RVar _ r)       = Just r
-      getReft (RFun _ _ _ _ r) = Just r
-      getReft (RAllT _ _ r)    = Just r
-      getReft (RAllP {})       = Nothing
-      getReft (RApp _ _ _ r)   = Just r
-      getReft (RAllE {})       = Nothing
-      getReft (REx {})         = Nothing
-      getReft (RExprArg _)     = Nothing
-      getReft (RAppTy _ _ r)   = Just r
-      getReft (RRTy _ r _ _)   = Just r
-      getReft (RHole r)        = Just r
+      substReft :: (F.Symbol, Maybe F.Reft) -> Maybe F.Expr
+      substReft (_, Nothing)               = Nothing
+      substReft (v, Just (F.Reft (v', e))) = Just $ F.subst1 e (v', F.EVar v)
