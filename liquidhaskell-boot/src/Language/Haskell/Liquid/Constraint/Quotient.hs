@@ -1143,7 +1143,7 @@ makeRespectCondition (NBEResult lhs) (NBEResult rhs)
       addPrecondition :: Expr -> Condition -> Condition
       addPrecondition F.PFalse _ = AlwaysFalse
       addPrecondition F.PTrue  c = c
-      addPrecondition pc       c = mapCondition (F.PImp pc) c
+      addPrecondition pc       c = mapCondition (\e -> F.PAnd [pc, e]) c
 
       makeEquality :: Expr -> Expr -> Condition
       makeEquality x y

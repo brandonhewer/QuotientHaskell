@@ -1,6 +1,4 @@
 {-@ LIQUID "--reflection" @-}
-{-@ LIQUID "--scrape-imports" @-}
-{-@ LIQUID "--typeclass" @-}
 
 module Boom where
 
