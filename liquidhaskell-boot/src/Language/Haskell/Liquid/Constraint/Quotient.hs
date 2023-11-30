@@ -17,6 +17,7 @@
 -}
 module Language.Haskell.Liquid.Constraint.Quotient
   ( performQuotientChecks
+  , subquotientConstraints
   ) where
 
 import           Control.Applicative                      ((<|>))
@@ -58,6 +59,7 @@ import           Language.Haskell.Liquid.Constraint.Types
   , CGEnv
   , QuotientRewrite
   , QuotientTypeDef
+  , SubC
   , TopLevelDefinition
   )
 import qualified Language.Haskell.Liquid.Constraint.Types as CG
@@ -180,6 +182,11 @@ foldMapM :: (Monoid b, Monad m, Foldable f) => (a -> m b) -> f a -> m b
 foldMapM f xs = foldr step return xs mempty
   where
     step x r z = f x >>= \y -> r $! z `mappend` y
+
+iterateMaybe :: (a -> Maybe a) -> a -> [a]
+iterateMaybe f a
+  | Just x <- f a = a : iterateMaybe f x
+  | otherwise     = [a]
 
 pureRW :: a -> RewriteResult a
 pureRW result
@@ -1201,12 +1208,20 @@ data AltUnifier
   = AltWasSubsumed !Symbol !QPattern
   | AltDidSubsume !(HashMap Symbol QPattern)
 
+data QuotientSubst
+  = QuotientSubst
+      { quotientType :: !QuotientTypeDef
+      -- | ^ The (quotient) type definition
+      , tyVarSubst   :: ![(LH.RTyVar, LH.RSort)]
+      -- | ^ Substitution corresponding to quotient type application 
+      }
+
 data QuotientCase
   = QuotientCase
       { scrutinee       :: !GHC.Var
         -- | ^ The bound variable (scrutinee)
-      , quotientType    :: !QuotientTypeDef
-        -- | ^ The (quotient) type of the scrutinee
+      , quotientTypes   :: ![QuotientSubst]
+        -- | ^ The (quotient) type hierarchy of the scrutinee
       , altCases        :: ![CoreAlt]
         -- | ^ The case alternatives
       , altEnvironments :: ![CGEnv]
@@ -1215,8 +1230,6 @@ data QuotientCase
         -- | ^ The GHC type of the case body
       , caseType        :: !SpecType
         -- | ^ The refined type of the case body
-      , tyVarSubst      :: ![(LH.RTyVar, LH.RSort)]
-        -- | ^ Substitution corresponding to quotient type application
       }
 
 initNBEEnv :: CGEnv -> CG NBEEnv
@@ -1270,6 +1283,20 @@ initNBEEnv γ = do
           = (F.smName rw,) . (F.smDC rw,) <$> L.elemIndex x (F.smArgs rw)
       | otherwise = Nothing
 
+quotientTypeHierarchy :: CGEnv -> QuotientSubst -> [QuotientSubst]
+quotientTypeHierarchy γ = iterateMaybe nextQuotientType
+  where
+    nextQuotientType :: QuotientSubst -> Maybe QuotientSubst
+    nextQuotientType QuotientSubst {..}
+      = case LH.subts tyVarSubst (CG.qtdType quotientType) of
+          LH.RApp (LH.QTyCon nm _ _ _ vs _) ts _ _ -> do
+            qtd <- M.lookup (F.val nm) (CG.cgQuotTyDefs γ)
+            Just QuotientSubst
+              { quotientType = qtd
+              , tyVarSubst   = zip vs $ map (const () <$>) ts
+              }
+          _                                        -> Nothing
+
 performQuotientChecks
   :: CGEnv      -- | The constraint generation environment
   -> GHC.Var    -- | The scrutinee of the case expression to check whose type is
@@ -1288,12 +1315,16 @@ performQuotientChecks γ x alts γs τ ty
               checkRespectfulness γ
                 $ QuotientCase
                     { scrutinee       = x
-                    , quotientType    = qty
+                    , quotientTypes
+                        = quotientTypeHierarchy γ
+                            $ QuotientSubst
+                                { quotientType = qty
+                                , tyVarSubst   = zip vs $ map (const () <$>) ts
+                                } 
                     , altCases        = alts
                     , altEnvironments = γs
                     , ghcCaseType     = τ
                     , caseType        = ty
-                    , tyVarSubst      = zip vs $ map (const () <$>) ts
                     }
       _                                -> return ()
 
@@ -1302,7 +1333,7 @@ checkRespectfulness γ QuotientCase {..} = do
   lc     <- caseBody
   nbeEnv <- initNBEEnv γ
   let alts = zip altEnvironments altCases
-  Fold.traverse_ (uncurry $ checkAlt nbeEnv lc $ CG.qtdQuots quotientType) alts
+  Fold.traverse_ (uncurry $ checkAlt nbeEnv lc) alts
   where
     -- | Translated to an open term with `scrutinee` as a free variable
     ghcCase :: CoreExpr
@@ -1317,26 +1348,38 @@ checkRespectfulness γ QuotientCase {..} = do
           ("Failed to translate GHC case body to CoreExpr: " ++)
           ghcCase
 
-    checkAlt :: NBEEnv -> Expr -> [SpecQuotient] -> CGEnv -> CoreAlt -> CG ()
-    checkAlt nbeEnv ce qs cγ alt
-      = Fold.traverse_ (checkRespects nbeEnv cγ ce alt) qs
+    checkAlt :: NBEEnv -> Expr -> CGEnv -> CoreAlt -> CG ()
+    checkAlt nbeEnv ce cγ alt
+      = Fold.traverse_ (checkQuotientSubst nbeEnv cγ ce alt) quotientTypes
 
     makeAltExpr :: CoreExpr -> CG Expr
     makeAltExpr ae
       = unsafeCoreToLogic γ
           ("Failed to translate GHC case alternative to CoreExpr: " ++) ae
 
+    checkQuotientSubst
+      :: NBEEnv
+      -> CGEnv
+      -> Expr           -- | The lambda case expression that is being checked
+      -> CoreAlt        -- | The case alternative that is being checked for respectfulness
+      -> QuotientSubst  -- | The quotient type definition and type variable substitution
+      -> CG ()
+    checkQuotientSubst nbeEnv cγ ce alt QuotientSubst {..}
+      = Fold.traverse_ (checkRespects nbeEnv cγ ce alt tyVarSubst)
+          $ CG.qtdQuots quotientType
+
     checkRespects
       :: NBEEnv       -- | The NBE environment for rewriting and normalisation
       -> CGEnv        -- | The constraint generation environment
       -> Expr         -- | The lambda case expression that is being checked
       -> CoreAlt      -- | The case alternative that is being checked for respectfulness
+      -> [(LH.RTyVar, LH.RSort)]
       -> SpecQuotient -- | The quotient that the case alternative is being checked against
       -> CG ()
-    checkRespects nbeEnv cγ ce (GHC.Alt ac bs ae) LH.Quotient {..} = do
+    checkRespects nbeEnv cγ ce (GHC.Alt ac bs ae) tvs LH.Quotient {..} = do
       let freeEnv = CG.toMapREnv (CG.renv cγ)
           qsym    = F.val qtName
-          qtVars' = LH.subts tyVarSubst <$> qtVars
+          qtVars' = LH.subts tvs <$> qtVars
       whenJust (unifyAlt (M.keysSet qtVars') (F.val qtLeft) ac bs) $ \case
         AltWasSubsumed v p -> do
           let domain = M.delete v qtVars'
@@ -1447,3 +1490,40 @@ unifyAlt _ _ _ _ = Nothing
 
 dcSymbol :: GHC.DataCon -> F.Symbol
 dcSymbol = F.symbol . GHC.dataConWorkId
+
+isInHierarchy :: F.Symbol -> SpecType -> Bool
+isInHierarchy qty (LH.RApp (LH.QTyCon c ut _ _ _ _) _ _ _)
+  | qty == F.val c  = True
+  | otherwise       = isInHierarchy qty ut
+isInHierarchy _ _ = False
+
+subquotientConstraints
+  :: CGEnv
+  -> Symbol
+  -> SpecType
+  -> Symbol
+  -> SpecType
+  -> Maybe [SubC]
+subquotientConstraints γ lqty lt rqty rt
+  | lqty == rqty = Just [CG.SubC γ lt rt]
+  | otherwise    = do
+      let qtys = CG.cgQuotTyDefs γ
+      lq <- M.lookup lqty qtys
+      rq <- M.lookup rqty qtys
+      checkWith lq rq
+      where
+        {-
+        isCompatible :: SpecQuotient -> SpecQuotient -> Bool
+        isCompatible q1 q2 = M.isSubmapOf (LH.qtVars q2) (LH.qtVars q1)
+
+        allCompatible :: [SpecQuotient] -> SpecQuotient -> Maybe (SpecQuotient, [SpecQuotient])
+        allCompatible qs q
+          = case filter (isCompatible q) qs of
+              []  -> Nothing
+              cqs -> Just (q, cqs)-}
+
+        checkWith :: QuotientTypeDef -> QuotientTypeDef -> Maybe [SubC]
+        checkWith lq rq
+          | isInHierarchy (F.val $ CG.qtdName lq) (CG.qtdType rq)
+              = Just [CG.SubC γ lt rt]
+          | otherwise = Nothing

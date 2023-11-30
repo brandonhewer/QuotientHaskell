@@ -44,6 +44,7 @@ import qualified Language.Haskell.Liquid.UX.CTags       as Tg
 import           Language.Haskell.Liquid.Types hiding (loc)
 
 
+import           Language.Haskell.Liquid.Constraint.Quotient (subquotientConstraints)
 import           Language.Haskell.Liquid.Constraint.Types
 import           Language.Haskell.Liquid.Constraint.Env
 import           Language.Haskell.Liquid.Constraint.Constraint
@@ -255,14 +256,13 @@ splitC allowTC
                      (pprint nm <+> text "is not a subtype constructor of" <+> pprint tc)
       return []
 
-splitC _ (SubC γ t1@(RApp (QTyCon c1 _ _ _ _ vs) ts _ _) t2@(RApp (QTyCon c2 _ _ _ _ _) us _ _))
-  | c1 == c2 = do
-      (t1',t2') <- unifyVV t1 t2
-      cs        <- bsplitC γ t1' t2'
-      γ'        <- if bscope (getConfig γ) then γ `extendEnvWithVV` t1' else return γ
-      csvar     <-  splitsCWithVariance γ' ts us vs
-      return $ cs ++ csvar
-  | otherwise = do
+splitC allowTC (SubC γ (RApp (QTyCon c1 lt _ _ ltvs _) ts _ _)
+                       (RApp (QTyCon c2 rt _ _ rtvs _) us _ _)) = do
+  let lt' = appQuotTyCon lt ltvs ts
+      rt' = appQuotTyCon rt rtvs us
+  case subquotientConstraints γ (F.val c1) lt' (F.val c2) rt' of
+    Just cs -> concatMapM (splitC allowTC) cs
+    Nothing -> do
       addWarning
         $ ErrQuotSub (getLocation γ)
                      (pprint c2 <+> text "is not a subquotient of" <+> pprint c1)

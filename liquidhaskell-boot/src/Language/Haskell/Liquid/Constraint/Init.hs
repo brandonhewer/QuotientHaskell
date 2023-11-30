@@ -200,7 +200,7 @@ measEnv sp xts cbs _tcb lt1s lt2s asms itys hs qcons info = CGE
   , cgInfo   = info
   , cgVar    = Nothing
   , cgTopLevel     = Nothing
-  , cgQuotTyDefs   = makeQuotTyDef <$> gsQuotTyCons (gsQuots sp)
+  , cgQuotTyDefs   = makeQuotTyDef <$> qTyCons
   , cgQuotDataCons = qcons
   }
   where
@@ -208,6 +208,7 @@ measEnv sp xts cbs _tcb lt1s lt2s asms itys hs qcons info = CGE
       filterHO xs = if higherOrderFlag sp then xs else filter (F.isFirstOrder . snd) xs
       lts         = lt1s ++ lt2s
       tcb'        = []
+      qTyCons     = gsQuotTyCons (gsQuots sp)
       quots       = gsQuotients $ gsQuots sp
 
       makeQuotTyDef :: SpecQuotientType -> QuotientTypeDef
@@ -226,7 +227,13 @@ measEnv sp xts cbs _tcb lt1s lt2s asms itys hs qcons info = CGE
                   (\q (qs, rws) -> case M.lookup q quots of
                       Nothing -> (qs, rws)
                       Just sq -> (sq : qs, makeQuotRewrite sq : rws)
-                  ) ([], []) $ qtyQuots sqt
+                  ) ([], []) (allQuotients sqt)
+
+            allQuotients QuotientType {qtyType, qtyQuots}
+              = case qtyType of
+                  RApp (QTyCon nm _ _ _ _ _) _ _ _
+                    | Just q <- M.lookup (F.val nm) qTyCons -> qtyQuots ++ allQuotients q
+                  _                                         -> qtyQuots
 
       makeQuotRewrite :: SpecQuotient -> QuotientRewrite
       makeQuotRewrite sq

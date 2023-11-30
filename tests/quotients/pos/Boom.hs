@@ -7,9 +7,15 @@ data Tree a = Empty | Leaf a | Join (Tree a) (Tree a)
 {-@
 data List a
   =  Tree a
-  |/ idl :: x:List a -> Join Empty x == x
-  |/ idr :: x:List a -> Join x Empty == x
+  |/ idl   :: x:List a -> Join Empty x == x
+  |/ idr   :: x:List a -> Join x Empty == x
   |/ assoc :: x:List a -> y:List a -> z:List a -> Join (Join x y) z == Join x (Join y z)
+@-}
+
+{-@
+data Bag a
+  =  List a
+  |/ comm :: xs:Bag a -> ys:Bag a -> Join xs ys == Join ys xs
 @-}
 
 {-@ reflect lmap @-}
@@ -28,19 +34,16 @@ lfilter p (Leaf x)
   | otherwise = Empty
 lfilter p (Join x y) = Join (lfilter p x) (lfilter p y)
 
-{-
-{-@ reflect notAllow @-}
-{-@ notAllow :: List a -> Tree a @-}
-notAllow :: Tree a -> Tree a
-notAllow x = x
--}
+{-@ reflect sumB @-}
+{-@ sumB :: Bag Int -> Int @-}
+sumB :: Tree Int -> Int
+sumB Empty      = 0
+sumB (Leaf n)   = n
+sumB (Join x y) = sumB x + sumB y
 
-{-@ reflect sumT @-}
-{-@ sumT :: List Int -> Int @-}
-sumT :: Tree Int -> Int
-sumT Empty      = 0
-sumT (Leaf n)   = n
-sumT (Join x y) = sumT x + sumT y
+{-@ sumL :: List Int -> Int @-}
+sumL :: Tree Int -> Int
+sumL t = sumB t
 
 {-@ type Magnitude = { r:Double | r >= 0 } @-}
 
@@ -54,11 +57,3 @@ data Polar
 {-@ rotate :: Int -> Polar -> Polar @-}
 rotate :: Int -> (Double, Int) -> (Double, Int)
 rotate x (r, a) = (r, a + x)
-
-{-
-{-@ reflect subtr @-}
-{-@ subtr :: List Int -> Int @-}
-subtr :: Tree Int -> Int
-subtr Empty = 0
-subtr (Leaf n) = n
-subtr (Join x y) = subtr x - subtr y-}
