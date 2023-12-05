@@ -653,7 +653,7 @@ normaliseFunApp t (F.EVar v) as = getTypedThing v >>= \case
     nas <- withoutRewrites $ normaliseArguments nbeType as
     forAllResults nas $ \as' -> do
       (ras, canReduce) <- isRecAppReducible as'
-      if canReduce then
+      if canReduce then do
         tryUnfoldOr v
           (normaliseLamApp (Just nbeType) nbeDefinition ras)
           (normalisePureApp nbeType (F.EVar v) ras)
@@ -868,14 +868,6 @@ normaliseSelector sel (dc, n) a@(F.EApp e1 e2)
       _ -> F.EApp (F.EVar sel) a
 normaliseSelector sel _ a = F.EApp (F.EVar sel) a
 
-tryNormaliseSelector :: Symbol -> (Symbol, Int) -> Expr -> Maybe Expr
-tryNormaliseSelector _ (dc, n) (F.EApp e1 e2)
-  = case getAppArgs e1 e2 of
-      (F.EVar v , as)
-        | v == dc -> Just (as !! n)
-      _ -> Nothing
-tryNormaliseSelector _ _ _ = Nothing
-
 normaliseNot :: Expr -> Expr
 normaliseNot F.PTrue    = F.PFalse
 normaliseNot F.PFalse   = F.PTrue
@@ -932,23 +924,12 @@ isRecAppReducible as = Fold.foldrM checkRecArg ([], False) as
       return (e' : es, b || b')
 
 isRecArgReducible :: MonadReader NBEEnv m => Expr -> m (Bool, Expr)
-isRecArgReducible (F.EVar v) = do
-  isDC <- isDataCons v
-  if isDC then
-    return (True, F.EVar v)
-  else do
-    def <- getDefinition v
-    return (MB.isJust def, F.EVar v)
-isRecArgReducible e@(F.EApp f as) = do
-  let (f', as') = getAppArgs f as
-  case (f', as') of
-    (F.EVar fv, [a]) -> getSelector fv >>= \case
-      Just sel -> case tryNormaliseSelector fv sel a of
-        Nothing -> return (False, e)
-        Just ne -> isRecArgReducible ne
-      Nothing  -> return (True, e)
-    _  -> return (True, e)
-isRecArgReducible e = return (True, e)
+isRecArgReducible e@(F.EVar v) = (, e) <$> isDataCons v
+isRecArgReducible e@(F.EApp f as)
+  = case getAppArgs f as of
+      (F.EVar v, _) -> (, e) <$> isDataCons v
+      _             -> return (False, e)
+isRecArgReducible e = return (False, e)
 
 makeTypedArguments :: SpecType -> [Expr] -> [(Maybe SpecType, Expr)]
 makeTypedArguments t as = zipWithThenMap addType (Nothing,) types as

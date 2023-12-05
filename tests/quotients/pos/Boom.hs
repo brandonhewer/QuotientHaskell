@@ -24,26 +24,17 @@ data Set a
   |/ idem :: xs:Set a -> Join xs xs == xs
 @-}
 
-{-
 {-@ reflect prepend @-}
 {-@ prepend :: [a] -> List a -> [a] @-}
 prepend :: [a] -> Tree a -> [a]
 prepend xs Empty      = xs
 prepend xs (Leaf x)   = x : xs
-prepend xs (Join t u) = prepend (prepend xs t) u-}
+prepend xs (Join t u) = prepend (prepend xs t) u
 
--- prepend xs (Join (Join x y) z)
--- prepend (prepend xs (Join x y)) z
-
-{-
-{-@ reflect prepend @-}
-{-@ prepend :: [a] -> List a -> [a] @-}
-prepend :: [a] -> Tree a -> [a]
-prepend xs Empty               = xs
-prepend xs (Leaf x)            = x : xs
-prepend xs (Join t Empty)      = prepend xs t
-prepend xs (Join t (Leaf x))   = prepend (x : xs) t
-prepend xs (Join t (Join u v)) = prepend (prepend (prepend xs v) u) t-}
+{-@ reflect toList @-}
+{-@ toList :: List a -> [a] @-}
+toList :: Tree a -> [a]
+toList t = prepend [] t
 
 {-@ reflect lmap @-}
 {-@ lmap :: (a -> b) -> List a -> List b @-}

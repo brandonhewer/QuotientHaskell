@@ -752,7 +752,6 @@ computeVariances = go Covariant
             -> foldr (uncurry go) mp $ zip (map (joinVariance p) (varianceTyArgs inf)) ts
           QTyCon {qtc_type = utype, qtc_tyvars = tvs, qtc_variances = vs}
             -> go p utype (M.fromList $ zip tvs vs)
-          _ -> mp
     go p (RAllE _ t1 t2)          mp = go p t2 $ go p t1 mp
     go p (REx _ t1 t2)            mp = go p t2 $ go p t1 mp
     go _ (RExprArg _)             mp = mp
