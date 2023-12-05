@@ -161,7 +161,10 @@ addQuotientBinders γ bs = foldM addBind γ bs
     addBind γ' (x, s) = γ' ++= ("addQuotientBinders", x, expandQuotTyCons s)
 
 addBinders :: CGEnv -> F.Symbol -> [(F.Symbol, SpecType)] -> CG CGEnv
-addBinders γ0 x' cbs   = foldM (++=) (γ0 -= x') [("addBinders", x, t) | (x, t) <- cbs]
+addBinders γ0 x' cbs   = foldM addBinder (γ0 -= x') [("addBinders", x, t) | (x, t) <- cbs]
+  where
+    addBinder :: CGEnv -> (String, F.Symbol, SpecType) -> CG CGEnv
+    addBinder γ v@(_, s, t) = addTopLevelArg γ s t ++= v
 
 addBind :: SrcSpan -> F.Symbol -> F.SortedReft -> CG ((F.Symbol, F.Sort), F.BindId)
 addBind l x r = do

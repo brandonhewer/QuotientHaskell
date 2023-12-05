@@ -255,7 +255,7 @@ makeGhcSpec0 cfg src lmap mspecsNoCls = do
   let (dg6, quots)   = withDiagnostics $ makeSpecQuots qenv sigEnv (M.toList specs)
   let finalLiftedSpec = makeLiftedSpec name src qenv refl sData elaboratedSig qual myRTE lSpec1
   let diags    = mconcat [dg0, dg1, dg2, dg3, dg4, dg5, dg6]
-
+  
   pure (diags, SP
     { _gsConfig = cfg
     , _gsImps   = makeImports mspecs

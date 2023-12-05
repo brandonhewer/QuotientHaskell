@@ -1467,7 +1467,7 @@ checkRespectfulness γ QuotientCase {..} = do
       -> Expr                     -- | The right hand side of the quotient equality
       -> CG ()
     doCheck nbeEnv cγ domain qsym fvs f lhs rhs = do
-      let frhs      = mkRHS nbeEnv (CG.cgTopLevel γ) f rhs
+      let frhs      = F.subst1 f (scrutineeSym, rhs)
           st        = NBEState { nbeBinds = KnownType <$> fvs, nbeNormalDefs = mempty }
           lResult   = normaliseWithEnv nbeEnv st caseType lhs
           rResult   = normaliseWithEnv nbeEnv st caseType frhs
@@ -1479,22 +1479,19 @@ checkRespectfulness γ QuotientCase {..} = do
     mkEnv cγ domain Nothing   = Fold.foldlM CG.addEEnv cγ domain
     mkEnv _ domain (Just CG.TopLevelDefinition {..}) = do
       γ' <- Fold.foldlM CG.addEEnv tldEnv domain
-      Fold.foldlM CG.addEEnv γ' (safeTail $ zip tldArguments tldArgTypes)
-
-    mkRHS :: NBEEnv -> Maybe TopLevelDefinition -> Expr -> Expr -> Expr
-    mkRHS _ Nothing f a = F.subst1 f (scrutineeSym, a)
-    mkRHS nbeEnv (Just CG.TopLevelDefinition {..}) f a
-      = let (canReduce, na) = RD.runReader (isRecArgReducible a) nbeEnv
-            appVar v f      = F.EApp f (F.EVar v)
-         in if canReduce then
-              F.subst1 f (scrutineeSym, na)
-            else
-              F.EApp (Fold.foldr appVar (F.EVar $ F.symbol tldName) (safeTail tldArguments)) na
+      Fold.foldlM CG.addEEnv γ' (zipExcept (scrutineeSym ==) tldArguments tldArgTypes)
 
     mkConstraint :: CGEnv -> Symbol -> String -> F.Expr -> CG ()
     mkConstraint γ' qsym msg p
       = CG.addC (CG.SubR γ' (LH.OQuot qsym (F.symbol . CG.tldName <$> CG.cgTopLevel γ))
           $ LH.uReft (F.vv_, F.PIff (F.EVar F.vv_) p)) msg
+
+    zipExcept :: (a -> Bool) -> [a] -> [b] -> [(a, b)]
+    zipExcept _ []       _        = []
+    zipExcept _ _        []       = []
+    zipExcept p (a : as) (b : bs)
+      | p a       = zipExcept p as bs
+      | otherwise = (a, b) : zipExcept p as bs
 
 normaliseWithEnv :: NBEEnv -> NBEState -> SpecType -> Expr -> NBEResult Expr
 normaliseWithEnv env st t e

@@ -566,8 +566,8 @@ cookSpecQuotTypes env sigEnv@Bare.SigEnv {..} mname bt
       case Bare.resolveSpecQuotientTyCon env mname qtyName qtycs of
         Right (qtyc, _) -> return qtyc
         Left _          -> do
-          let pos = F.loc qtyName
-              bty = expand sigRTEnv pos qtyType
+          let pos   = F.loc qtyName
+              bty   = expand sigRTEnv pos qtyType
 
           utype <- toSpecType pos (mkReft pos bty) [] bty
 
@@ -580,7 +580,7 @@ cookSpecQuotTypes env sigEnv@Bare.SigEnv {..} mname bt
                         }
               tycon = mkQuotTyCon sqty
 
-          modify $ M.alter (insertOrAdd (md, (mkQuotTyCon sqty, sqty))) (F.val qtyName)
+          modify $ M.alter (insertOrAdd (md, (tycon, sqty))) (F.val qtyName)
           return tycon
 
     insertOrAdd v = maybe (Just [v]) (Just . (v :))

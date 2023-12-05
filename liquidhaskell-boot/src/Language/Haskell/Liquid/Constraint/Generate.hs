@@ -452,7 +452,8 @@ cconsLazyLet :: CGEnv
              -> CG ()
 cconsLazyLet γ (Let (NonRec x ex) e) t
   = do tx <- trueTy (supportTypeclass γ) (varType x)
-       γ' <- (γ, "Let NonRec") +++= (F.symbol x, ex, tx)
+       let x' = F.symbol x
+       γ' <- (addTopLevelArg γ x' tx, "Let NonRec") +++= (x', ex, tx)
        cconsE γ' e t
 cconsLazyLet _ _ _
   = panic Nothing "Constraint.Generate.cconsLazyLet called on invalid inputs"
@@ -649,7 +650,8 @@ consPattern :: CGEnv -> Rs.Pattern -> Type -> CG JoinType
 
 consPattern γ (Rs.PatBind e1 x e2 _ _ _ _ _) _ = do
   tx <- checkMonad (msg, e1) γ . getBaseType <$> consE γ e1
-  γ' <- γ += ("consPattern", F.symbol x, tx)
+  let x' = F.symbol x
+  γ' <- addTopLevelArg γ x' tx += ("consPattern", x', tx)
   addIdA x (AnnDef tx)
   consE γ' e2
   where
