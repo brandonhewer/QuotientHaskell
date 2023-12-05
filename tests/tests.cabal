@@ -2401,6 +2401,7 @@ executable quotients-pos
     other-modules:
                       Boom
                     , Mobiles
+                    , Polar
 
     ghc-options:      -fplugin=LiquidHaskell -fkeep-going -O0
     if flag(measure-timings)

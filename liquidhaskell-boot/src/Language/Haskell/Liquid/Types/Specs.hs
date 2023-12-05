@@ -60,6 +60,7 @@ module Language.Haskell.Liquid.Types.Specs (
 
   -- * Quotient structures
   , QuotientType (..)
+  , QuotientDataCons (..)
   , BareQuotientType
   , SpecQuotientType
 
@@ -352,11 +353,11 @@ data LawInstance = LawInstance
   }
 
 data QuotientType c tv r = QuotientType
-  { qtyName   :: !F.LocSymbol
-  , qtyType   :: !(RType c tv r)
-  , qtyQuots  :: ![F.Symbol]
-  , qtyTyVars :: ![tv]
-  , qtyArity  :: !Int
+  { qtyName      :: !F.LocSymbol
+  , qtyType      :: !(RType c tv r)
+  , qtyQuots     :: ![F.Symbol]
+  , qtyTyVars    :: ![tv]
+  , qtyArity     :: !Int
   }
 
 type BareQuotientType = QuotientType BTyCon BTyVar RReft
@@ -371,19 +372,30 @@ instance F.PPrint (QuotientType c tv r) where
 data GhcSpecQuots = SpQuots
   { gsQuotTyCons   :: !(M.HashMap F.Symbol SpecQuotientType)
   , gsQuotients    :: !(M.HashMap F.Symbol SpecQuotient)
-  , gsQuotCons     :: !(M.HashMap TyCon (M.HashMap F.Symbol [SpecType]))
+  , gsQuotCons     :: !(M.HashMap F.Symbol QuotientDataCons)
                       -- | ^ Refinements of data constructors for quotient types
   }
 
+data QuotientDataCons
+  = QuotientDataCons
+      { qdcBaseTyCon  :: !F.Symbol
+      , qdcQuotTyCons :: ![(RTyCon, SpecQuotientType, SpecType)]
+      }
+
 instance Semigroup GhcSpecQuots where
   x <> y = SpQuots 
-    { gsQuotTyCons   = gsQuotTyCons x <> gsQuotTyCons y
-    , gsQuotients    = gsQuotients  x <> gsQuotients  y
-    , gsQuotCons     = gsQuotCons   x <> gsQuotCons   y
+    { gsQuotTyCons   = gsQuotTyCons  x <> gsQuotTyCons  y
+    , gsQuotients    = gsQuotients   x <> gsQuotients   y
+    , gsQuotCons     = gsQuotCons    x <> gsQuotCons    y
     }
 
 instance Monoid GhcSpecQuots where
-  mempty = SpQuots { gsQuotTyCons = mempty, gsQuotients = mempty, gsQuotCons = mempty }
+  mempty
+    = SpQuots
+        { gsQuotTyCons  = mempty
+        , gsQuotients   = mempty
+        , gsQuotCons    = mempty
+        }
 
 type VarOrLocSymbol = Either Var LocSymbol
 type BareMeasure   = Measure LocBareType F.LocSymbol

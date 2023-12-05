@@ -57,6 +57,7 @@ import qualified Language.Haskell.Liquid.Constraint.Monad as CG
 import           Language.Haskell.Liquid.Constraint.Types
   ( CG
   , CGEnv
+  , QDataCons
   , QuotientRewrite
   , QuotientTypeDef
   , SubC
@@ -82,12 +83,10 @@ import qualified Liquid.GHC.API                           as GHC
 import           Language.Haskell.Liquid.Constraint.ToFixpoint  (makeSimplify)
 import qualified Language.Haskell.Liquid.Transforms.CoreToLogic as CL
 
--- | A normalisation approach for function application.
-data AppNormaliser m
-  = AppNormaliser
-      { argumentTypes  :: [SpecType]
-      , doNormaliseApp :: [Expr] -> m (NBEResult Expr)
-      }
+data ArgNormalisation
+  = NoNormalisation
+  | UntypedNormalisation
+  | TypedNormalisation [SpecType]
 
 -- | The result of rewriting, with a possible precondition that must hold for this
 --   rewrite result to be applicable.
@@ -109,33 +108,52 @@ data NBEDefinition
       , nbeIsRecursive :: !Bool     -- | Whether this definition is recursively defined
       } deriving Show
 
+data NBEDataCons
+  = NBEDataCons
+      { nbeDataConEnv     :: !(HashMap Symbol SpecType)
+      , nbeQuotDataConEnv :: !(HashMap Symbol QDataCons)
+      }
+
 -- | Environment for normalisation by evaluation
 data NBEEnv
   = NBE
-      { nbeDefs      :: !(HashMap Symbol NBEDefinition)
+      { nbeDefs        :: !(HashMap Symbol NBEDefinition)
         -- | ^ Definitions that can be unfolded
-      , nbeSelectors :: !(HashMap Symbol (Symbol, Int))
+      , nbeSelectors   :: !(HashMap Symbol (Symbol, Int))
         -- | ^ Selectors such that a selector symbol maps to its data constructor
         --     and projection index.
-      , nbeDataCons  :: !(HashMap Symbol SpecType)
+      , nbeDataCons    :: !NBEDataCons
         -- | ^ Reflected data constructors.
-      , nbeGuards    :: ![Expr]
+      , nbeGuards      :: ![Expr]
         -- | ^ List of (normalised) axioms in scope.
-      , nbeRewrites  :: !(M.HashMap F.Symbol [QuotientRewrite])
+      , nbeRewrites    :: !(M.HashMap F.Symbol [QuotientRewrite])
         -- | ^ List of rewrite rules that can be applied, map from Quotient TyCon.
+      , nbeUnfoldTypes :: !(HashMap Symbol UnfoldType)
+        -- | ^ The unfold type for the definitions in scope
       }
 
 data BinderType
-  = KnownType SpecType
+  = KnownType !SpecType
   | UnknownType
+
+-- | Describes how many times a recursive definition can be reduced
+data UnfoldType
+  = LimitedUnfold !Int
+  | CompleteUnfold
+
+data TypedThing
+  = BoundVariable    !SpecType
+  | Definition       !NBEDefinition
+  | QDataConstructor !QDataCons
+  | DataConstructor  !SpecType
 
 data NBEState
   = NBEState
-      { nbeBinds       :: !(HashMap Symbol BinderType)
+      { nbeBinds      :: !(HashMap Symbol BinderType)
         -- | ^ The bindings in scope (cannot be unfolded) with possibly discovered types.
         --     Act as free variables in open terms for the purpose of rewriting.
-      , nbeUnfoldCount :: !(HashMap Symbol Int)
-        -- | ^ The number of times each definition has been unfolded
+      , nbeNormalDefs :: !(HashMap Symbol (NBEResult Expr))
+        -- | ^ Computed normalisation results for non-recursive definitions
       }
 
 newtype NBEResult a
@@ -173,6 +191,17 @@ instance Traversable RewriteResult where
             , rwQuantifiers
             , rwResult = b
             }
+
+instance Semigroup ArgNormalisation where
+  UntypedNormalisation <> t = t
+  t <> UntypedNormalisation = t
+  _ <> NoNormalisation      = NoNormalisation
+  NoNormalisation <> _      = NoNormalisation
+  TypedNormalisation ts <> TypedNormalisation us
+    = TypedNormalisation (extend ts us)
+
+instance Monoid ArgNormalisation where
+  mempty = UntypedNormalisation
 
 -----------------------------------------------------------------------
 -- Utility functions
@@ -322,7 +351,6 @@ applyRewrites (Just t) f
           LH.RApp (LH.QTyCon nm _ _ _ _ _) _ _ _
             | null ty_args ->
                 RD.asks (f . MB.fromMaybe [] . M.lookup (F.symbol nm) . nbeRewrites)
-            | otherwise -> return $ f []
           _ -> return $ f []
 applyRewrites Nothing f = return $ f []
 
@@ -365,11 +393,28 @@ withGuard = RD.local . addGuard
 getDefinition :: MonadReader NBEEnv m => Symbol -> m (Maybe NBEDefinition)
 getDefinition sym = RD.asks (M.lookup sym . nbeDefs)
 
-getUnfoldCount :: MonadState NBEState m => m (HashMap Symbol Int)
-getUnfoldCount = ST.gets nbeUnfoldCount
+getNormalDefinition :: MonadState NBEState m => Symbol -> m (Maybe (NBEResult Expr))
+getNormalDefinition sym = ST.gets (M.lookup sym . nbeNormalDefs)
 
-setUnfoldCount :: MonadState NBEState m => HashMap Symbol Int -> m ()
-setUnfoldCount c = ST.modify $ \st -> st { nbeUnfoldCount = c }
+addNormalDefinition :: MonadState NBEState m => Symbol -> NBEResult Expr -> m ()
+addNormalDefinition sym ne = ST.modify addResult
+  where
+    addResult st@NBEState {nbeNormalDefs}
+      = st { nbeNormalDefs = M.insert sym ne nbeNormalDefs }
+
+setUnfoldTypes :: HashMap Symbol UnfoldType -> NBEEnv -> NBEEnv
+setUnfoldTypes uts env = env { nbeUnfoldTypes = uts }
+
+tryUnfoldOr :: MonadReader NBEEnv m => Symbol -> m a -> m a -> m a
+tryUnfoldOr sym withUnfold noUnfold = do
+  (doUnfold, uts) <- RD.asks (M.alterF nextUnfoldType sym . nbeUnfoldTypes)
+  RD.local (setUnfoldTypes uts)
+    $ if doUnfold then withUnfold else noUnfold
+  where
+    nextUnfoldType :: Maybe UnfoldType -> (Bool, Maybe UnfoldType)
+    nextUnfoldType Nothing                  = (True, Just $ LimitedUnfold 0)
+    nextUnfoldType (Just CompleteUnfold)    = (True, Just CompleteUnfold)
+    nextUnfoldType (Just (LimitedUnfold n)) = (n > 0, Just $ LimitedUnfold (n - 1))
 
 getBinder :: MonadState NBEState m => Symbol -> m (Maybe BinderType)
 getBinder sym = ST.gets (M.lookup sym . nbeBinds)
@@ -383,13 +428,23 @@ withBinder sym ma = do
   return result
 
 isDataCons :: MonadReader NBEEnv m => Symbol -> m Bool
-isDataCons sym = RD.asks (M.member sym . nbeDataCons)
-
-getDataConsType :: MonadReader NBEEnv m => Symbol -> m (Maybe SpecType)
-getDataConsType sym = RD.asks (M.lookup sym . nbeDataCons)
+isDataCons sym = RD.asks (M.member sym . nbeDataConEnv . nbeDataCons)
 
 getSelector :: MonadReader NBEEnv m => Symbol -> m (Maybe (Symbol, Int))
 getSelector sym = RD.asks (M.lookup sym . nbeSelectors)
+
+getTypedThing :: (MonadReader NBEEnv m, MonadState NBEState m) => Symbol -> m (Maybe TypedThing)
+getTypedThing v = do
+  NBE {..} <- RD.ask
+  case M.lookup v nbeDefs of
+    Just d  -> return $ Just $ Definition d
+    Nothing -> case M.lookup v (nbeQuotDataConEnv nbeDataCons) of
+      Just qdc -> return $ Just $ QDataConstructor qdc
+      Nothing  -> case M.lookup v (nbeDataConEnv nbeDataCons) of
+        Just t  -> return $ Just $ DataConstructor t
+        Nothing -> getBinder v >>= \case
+          Just (KnownType t) -> return $ Just $ BoundVariable t
+          _                  -> return Nothing
 
 addQuantifiers
   :: HashSet Symbol
@@ -402,6 +457,12 @@ addCondition pc r@RWResult {..}
   = case rwCondition of
       Nothing -> r { rwCondition = Just pc }
       Just c  -> r { rwCondition = Just (mergeAnd pc c) }
+
+withoutRewrites :: MonadReader NBEEnv m => m a -> m a
+withoutRewrites ma = RD.local noRewrites ma
+  where
+    noRewrites :: NBEEnv -> NBEEnv
+    noRewrites env = env { nbeRewrites = mempty }
 
 forEachResult
   :: MonadReader NBEEnv m
@@ -494,13 +555,13 @@ normalise _ (F.ESym s)   = return $ pureResult $ F.ESym s
 normalise t (F.ECon c)   = makeRewriteResult t (litRewrites c)
 normalise t (F.EVar v)
   = getDefinition v >>= \case
-      Nothing       -> getBinder v >>= \case
+      Nothing -> getBinder v >>= \case
         Nothing            -> return $ pureResult $ F.EVar v
         Just (KnownType u) -> makeRewriteResult (t <|> Just u) (varRewrites v)
         Just UnknownType   -> do
           whenJust t $ updateBindType v
           makeRewriteResult t (varRewrites v)
-      Just d -> normaliseDefinition v d
+      Just d  -> normaliseDefinition v d
 normalise t (F.EApp ie ia) = normaliseApp t ie ia
 normalise t (F.ENeg e) = do
   ne <- normalise t e
@@ -552,7 +613,12 @@ normaliseDefinition name NBEDefinition {..}
   = if nbeIsRecursive then
       return $ pureResult $ F.EVar name
     else
-      normalise (Just nbeType) nbeDefinition
+      getNormalDefinition name >>= \case
+        Just nd -> return nd
+        Nothing -> do
+          nd <- normalise (Just nbeType) nbeDefinition
+          addNormalDefinition name nd
+          return nd
 
 -- | TODO: Refactor normalisation of application
 normaliseApp
@@ -562,136 +628,80 @@ normaliseApp
   -> Expr
   -> m (NBEResult Expr)
 normaliseApp t ie ia = do
-  (nuc, nf, nas) <- getNormalFun
+  let (f', as) = getAppArgs ie ia
+  nf <- normalise Nothing f'
+  forEachResult nf $ \f -> normaliseFunApp t f as
 
-  forEachResult nf $ \f -> do
-    an <- getAppNormaliser t f
-    uc <- getUnfoldCount
-    whenJust nuc setUnfoldCount
-    runAppNormaliser an nas <* setUnfoldCount uc
-  where
-    getNormalFun = case f' of
-      F.EVar v -> getDefinition v >>= \case
-        Nothing                 -> return (Nothing, pureResult f', as')
-        Just NBEDefinition {..} ->
-          if nbeIsRecursive then do
-            (nas, canReduce) <- isRecAppReducible as'
-
-            if canReduce then do
-              (uc, nf) <- tryUnfold v nbeDefinition
-              return (uc, nf, nas)
-            else
-              return (Nothing, pureResult f', nas)
-          else
-            return (Nothing, pureResult nbeDefinition, as')
-      _ -> do
-        nf <- normalise Nothing f'
-        return (Nothing, nf, as')
-
-    tryUnfold v e = do
-      uc <- getUnfoldCount
-      let (doUnfold, nuc) = M.alterF getAndUpdate v uc
-
-      if doUnfold then do
-        return (Just nuc, pureResult e)
-      else
-        return (Nothing, pureResult f')
-
-    getAndUpdate :: Maybe Int -> (Bool, Maybe Int)
-    getAndUpdate Nothing = (True, Just 1)
-    getAndUpdate (Just n)
-      | n < 1     = (True  , Just $ n + 1)
-      | otherwise = (False , Just n)
-
-    (f', as') = getAppArgs ie ia
-
-isRecAppReducible :: MonadReader NBEEnv m => [Expr] -> m ([Expr], Bool)
-isRecAppReducible as = Fold.foldrM checkRecArg ([], False) as
-  where
-    checkRecArg e (es, b) = do
-      (b', e') <- isRecArgReducible e
-      return (e' : es, b || b')
-
-isRecArgReducible :: MonadReader NBEEnv m => Expr -> m (Bool, Expr)
-isRecArgReducible (F.EVar v) = do
-  isDC <- isDataCons v
-  if isDC then
-    return (True, F.EVar v)
-  else do
-    def <- getDefinition v
-    return (MB.isJust def, F.EVar v)
-isRecArgReducible e@(F.EApp f as) = do
-  let (f', as') = getAppArgs f as
-  case (f', as') of
-    (F.EVar fv, [a]) -> getSelector fv >>= \case
-      Just sel -> case tryNormaliseSelector fv sel a of
-        Nothing -> return (False, e)
-        Just ne -> isRecArgReducible ne
-      Nothing  -> return (True, e)
-    _  -> return (True, e)
-isRecArgReducible e = return (True, e)
-
-runAppNormaliser
+normaliseArguments
   :: (MonadReader NBEEnv m, MonadState NBEState m)
-  => AppNormaliser m
+  => SpecType
   -> [Expr]
-  -> m (NBEResult Expr)
-runAppNormaliser AppNormaliser {..} as
-  | null argumentTypes = do
-      nas <- traverse (normalise Nothing) as
-      forAllResults nas doNormaliseApp
-  | otherwise          = do
-      let addTy ty a = (Just ty, a)
-          tyArgs     = zipWithThenMap addTy (Nothing,) argumentTypes as
-      nas <- traverse (uncurry normalise) tyArgs
-      forAllResults nas doNormaliseApp
+  -> m [NBEResult Expr]
+normaliseArguments t
+  = traverse (uncurry normalise) . makeTypedArguments t
 
-getAppNormaliser
+normaliseFunApp
   :: (MonadReader NBEEnv m, MonadState NBEState m)
   => Maybe SpecType
   -> Expr
-  -> m (AppNormaliser m)
-getAppNormaliser t (F.EVar v) = getDefinition v >>= \case
-  Just NBEDefinition { nbeType } -> do
-    let types = LH.ty_args $ LH.toRTypeRep nbeType
-    return AppNormaliser
-      { argumentTypes  = types
-      , doNormaliseApp = return . pureResult . Fold.foldl' F.EApp (F.EVar v)
-      }
-  Nothing -> getDataConsType v >>= \case
-    Just u  ->
-      return AppNormaliser
-        { argumentTypes  = resolveJoins t $ LH.ty_args $ LH.toRTypeRep u
-        , doNormaliseApp = normaliseDataConApp t v
-        }
-    Nothing -> getBinder v >>= \case
-      Just (KnownType ft) -> do
-        let types = LH.ty_args $ LH.toRTypeRep ft
-        return AppNormaliser
-          { argumentTypes  = types
-          , doNormaliseApp = normaliseVarApp v
-          }
-      _ ->
-        return AppNormaliser
-          { argumentTypes  = []
-          , doNormaliseApp = normaliseVarApp v
-          }
-getAppNormaliser t (F.EIte p ib eb) = do
-  ian <- getAppNormaliser t ib
-  ean <- getAppNormaliser t eb
-  let types = extend (argumentTypes ian) (argumentTypes ean)
-  return AppNormaliser
-    { argumentTypes  = types
-    , doNormaliseApp = \as -> do
-        nib <- runAppNormaliser (ian { argumentTypes = types }) as
-        neb <- runAppNormaliser (ean { argumentTypes = types }) as
-        forEachPure2 nib neb (F.EIte p)
-    }
-getAppNormaliser t f
-  = return AppNormaliser
-      { argumentTypes  = []
-      , doNormaliseApp = normaliseLamApp t f
-      }
+  -> [Expr]
+  -> m (NBEResult Expr)
+normaliseFunApp t (F.EVar v) as = getTypedThing v >>= \case
+  Just (Definition NBEDefinition {..}) -> do
+    -- It is necessary to first normalise arguments without rewriting to
+    -- avoid adding excessive rewrites before reducing an application
+    nas <- withoutRewrites $ normaliseArguments nbeType as
+    forAllResults nas $ \as' -> do
+      (ras, canReduce) <- isRecAppReducible as'
+      if canReduce then
+        tryUnfoldOr v
+          (normaliseLamApp (Just nbeType) nbeDefinition ras)
+          (normalisePureApp nbeType (F.EVar v) ras)
+      else normalisePureApp nbeType (F.EVar v) ras
+  Just (DataConstructor u)              -> do
+    let LH.RTypeRep { ty_args } = LH.toRTypeRep u
+        addType t a             = (Just t, a)
+        targs                   = zipWithThenMap addType (Nothing,) ty_args as 
+    nas <- traverse (uncurry normalise) targs
+    forAllResults nas $ normaliseDataConApp Nothing v
+  Just (QDataConstructor qdc) -> do
+    let rtype                           = resolveQuotDataCon t qdc
+        LH.RTypeRep { ty_args, ty_res } = LH.toRTypeRep rtype
+        addType t a                     = (Just t, a)
+        targs                           = zipWithThenMap addType (Nothing,) ty_args as
+        dctype
+          = if length ty_args == length as then
+              Just ty_res
+            else
+              Nothing
+    nas <- traverse (uncurry normalise) targs
+    forAllResults nas $ normaliseDataConApp dctype v
+  Just (BoundVariable u)                -> do
+    nas <- normaliseArguments u as
+    forAllResults nas $ normaliseVarApp v
+  Nothing                               -> do
+    nas <- traverse (normalise Nothing) as
+    forAllResults nas $ normaliseVarApp v
+normaliseFunApp t f@(F.ELam _ _) as = do
+  nas <- traverse (normalise Nothing) as
+  forAllResults nas $ normaliseLamApp t f
+normaliseFunApp t (F.EIte p ib eb) as = do
+  nib <- normaliseFunApp t ib as
+  neb <- normaliseFunApp t eb as
+  forEachPure2 nib neb (F.EIte p)
+normaliseFunApp t f as = do
+  nas <- traverse (normalise Nothing) as
+  forAllResults nas $ normaliseLamApp t f
+
+normalisePureApp
+  :: (MonadReader NBEEnv m, MonadState NBEState m)
+  => SpecType
+  -> Expr
+  -> [Expr]
+  -> m (NBEResult Expr)
+normalisePureApp t f as = do
+  nas <- normaliseArguments t as
+  forAllResults nas $ return . pureResult . Fold.foldl' F.EApp f
 
 normaliseLamApp
   :: (MonadReader NBEEnv m, MonadState NBEState m)
@@ -913,14 +923,52 @@ contractIfThenElse p i e@(F.EIte q fi fe)
   | otherwise = (p, i, e)
 contractIfThenElse p i e = (p, i, e)
 
--- | Resolves the join type constructors in a data constructor argument list
-resolveJoins :: Maybe SpecType -> [SpecType] -> [SpecType]
-resolveJoins (Just (LH.RApp tc _ _ _))
-  = map (LH.mapTyCon updateJoin)
+
+isRecAppReducible :: MonadReader NBEEnv m => [Expr] -> m ([Expr], Bool)
+isRecAppReducible as = Fold.foldrM checkRecArg ([], False) as
+  where
+    checkRecArg e (es, b) = do
+      (b', e') <- isRecArgReducible e
+      return (e' : es, b || b')
+
+isRecArgReducible :: MonadReader NBEEnv m => Expr -> m (Bool, Expr)
+isRecArgReducible (F.EVar v) = do
+  isDC <- isDataCons v
+  if isDC then
+    return (True, F.EVar v)
+  else do
+    def <- getDefinition v
+    return (MB.isJust def, F.EVar v)
+isRecArgReducible e@(F.EApp f as) = do
+  let (f', as') = getAppArgs f as
+  case (f', as') of
+    (F.EVar fv, [a]) -> getSelector fv >>= \case
+      Just sel -> case tryNormaliseSelector fv sel a of
+        Nothing -> return (False, e)
+        Just ne -> isRecArgReducible ne
+      Nothing  -> return (True, e)
+    _  -> return (True, e)
+isRecArgReducible e = return (True, e)
+
+makeTypedArguments :: SpecType -> [Expr] -> [(Maybe SpecType, Expr)]
+makeTypedArguments t as = zipWithThenMap addType (Nothing,) types as
+  where
+    types       = LH.ty_args $ LH.toRTypeRep t
+    addType t a = (Just t, a)
+
+resolveQuotDataCon :: Maybe SpecType -> QDataCons -> SpecType
+resolveQuotDataCon Nothing CG.QDataCons {qdcUnderlyingType}
+  = qdcUnderlyingType
+resolveQuotDataCon (Just t) CG.QDataCons {..}
+  = case ty_res of
+      LH.RApp c _ _ _
+        | sym == qdcUnderlyingName -> qdcUnderlyingType
+        | otherwise                -> MB.fromMaybe qdcUnderlyingType (M.lookup sym qdcRefinedTypes)
+        where
+          sym = F.symbol c
+      _               -> qdcUnderlyingType
     where
-      updateJoin LH.JoinTyCon {} = tc
-      updateJoin x               = x
-resolveJoins _ = id
+      LH.RTypeRep {ty_res} = LH.toRTypeRep t
 
 -----------------------------------------------------------------------
 --  Rewrite utility functions
@@ -995,7 +1043,7 @@ conRewrites app c as = getRewritesWith app getResult
     getResult :: QuotientRewrite -> Maybe (RewriteResult Expr)
     getResult CG.QuotientRewrite {..}
       = case rwPattern of
-          F.QPVar v ->
+          F.QPVar v -> do
             Just $ RWResult
               { rwCondition   = rwPrecondition
               , rwResult      = F.subst1 rwExpr (v, app)
@@ -1237,12 +1285,19 @@ initNBEEnv γ = do
   rs <- ST.gets getReflects
   ss <- ST.gets getSelectors
   dc <- ST.gets getDataCons
+  ut <- unfoldTypes rs
+
   return NBE
-    { nbeDefs      = rs
-    , nbeSelectors = ss
-    , nbeDataCons  = M.union (CG.cgQuotDataCons γ) dc
-    , nbeGuards    = []
-    , nbeRewrites  = CG.qtdRewrites <$> CG.cgQuotTyDefs γ
+    { nbeDefs        = rs
+    , nbeSelectors   = ss
+    , nbeGuards      = []
+    , nbeRewrites    = CG.qtdRewrites <$> CG.cgQuotTyDefs γ
+    , nbeUnfoldTypes = ut
+    , nbeDataCons
+        = NBEDataCons
+            { nbeDataConEnv     = dc
+            , nbeQuotDataConEnv = CG.cgQuotDataCons γ
+            }
     }
   where
     getReflects :: CG.CGInfo -> HashMap Symbol NBEDefinition
@@ -1282,6 +1337,32 @@ initNBEEnv γ = do
       | F.EVar x <- F.smBody rw
           = (F.smName rw,) . (F.smDC rw,) <$> L.elemIndex x (F.smArgs rw)
       | otherwise = Nothing
+
+    unfoldTypes :: HashMap Symbol NBEDefinition -> CG (HashMap Symbol UnfoldType)
+    unfoldTypes ds = do
+      isTermCheck <- ST.gets CG.stcheck
+      if isTermCheck then
+        M.traverseWithKey unfoldType ds
+      else
+        return mempty
+
+    unfoldType :: Symbol -> NBEDefinition -> CG UnfoldType
+    unfoldType s NBEDefinition {nbeIsRecursive}
+      | nbeIsRecursive = do
+          isTermDef <- ST.gets $ doesTerminate s
+          return
+            $ if isTermDef then
+                CompleteUnfold
+              else
+                LimitedUnfold 1
+      | otherwise = return CompleteUnfold
+
+    doesTerminate :: Symbol -> CG.CGInfo -> Bool
+    doesTerminate s CG.CGInfo {specLVars, specLazy, specTmVars}
+      = let s1 = S.map F.symbol specLVars
+            s2 = S.map F.symbol specLazy
+            s3 = S.map F.symbol specTmVars
+         in not (S.member s s1 || S.member s s2 || S.member s s3)
 
 quotientTypeHierarchy :: CGEnv -> QuotientSubst -> [QuotientSubst]
 quotientTypeHierarchy γ = iterateMaybe nextQuotientType
@@ -1406,7 +1487,7 @@ checkRespectfulness γ QuotientCase {..} = do
       -> CG ()
     doCheck nbeEnv cγ domain qsym fvs f lhs rhs = do
       let frhs      = mkRHS nbeEnv (CG.cgTopLevel γ) f rhs
-          st        = NBEState { nbeBinds = KnownType <$> fvs, nbeUnfoldCount = mempty }
+          st        = NBEState { nbeBinds = KnownType <$> fvs, nbeNormalDefs = mempty }
           lResult   = normaliseWithEnv nbeEnv st caseType lhs
           rResult   = normaliseWithEnv nbeEnv st caseType frhs
           condition = makeRespectCondition lResult rResult

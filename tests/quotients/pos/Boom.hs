@@ -18,6 +18,33 @@ data Bag a
   |/ comm :: xs:Bag a -> ys:Bag a -> Join xs ys == Join ys xs
 @-}
 
+{-@
+data Set a
+  =  Bag a
+  |/ idem :: xs:Set a -> Join xs xs == xs
+@-}
+
+{-
+{-@ reflect prepend @-}
+{-@ prepend :: [a] -> List a -> [a] @-}
+prepend :: [a] -> Tree a -> [a]
+prepend xs Empty      = xs
+prepend xs (Leaf x)   = x : xs
+prepend xs (Join t u) = prepend (prepend xs t) u-}
+
+-- prepend xs (Join (Join x y) z)
+-- prepend (prepend xs (Join x y)) z
+
+{-
+{-@ reflect prepend @-}
+{-@ prepend :: [a] -> List a -> [a] @-}
+prepend :: [a] -> Tree a -> [a]
+prepend xs Empty               = xs
+prepend xs (Leaf x)            = x : xs
+prepend xs (Join t Empty)      = prepend xs t
+prepend xs (Join t (Leaf x))   = prepend (x : xs) t
+prepend xs (Join t (Join u v)) = prepend (prepend (prepend xs v) u) t-}
+
 {-@ reflect lmap @-}
 {-@ lmap :: (a -> b) -> List a -> List b @-}
 lmap :: (a -> b) -> Tree a -> Tree b
@@ -41,19 +68,13 @@ sumB Empty      = 0
 sumB (Leaf n)   = n
 sumB (Join x y) = sumB x + sumB y
 
+{-@ reflect contains @-}
+{-@ contains :: Int -> Set Int -> Bool @-}
+contains :: Int -> Tree Int -> Bool
+contains _ Empty      = False
+contains x (Leaf y)   = x == y
+contains x (Join t u) = contains x t || contains x u
+
 {-@ sumL :: List Int -> Int @-}
 sumL :: Tree Int -> Int
 sumL t = sumB t
-
-{-@ type Magnitude = { r:Double | r >= 0 } @-}
-
-{-@
-data Polar
-  =  (Magnitude, Int)
-  |/ turn :: r:Magnitude -> a:Int -> (r, a) == (r, a + 360)
-@-}
-
-{-@ reflect rotate @-}
-{-@ rotate :: Int -> Polar -> Polar @-}
-rotate :: Int -> (Double, Int) -> (Double, Int)
-rotate x (r, a) = (r, a + x)

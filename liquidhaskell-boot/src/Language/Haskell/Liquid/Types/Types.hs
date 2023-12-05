@@ -48,7 +48,6 @@ module Language.Haskell.Liquid.Types.Types (
   , RTyCon
       ( RTyCon
       , QTyCon
-      , JoinTyCon
       , rtc_tc
       , rtc_info
       , qtc_name
@@ -57,9 +56,6 @@ module Language.Haskell.Liquid.Types.Types (
       , qtc_arity
       , qtc_tyvars
       , qtc_variances
-      , jtc_base
-      , jtc_info
-      , jtc_quots
       )
   , TyConInfo(..), defaultTyConInfo
   , rTyConPVs
@@ -685,14 +681,6 @@ data RTyCon
       , qtc_tyvars    :: ![RTyVar]     -- ^ Type Variables
       , qtc_variances :: ![Variance]   -- ^ Variances of Type Variables
       }
-  | JoinTyCon -- | Represents a sum of (quotient) type constructors
-      { jtc_base  :: !TyCon
-      , jtc_info  :: !TyConInfo
-        -- | ^ The base/underlying type constructor
-      , jtc_quots :: !(M.HashMap F.Symbol [SpecType])
-        -- | ^ Quotient types that are super types of the base TyCon applied to the paired
-        --     list of types.
-      }
   deriving (Generic, Data, Typeable)
 
 instance F.Symbolic QuotientTyCon where
@@ -701,7 +689,6 @@ instance F.Symbolic QuotientTyCon where
 instance F.Symbolic RTyCon where
   symbol (RTyCon c _ _)       = F.symbol c
   symbol (QTyCon c _ _ _ _ _) = F.symbol c
-  symbol (JoinTyCon c _ _)    = F.symbol c
 
 instance F.Symbolic BTyCon where
   symbol = F.val . btc_tc
@@ -1137,10 +1124,6 @@ instance Ord BTyCon where
 instance F.Fixpoint RTyCon where
   toFix (RTyCon c _ _)       = text $ showPpr c
   toFix (QTyCon c _ _ _ _ _) = F.toFix c
-  toFix (JoinTyCon c _ qs)   =
-      "(" <>  F.toFix (F.symbol c)
-    <> hcat (map (\(q, _) -> text "+" <> F.toFix (F.symbol q)) $ M.toList qs)
-    <> ")"
 
 instance F.Fixpoint BTyCon where
   toFix = text . F.symbolString . F.val . btc_tc
@@ -1156,9 +1139,6 @@ instance F.PPrint RTyCon where
     | ppDebug ppEnv = F.pprintTidy k (F.symbol c) <-> angleBrackets (F.pprintTidy k pvs)
     | otherwise     = text $ showPpr c
   pprintTidy k (QTyCon c _ _ _ _ _) = F.pprintTidy k (F.symbol c)
-  pprintTidy k (JoinTyCon c _ qs)
-    =   F.pprintTidy k (F.symbol c)
-    <+> hcat (map (\(q, _) -> text "+" <+> F.pprintTidy k (F.symbol q)) $ M.toList qs)
 
 instance F.PPrint BTyCon where
   pprintTidy _ = text . F.symbolString . F.val . btc_tc

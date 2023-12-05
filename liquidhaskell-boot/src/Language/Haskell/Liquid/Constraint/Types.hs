@@ -20,8 +20,9 @@ module Language.Haskell.Liquid.Constraint.Types
   , TopLevelDefinition (..)
 
     -- * Quotient Types
-  , QuotientRewrite (..)
-  , QuotientTypeDef (..)
+  , QuotientRewrite  (..)
+  , QuotientTypeDef  (..)
+  , QDataCons        (..)
 
     -- * Fixpoint environment
   , FEnv (..)
@@ -49,6 +50,9 @@ module Language.Haskell.Liquid.Constraint.Types
   , mkRTyConInv
   , addRTyConInv
   , addRInv
+
+  -- * Join types -- hiding the Join constructor
+  , JoinType (..)
 
   -- * Aliases?
   , RTyConIAl
@@ -114,11 +118,13 @@ data CGEnv = CGE
   , cerr   :: !(Maybe (TError SpecType))             -- ^ error that should be reported at the user
   , cgInfo :: !TargetInfo                            -- ^ top-level TargetInfo
   , cgVar  :: !(Maybe Var)                           -- ^ top level function being checked
-  , cgTopLevel     :: !(Maybe TopLevelDefinition)
+  , cgTopLevel       :: !(Maybe TopLevelDefinition)
     -- ^ The top level definition being checked and its arguments (in reverse order).
     --   Value is Nothing when checking auxiliary let expressions
-  , cgQuotTyDefs   :: !(M.HashMap F.Symbol QuotientTypeDef) -- ^ Quotient type definitions
-  , cgQuotDataCons :: !(M.HashMap F.Symbol SpecType)        -- ^ Refinements of data constructors for quotient types
+  , cgQuotTyDefs     :: !(M.HashMap F.Symbol QuotientTypeDef)
+    -- ^ Quotient type definitions
+  , cgQuotDataCons   :: !(M.HashMap F.Symbol QDataCons)
+    -- ^ Refinements of data constructors
   } -- deriving (Data, Typeable)
 
 instance HasConfig CGEnv where
@@ -157,6 +163,27 @@ data TopLevelDefinition
 --------------------------------------------------------------------------------
 -- | Quotient Types        -----------------------------------------------------
 --------------------------------------------------------------------------------
+
+data QDataCons
+  = QDataCons
+      { qdcUnderlyingName :: !F.Symbol
+      , qdcUnderlyingType :: !SpecType
+      , qdcRefinedTypes   :: !(M.HashMap F.Symbol SpecType)
+      } deriving Show
+
+data JoinType
+  = SpecType !SpecType
+  | JoinType
+      { join_base   :: !SpecType
+      , join_unions :: !(M.HashMap F.Symbol SpecType)
+      , join_apply  :: !(SpecType -> CG SpecType)
+      , join_tyapp  :: ![(CoreExpr, CoreExpr, Type)]
+      }
+
+{-
+data QSpecType
+  = SpecType !SpecType
+  | QConType !QDataCons !(SpecType -> CG SpecType)-}
 
 data QuotientRewrite
   = QuotientRewrite
@@ -275,6 +302,7 @@ data CGInfo = CGInfo
   , cgConsts   :: !(F.SEnv F.Sort)                    -- ^ Distinct constant symbols in the refinement logic
   , cgADTs     :: ![F.DataDecl]                       -- ^ ADTs extracted from Haskell 'data' definitions
   , tcheck     :: !Bool                               -- ^ Check Termination (?)
+  , stcheck    :: !Bool                               -- ^ Structural Termination Checking is enabled
   , cgiTypeclass :: !Bool                             -- ^ Enable typeclass support
   , pruneRefs  :: !Bool                               -- ^ prune unsorted refinements
   , logErrors  :: ![Error]                            -- ^ Errors during constraint generation

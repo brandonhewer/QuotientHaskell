@@ -540,7 +540,6 @@ checkTcArity tc givenArity
                  <+> text "arguments but was given" <+> pprint givenArity
                  <+> text "arguments"
         | otherwise -> Nothing
-      _ -> Nothing
 
 checkAbstractRefs
   :: (PPrint t, F.Reftable t, SubsTy RTyVar RSort t, F.Reftable (RTProp RTyCon RTyVar (UReft t))) =>
@@ -895,7 +894,6 @@ containsQTyCon s (RApp (QTyCon nm ut _ _ _ _) ts ps _)
             tsc = firstJustMap (containsQTyCon s) ts
             psc = firstJustMap (refContainsQTyCon s) ps
          in firstJust utc (firstJust tsc psc)
-containsQTyCon _ (RApp {}) = Nothing
 containsQTyCon s (RFun _ _ t1 t2 _)
   = firstJust (containsQTyCon s t1) (containsQTyCon s t2)
 containsQTyCon _ (RVar _ _)         = Nothing

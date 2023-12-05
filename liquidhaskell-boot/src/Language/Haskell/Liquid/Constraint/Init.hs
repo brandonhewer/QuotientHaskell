@@ -27,6 +27,7 @@ import qualified Language.Fixpoint.Types                       as F
 import qualified Language.Haskell.Liquid.UX.CTags              as Tg
 import           Language.Haskell.Liquid.Constraint.Fresh
 import           Language.Haskell.Liquid.Constraint.Env
+import qualified Language.Haskell.Liquid.Constraint.Unify      as Unify
 import           Language.Haskell.Liquid.WiredIn               (dictionaryVar)
 import qualified Language.Haskell.Liquid.GHC.SpanStack         as Sp
 import           Language.Haskell.Liquid.GHC.Misc             ( idDataConM, hasBaseTypeVar, isDataConId) -- dropModuleNames, simplesymbol)
@@ -72,7 +73,7 @@ initEnv info
        let cbs   = giCbs . giSrc $ info
        rTrue   <- mapM (mapSndM (true allowTC)) f6
        let dconM = M.fromList (map (first F.symbol) f4)
-       qcons   <- makeQuotDataCons (gsQuotCons $ gsQuots sp) (gsDconsP $ gsName sp) dconM
+       qcons   <- makeQuotDataCons dconM (gsQuotCons $ gsQuots sp)
        let γ0    = measEnv sp (head bs) cbs tcb lt1s lt2s (f6 ++ bs!!3) (bs!!5) hs qcons info
        γ  <- globalize <$> foldM (+=) γ0 ( [("initEnv", x, y) | (x, y) <- concat (rTrue:tail bs)])
        return γ {invs = is (invs1 ++ invs2)}
@@ -169,7 +170,7 @@ measEnv :: TargetSpec
         -> [(F.Symbol, SpecType)]
         -> [(F.Symbol, SpecType)]
         -> [F.Symbol]
-        -> M.HashMap F.Symbol SpecType
+        -> M.HashMap F.Symbol QDataCons
         -> TargetInfo
         -> CGEnv
 --------------------------------------------------------------------------------
@@ -310,6 +311,7 @@ initCGI cfg info = CGInfo {
   , specLazy   = dictionaryVar `S.insert` gsLazy tspc
   , specTmVars = gsNonStTerm tspc
   , tcheck     = terminationCheck cfg
+  , stcheck    = structuralTerm cfg
   , cgiTypeclass = typeclass cfg
   , pruneRefs  = pruneUnsorted cfg
   , logErrors  = []
@@ -344,78 +346,103 @@ coreBindLits tce info
     isDCon x     = isDataConId x && not (hasBaseTypeVar x)
 
 makeQuotDataCons
-  :: M.HashMap TyCon (M.HashMap F.Symbol [SpecType])
-  -> [F.Located DataCon]
-  -> M.HashMap F.Symbol SpecType
-  -> CG (M.HashMap F.Symbol SpecType)
-makeQuotDataCons rs dds ts = foldM makeDataCons mempty dds
+  :: M.HashMap F.Symbol SpecType
+  -> M.HashMap F.Symbol QuotientDataCons
+  -> CG (M.HashMap F.Symbol QDataCons)
+makeQuotDataCons dcm qdcs = traverse refreshQDataCons $ M.mapMaybeWithKey makeQuotDataCon qdcs
   where
-    getRefinedType :: DataCon -> Maybe SpecType
-    getRefinedType dc = do
-      let tc = dataConTyCon dc
-      qs <- M.lookup tc rs
-      t  <- M.lookup (F.symbol dc) ts
-      refineQuotDataCons tc qs t
+    refreshQDataCons :: QDataCons -> CG QDataCons
+    refreshQDataCons dc@QDataCons {..} = do
+      quty <- refreshArgs qdcUnderlyingType
+      qrts <- traverse refreshArgs qdcRefinedTypes
+      return $ dc { qdcUnderlyingType = quty, qdcRefinedTypes = qrts }
 
-    makeDataCons :: M.HashMap F.Symbol SpecType -> F.Located DataCon -> CG (M.HashMap F.Symbol SpecType)
-    makeDataCons us (F.Loc _ _ dc)
-      = case getRefinedType dc of
-          Nothing -> return us
-          Just t  -> do
-            t' <- refreshArgs t
-            return $ M.insert (F.symbol dc) t' us
+    makeQuotDataCon :: F.Symbol -> QuotientDataCons -> Maybe QDataCons
+    makeQuotDataCon dc QuotientDataCons {..} = do
+      t <- M.lookup dc dcm
+      return QDataCons
+        { qdcUnderlyingName = qdcBaseTyCon
+        , qdcUnderlyingType = t
+        , qdcRefinedTypes   = M.fromList $ makeRefined qdcBaseTyCon t <$> qdcQuotTyCons
+        }
 
-refineQuotDataCons :: TyCon -> M.HashMap F.Symbol [SpecType] -> SpecType -> Maybe SpecType
-refineQuotDataCons tc qs t
-  = let trep@RTypeRep{ty_vars, ty_preds, ty_args, ty_res} = toRTypeRep t
-     in if any (doesContainTyCon tc) ty_args then
-          Just $ fromRTypeRep $ trep
-            { ty_vars  = map (first (mapTyCon tyConRefine <$>)) ty_vars
-            , ty_preds = map (mapTyCon tyConRefine <$>) ty_preds
-            , ty_args  = map (mapTyCon tyConRefine) ty_args
-            , ty_res   = mapTyCon tyConRefine ty_res
-            }
-        else Nothing
-    where
-      tyConRefine :: RTyCon -> RTyCon
-      tyConRefine t@(RTyCon c _ inf)
-        | c == tc = JoinTyCon
-            { jtc_base  = c
-            , jtc_info  = inf
-            , jtc_quots = qs
-            }
-        | otherwise = t
-      tyConRefine t = t
+    makeRefined :: F.Symbol -> SpecType -> (RTyCon, SpecQuotientType, SpecType) -> (F.Symbol, SpecType)
+    makeRefined btc t (qtc, QuotientType {..}, utype)
+      = case utype of
+          RApp (RTyCon c _ _) ts rs _ ->
+            let rep@RTypeRep {..} = toRTypeRep t
+                mkSub tv u        = (rTyVar tv, u)
+                tvs               = Ghc.tyConTyVars c   
+                tvsub             = M.fromList $ zipWith mkSub tvs ts
+                refine            = doRefine btc qtc qtyTyVars ts rs tvsub
+                refineRT (u, r)
+                  = (doRefine btc qtc qtyTyVars
+                      (map void ts) (map (fmap void) rs) (void <$> tvsub) <$> u, r)
+                otvs              = map refineRT $ drop (length tvs) ty_vars   
+             in ( F.val qtyName
+                , fromRTypeRep rep
+                    { ty_vars  = map makeTyVar qtyTyVars ++ otvs
+                    , ty_preds = [] -- | TODO: Fix when predicates are added to quotient types
+                    , ty_args  = map refine ty_args
+                    , ty_res   = refine ty_res
+                    }
+                )
+          _                           -> (F.val qtyName, t)
 
-doesContainTyCon :: TyCon -> SpecType -> Bool
-doesContainTyCon c (RAllP _ t)
-  = doesContainTyCon c t
-doesContainTyCon c (RAllT _ t _)
-  = doesContainTyCon c t
-doesContainTyCon c (RFun _ _ t t' _)
-  = doesContainTyCon c t || doesContainTyCon c t'
-doesContainTyCon c (RApp (RTyCon {rtc_tc}) ts _ _)
-  | c == rtc_tc = True
-  | otherwise   = any (doesContainTyCon c) ts
-doesContainTyCon c (RApp (QTyCon {qtc_type}) ts _ _)
-  = doesContainTyCon c qtc_type || any (doesContainTyCon c) ts
-doesContainTyCon c (RApp (JoinTyCon {jtc_base}) ts _ _)
-  | c == jtc_base = True
-  | otherwise     = any (doesContainTyCon c) ts
-doesContainTyCon _ (RVar _ _)
-  = False
-doesContainTyCon c (RAllE _ tx t)
-  = doesContainTyCon c tx || doesContainTyCon c t
-doesContainTyCon c (REx _ tx t)
-  = doesContainTyCon c tx || doesContainTyCon c t
-doesContainTyCon _ (RExprArg _)
-  = False
-doesContainTyCon c (RAppTy t t' _)
-  = doesContainTyCon c t || doesContainTyCon c t'
-doesContainTyCon _ (RHole _)
-  = False
-doesContainTyCon c (RRTy e _ _ t)
-  = doesContainTyCon c t || any (doesContainTyCon c . snd) e
+    doRefine
+      :: (F.Reftable r, SubsTy RTyVar RSort r)
+      => F.Symbol                    -- | Base type constructor to replace
+      -> RTyCon                      -- | Quotient type constructor
+      -> [RTyVar]                    -- | Quotient type variables
+      -> [RRType r]                  -- | Most general types applied to base type constructor
+      -> [RRProp r]                  -- | Most general predicates applied to base type constructor
+      -> M.HashMap RTyVar (RRType r) -- | Type variable substitutions to apply
+      -> RRType r                    -- | The data constructor type to refine
+      -> RRType r
+    doRefine _ _ _ _ _ tvs t@(RVar v _)
+      | Just u <- M.lookup v tvs = u
+      | otherwise                = t
+    doRefine btc qtc qtvs ts ps tvs (RFun s inf i o r)
+      = RFun s inf (doRefine btc qtc qtvs ts ps tvs i) (doRefine btc qtc qtvs ts ps tvs o) r
+    doRefine btc qtc qtvs ts ps tvs (RAllT b t r)
+      = RAllT
+          (doRefine btc qtc qtvs (void <$> ts) (fmap void <$> ps) (void <$> tvs) <$> b)
+          (doRefine btc qtc qtvs ts ps (M.delete (ty_var_value b) tvs) t) r
+    doRefine btc qtc qtvs ts ps tvs (RAllP pb t)
+      = RAllP
+          (doRefine btc qtc qtvs (void <$> ts) (fmap void <$> ps) (void <$> tvs) <$> pb)
+          (doRefine btc qtc qtvs ts ps tvs t)
+    doRefine btc qtc qtvs ts ps tvs (RApp tc@(RTyCon c _ _) us qs r)
+      | F.symbol c == btc, Just qts <- rfargs = RApp qtc qts [] mempty
+      | otherwise = RApp tc (map (doRefine btc qtc qtvs ts ps tvs) us) qs r
+      where
+        mkRType m v       = fromMaybe (RVar v mempty) $ M.lookup v m
+        fvs               = M.keysSet tvs
+        rfargs            = do
+          m <- bifoldMaybe (Unify.simpleUnifyWith fvs) mempty ts us
+          return $ map (doRefine btc qtc qtvs ts ps tvs . mkRType m) qtvs
+    doRefine btc qtc qtvs ts ps tvs (RApp c us qs r)
+      = RApp c (map (doRefine btc qtc qtvs ts ps tvs) us) qs r
+    doRefine btc qtc qtvs ts ps tvs (RAllE s a t)
+      = RAllE s (doRefine btc qtc qtvs ts ps tvs a) (doRefine btc qtc qtvs ts ps tvs t)
+    doRefine btc qtc qtvs ts ps tvs (REx s a t)
+      = REx s (doRefine btc qtc qtvs ts ps tvs a) (doRefine btc qtc qtvs ts ps tvs t)
+    doRefine btc qtc qtvs ts ps tvs (RAppTy a res r)
+      = RAppTy (doRefine btc qtc qtvs ts ps tvs a) (doRefine btc qtc qtvs ts ps tvs res) r
+    doRefine btc qtc qtvs ts ps tvs (RRTy e r o t)
+      = RRTy (fmap (doRefine btc qtc qtvs ts ps tvs) <$> e) r o (doRefine btc qtc qtvs ts ps tvs t)
+    doRefine _ _ _ _ _ _ (RExprArg e) = RExprArg e
+    doRefine _ _ _ _ _ _ (RHole r) = RHole r
+
+    makeTyVar :: RTyVar -> (SpecRTVar, RReft)
+    makeTyVar tv = (makeRTVar tv, mempty)
+
+    bifoldMaybe :: (a -> b -> c -> Maybe c) -> c -> [a] -> [b] -> Maybe c
+    bifoldMaybe _ c []       []       = Just c
+    bifoldMaybe f c (a : as) (b : bs) = do
+      nc <- f a b c
+      bifoldMaybe f nc as bs
+    bifoldMaybe _ _ _        _        = Nothing
 
 getQuotientReft :: SpecQuotient -> Maybe F.Expr
 getQuotientReft Quotient { qtVars }

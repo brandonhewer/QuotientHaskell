@@ -406,7 +406,6 @@ class FreeVar a v where
 instance FreeVar RTyCon RTyVar where
   freeVars (RTyCon tc _ _)       = RTV <$> GM.tyConTyVarsDef tc
   freeVars (QTyCon _ _ _ _ vs _) = vs
-  freeVars (JoinTyCon tc _ _)    = RTV <$> GM.tyConTyVarsDef tc
 
 -- MOVE TO TYPES
 instance FreeVar BTyCon BTyVar where
@@ -473,7 +472,6 @@ instance Hashable RTyVar where
 instance Hashable RTyCon where
   hashWithSalt i (RTyCon tc _ _)      = hashWithSalt i tc
   hashWithSalt i (QTyCon n _ _ _ _ _) = hashWithSalt i n
-  hashWithSalt i (JoinTyCon c _ _)    = hashWithSalt (hashWithSalt i (2 :: Int)) c
 
 --------------------------------------------------------------------------------
 -- | Helper Functions (RJ: Helping to do what?) --------------------------------
@@ -1333,7 +1331,6 @@ instance SubsTy RTyVar RSort RTyCon where
       ps'  = subt z <$> pvs
   subt z (QTyCon nm t ss n vs vars)
     = QTyCon nm t ss n (map (subt z) vs) vars
-  subt _ tc = tc
 
 -- NOTE: This DOES NOT substitute at the binders
 instance SubsTy RTyVar RSort PrType where
@@ -1518,11 +1515,6 @@ toType useRFInfo (RApp RTyCon{rtc_tc = c} ts _ _)
     notExprArg _            = True
 toType useRFInfo (RApp QTyCon { qtc_type = ut, qtc_tyvars = vs } ts _ _)
   = toType useRFInfo $ appQuotTyConSort (void ut) vs (map void ts)
-toType useRFInfo (RApp (JoinTyCon c _ _) ts _ _)
-  = TyConApp c (toType useRFInfo <$> filter notExprArg ts)
-  where
-    notExprArg (RExprArg _) = False
-    notExprArg _            = True
 toType useRFInfo (RAllE _ _ t)
   = toType useRFInfo t
 toType useRFInfo (REx _ _ t)
@@ -1822,7 +1814,6 @@ substQuotElim f subs (RAllP pvb ty)
 substQuotElim f subs (RApp (QTyCon _ ut _ _ vs _) ts _ _)
   = let nsubs = foldr (uncurry M.insert) subs $ zip vs (map (substQuotElim f subs) ts)
      in substQuotElim f nsubs (f ut)
-substQuotElim _ _ t@(RApp (JoinTyCon {}) _ _ _) = t
 substQuotElim f subs (RApp tc as ps r)
   = RApp tc (map (substQuotElim f subs) as) (map (substQuotElim f subs <$>) ps) r
 substQuotElim f subs (RAllE s aa ty)
@@ -2022,7 +2013,6 @@ tyVarsPosition = go (Just True)
       = case c of
           RTyCon _ _ inf              -> mconcat (zipWith go (getPosition p <$> varianceTyArgs inf) ts)
           QTyCon {qtc_variances = vs} -> mconcat (zipWith go (map (getPosition p) vs) ts)
-          _                           -> mempty
     go p (RAllE _ t1 t2)    = go p t1 <> go p t2
     go p (REx _ t1 t2)      = go p t1 <> go p t2
     go _ (RExprArg _)       = mempty

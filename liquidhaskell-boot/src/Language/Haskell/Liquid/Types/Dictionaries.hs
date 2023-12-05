@@ -53,7 +53,6 @@ makeDicTypeName :: Ghc.SrcSpan -> SpecType -> String
 makeDicTypeName _ RFun{}           = "(->)"
 makeDicTypeName _ (RApp (RTyCon tc _ _) _ _ _)      = F.symbolString $ GM.dropModuleNamesCorrect $ F.symbol tc
 makeDicTypeName _ (RApp (QTyCon s _ _ _ _ _) _ _ _) = F.symbolString $ GM.dropModuleNamesCorrect $ F.val s
-makeDicTypeName _ (RApp (JoinTyCon c _ _) _ _ _)    = F.symbolString $ GM.dropModuleNamesCorrect $ F.symbol c
 makeDicTypeName _ (RVar (RTV a) _) = show (Ghc.getName a)
 makeDicTypeName sp t               = panic (Just sp) ("makeDicTypeName: called with invalid type " ++ show t)
 

@@ -376,6 +376,7 @@ makeTyConEmbeds env (name, spec)
 --------------------------------------------------------------------------------
 
 deriving instance Show QuotientTyCon
+deriving instance Show QuotientDataCons
 deriving instance Show GhcSpecQuots
 
 makeSpecQuots
@@ -393,7 +394,7 @@ makeSpecQuots env sigEnv
     addQuotDecl :: ModName -> QuotDecl -> GhcSpecQuots -> Bare.Lookup GhcSpecQuots
     addQuotDecl mname QuotDecl { qtycName } spec
       = case Bare.maybeResolveSym env mname "Quotient TyCon" qtycName of
-          Just (_ :: RTyCon, spqty@QuotientType{..}) -> do
+          Just (tc :: RTyCon, spqty@QuotientType{..}) -> do
             let pos = F.loc qtyName
             quots <-
               traverse
@@ -404,7 +405,7 @@ makeSpecQuots env sigEnv
               { gsQuotTyCons = M.insert (F.val qtyName) spqty (gsQuotTyCons spec)
               , gsQuotients
                   = gsQuotients spec <> M.fromList [ (F.val $ qtName q, q) | q <- quots ]
-              , gsQuotCons = addQuotDataRef spqty (gsQuotCons spec)
+              , gsQuotCons = addQuotDataRef tc spqty (gsQuotCons spec)
               }
           Nothing    -> return spec
 
@@ -426,24 +427,38 @@ makeSpecQuots env sigEnv
           }
 
 addQuotDataRef
-  :: SpecQuotientType
-  -> M.HashMap Ghc.TyCon (M.HashMap F.Symbol [SpecType])
-  -> M.HashMap Ghc.TyCon (M.HashMap F.Symbol [SpecType])
-addQuotDataRef QuotientType {..} drefs
-  = case expandQuotTyCons qtyType of
-      RApp (RTyCon c _ _) ts _ _ ->
-        M.alter (makeQuotDataRef ts) c drefs
-      _                          -> drefs
+  :: RTyCon
+  -> SpecQuotientType
+  -> M.HashMap F.Symbol QuotientDataCons
+  -> M.HashMap F.Symbol QuotientDataCons
+addQuotDataRef qtyc qt@QuotientType {..} qdcs
+  = case getBaseTyCon qtyType of
+      Just tyc -> L.foldl' (addRefinedDataCon tyc) qdcs (Ghc.tyConDataCons tyc)
+      Nothing  -> qdcs
     where
-      qtSymbol :: F.Symbol
-      qtSymbol = F.symbol qtyName
+      utype :: SpecType
+      utype = expandQuotTyCons qtyType
 
-      makeQuotDataRef
-        :: [SpecType]
-        -> Maybe (M.HashMap F.Symbol [SpecType])
-        -> Maybe (M.HashMap F.Symbol [SpecType])
-      makeQuotDataRef ts Nothing  = Just (M.singleton qtSymbol ts)
-      makeQuotDataRef ts (Just m) = Just (M.insert qtSymbol ts m)
+      addRefinedDataCon
+        :: Ghc.TyCon
+        -> M.HashMap F.Symbol QuotientDataCons
+        -> Ghc.DataCon
+        -> M.HashMap F.Symbol QuotientDataCons
+      addRefinedDataCon tyc qdcs dc = M.alter (refineDataCon tyc) (F.symbol dc) qdcs
+
+      refineDataCon :: Ghc.TyCon -> Maybe QuotientDataCons -> Maybe QuotientDataCons
+      refineDataCon tyc Nothing
+        = Just QuotientDataCons
+            { qdcBaseTyCon  = F.symbol tyc
+            , qdcQuotTyCons = [(qtyc, qt, utype)]
+            }
+      refineDataCon _ (Just dc@QuotientDataCons {..})
+        = Just dc { qdcQuotTyCons = (qtyc, qt, utype) : qdcQuotTyCons }
+
+getBaseTyCon :: SpecType -> Maybe Ghc.TyCon
+getBaseTyCon (RApp (RTyCon c _ _)       _ _ _) = Just c
+getBaseTyCon (RApp (QTyCon _ u _ _ _ _) _ _ _) = getBaseTyCon u
+getBaseTyCon _                                 = Nothing
 
 --------------------------------------------------------------------------------
 -- | [NOTE]: REFLECT-IMPORTS

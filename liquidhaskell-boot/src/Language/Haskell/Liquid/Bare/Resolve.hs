@@ -360,7 +360,6 @@ instance Qualify RTyCon where
         , qtc_type  = qualify env name l bs t
         , qtc_quots = qualify env name l bs qs
         }
-  qualify _ _ _ _ tc = tc
 
 instance Qualify (Measure SpecType Ghc.DataCon) where
   qualify env name _ bs m = m -- FIXME substEnv env name bs $

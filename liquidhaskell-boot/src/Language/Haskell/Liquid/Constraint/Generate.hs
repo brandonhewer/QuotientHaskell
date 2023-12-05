@@ -3,6 +3,7 @@
 {-# LANGUAGE FlexibleContexts          #-}
 {-# LANGUAGE FlexibleInstances         #-}
 {-# LANGUAGE LambdaCase                #-}
+{-# LANGUAGE NamedFieldPuns                #-}
 {-# LANGUAGE TupleSections             #-}
 {-# LANGUAGE PatternGuards             #-}
 {-# LANGUAGE MultiParamTypeClasses     #-}
@@ -47,6 +48,7 @@ import           Language.Haskell.Liquid.Constraint.Monad
 import           Language.Haskell.Liquid.Constraint.Quotient
 import           Language.Haskell.Liquid.Constraint.Split ( splitC, splitW )
 import           Language.Haskell.Liquid.Constraint.Relational (consAssmRel, consRelTop)
+import qualified Language.Haskell.Liquid.Constraint.Unify      as Unify
 import           Language.Haskell.Liquid.Types hiding (binds, Loc, loc, Def)
 import           Language.Haskell.Liquid.Constraint.Types
 import           Language.Haskell.Liquid.Constraint.Constraint ( addConstraints )
@@ -87,7 +89,7 @@ consAct γ cfg info = do
   mapM_ (consClass γ) (gsMethods $ gsSig $ giSpec info)
   hcs <- gets hsCs
   hws <- gets hsWfs
-  fcs <- concat <$> mapM (splitC (typeclass (getConfig info))) hcs
+  fcs <- concat <$> mapM (splitC (supportTypeclass info)) hcs
   fws <- concat <$> mapM splitW hws
   modify $ \st -> st { fEnv     = fEnv    st `mappend` feEnv (fenv γ)
                      , cgLits   = litEnv   γ
@@ -191,7 +193,7 @@ consCB NoCheck γ (Rec xes)
 -- | NV: Dictionaries are not checked, because
 -- | class methods' preconditions are not satisfied
 consCB _ γ (NonRec x _) | isDictionary x
-  = do t  <- trueTy (typeclass (getConfig γ)) (varType x)
+  = do t  <- trueTy (supportTypeclass γ) (varType x)
        extender γ (x, Assumed t)
     where
        isDictionary = isJust . dlookup (denv γ)
@@ -199,11 +201,11 @@ consCB _ γ (NonRec x _) | isDictionary x
 consCB _ γ (NonRec x def)
   | Just (w, τ) <- grepDictionary def
   , Just d      <- dlookup (denv γ) w
-  = do st       <- mapM (trueTy (typeclass (getConfig γ))) τ
+  = do st       <- mapM (trueTy (supportTypeclass γ)) τ
        mapM_ addW (WfC γ <$> st)
        let xts   = dmap (fmap (f st)) d
        let  γ'   = γ { denv = dinsert (denv γ) x xts }
-       t        <- trueTy (typeclass (getConfig γ)) (varType x)
+       t        <- trueTy (supportTypeclass γ) (varType x)
        extender γ' (x, Assumed t)
    where
     f [t']    (RAllT α te _) = subsTyVarMeet' (ty_var_value α, t') te
@@ -235,7 +237,7 @@ consBind isRec' γ (x, e, Asserted spect)
   = do let γ'       = γ `setBind` x
            (_,πs,_) = bkUniv spect
        cgenv    <- foldM addPToEnv γ' πs
-       cconsE cgenv e (weakenResult (typeclass (getConfig γ)) x spect)
+       cconsE cgenv e (weakenResult (supportTypeclass γ) x spect)
        when (F.symbol x `elemHEnv` holes γ) $
          -- have to add the wf constraint here for HOLEs so we have the proper env
          addW $ WfC cgenv $ fmap killSubst spect
@@ -259,14 +261,14 @@ consBind isRec' γ (x, e, Internal spect)
 consBind isRec' γ (x, e, Assumed spect)
   = do let γ' = γ `setBind` x
        γπ    <- foldM addPToEnv γ' πs
-       cconsE γπ e =<< true (typeclass (getConfig γ)) spect
+       cconsE γπ e =<< true (supportTypeclass γ) spect
        addIdA x (defAnn isRec' spect)
        return $ Asserted spect
     where πs   = ty_preds $ toRTypeRep spect
 
 consBind isRec' γ (x, e, Unknown)
   = do t'    <- consE (γ `setBind` x) e
-       t     <- topSpecType x t'
+       t     <- topSpecType x (getBaseType t')
        addIdA x (defAnn isRec' t)
        when (GM.isExternalId x) (addKuts x t)
        return $ Asserted t
@@ -324,7 +326,7 @@ cconsE' γ e (RAllP p t)
   where
     t'         = replacePredsWithRefs su <$> t
     su         = (uPVar p, pVartoRConc p)
-    (css, t'') = splitConstraints (typeclass (getConfig γ)) t'
+    (css, t'') = splitConstraints (supportTypeclass γ) t'
     γ'         = L.foldl' addConstraints γ css
 
 cconsE' γ (Let b e) t
@@ -364,13 +366,15 @@ cconsE' γ (Cast e co) t
   = cconsE γ (f e) t
 
 cconsE' γ e@(Cast e' c) t
-  = do t' <- castTy γ (exprType e) e' c
-       addC (SubC γ (F.notracepp ("Casted Type for " ++ GM.showPpr e ++ "\n init type " ++ showpp t) t') t) ("cconsE Cast: " ++ GM.showPpr e)
+  = do t0 <- castTy γ (exprType e) e' c
+       t1 <- instantiateJoinType γ t t0
+       addC (SubC γ (F.notracepp ("Casted Type for " ++ GM.showPpr e ++ "\n init type " ++ showpp t) t1) t) ("cconsE Cast: " ++ GM.showPpr e)
 
 cconsE' γ e t
-  = do te  <- instJoinTyCons t <$> consE γ e
-       te' <- instantiatePreds "cconsE" γ e te >>= addPost γ
-       addC (SubC γ te' t) ("cconsE: " ++ "\n t = " ++ showpp t ++ "\n te = " ++ showpp te ++ GM.showPpr e)
+  = do te  <- consE γ e
+       ti  <- instantiateJoinType γ t te
+       te' <- instantiatePreds "cconsE" γ e ti >>= addPost γ
+       addC (SubC γ te' t) ("cconsE: " ++ "\n t = " ++ showpp t ++ "\n te = " ++ showpp ti ++ GM.showPpr e)
 
 lambdaSingleton :: CGEnv -> F.TCEmb TyCon -> Var -> CoreExpr -> CG (UReft F.Reft)
 lambdaSingleton γ tce x e
@@ -389,7 +393,7 @@ addForAllConstraint γ _ _ (RAllT rtv rt rr)
   | F.isTauto rr
   = return ()
   | otherwise
-  = do t'       <- true (typeclass (getConfig γ)) rt
+  = do t'       <- true (supportTypeclass γ) rt
        let truet = RAllT rtv $ unRAllP t'
        addC (SubC γ (truet mempty) $ truet rr) "forall constraint true"
   where unRAllP (RAllT a t r) = RAllT a (unRAllP t) r
@@ -401,8 +405,8 @@ addForAllConstraint γ _ _ _
 
 addFunctionConstraint :: CGEnv -> Var -> CoreExpr -> SpecType -> CG ()
 addFunctionConstraint γ x e (RFun y i ty t r)
-  = do ty'      <- true (typeclass (getConfig γ)) ty
-       t'       <- true (typeclass (getConfig γ)) t
+  = do ty'      <- true (supportTypeclass γ) ty
+       t'       <- true (supportTypeclass γ) t
        let truet = RFun y i ty' t'
        lamE <- lamExpr γ e
        case (lamE, higherOrderFlag γ) of
@@ -447,7 +451,7 @@ cconsLazyLet :: CGEnv
              -> SpecType
              -> CG ()
 cconsLazyLet γ (Let (NonRec x ex) e) t
-  = do tx <- trueTy (typeclass (getConfig γ)) (varType x)
+  = do tx <- trueTy (supportTypeclass γ) (varType x)
        γ' <- (γ, "Let NonRec") +++= (F.symbol x, ex, tx)
        cconsE γ' e t
 cconsLazyLet _ _ _
@@ -456,7 +460,7 @@ cconsLazyLet _ _ _
 --------------------------------------------------------------------------------
 -- | Bidirectional Constraint Generation: SYNTHESIS ----------------------------
 --------------------------------------------------------------------------------
-consE :: CGEnv -> CoreExpr -> CG SpecType
+consE :: CGEnv -> CoreExpr -> CG JoinType
 --------------------------------------------------------------------------------
 consE γ e
   | patternFlag γ
@@ -474,44 +478,32 @@ consE γ e
 -- If datacon definitions have references to self for fancy termination,
 -- ignore them at the construction.
 consE γ (Var x) | GM.isDataConId x
-  = do t0 <- dataRefType γ x
+  = do t1 <- varRefType γ x
+       -- t1 <- getBaseType t0
        -- NV: The check is expected to fail most times, so
        --     it is cheaper than direclty fmap ignoreSelf.
-       let hasSelf = selfSymbol `elem` F.syms t0
-       let t = if hasSelf
-                then fmap ignoreSelf <$> t0
-                else t0
-       addLocA (Just x) (getLocation γ) (varAnn γ x t)
+       let f it = if selfSymbol `elem` F.syms it
+                     then fmap ignoreSelf <$> it
+                     else it
+       let t    = mapJoinType f t1
+       addLocA (Just x) (getLocation γ) (varAnn γ x $ getBaseType t)
        return t
 
 consE γ (Var x)
   = do t <- varRefType γ x
-       addLocA (Just x) (getLocation γ) (varAnn γ x t)
+       addLocA (Just x) (getLocation γ) (varAnn γ x $ getBaseType t)
        return t
 
 consE _ (Lit c)
-  = refreshVV $ uRType $ literalFRefType c
+  = SpecType <$> refreshVV (uRType $ literalFRefType c)
 
-consE γ e'@(App e a@(Type τ))
-  = do RAllT α te _ <- checkAll ("Non-all TyApp with expr", e) γ <$> consE γ e
-       t            <- if not (nopolyinfer (getConfig γ)) && isPos α && isGenericVar (ty_var_value α) te
-                         then freshTyType (typeclass (getConfig γ)) TypeInstE e τ
-                         else trueTy (typeclass (getConfig γ)) τ
-       addW          $ WfC γ t
-       t'           <- refreshVV t
-       tt0          <- instantiatePreds "App Ty" γ e' (subsTyVarMeet' (ty_var_value α, t') te)
-       let tt        = makeSingleton γ (simplify e') $ subsTyReft γ (ty_var_value α) τ tt0
-       return $ case rTVarToBind α of
-         Just (x, _) -> maybe (checkUnbound γ e' x tt a) (F.subst1 tt . (x,)) (argType τ)
-         Nothing     -> tt
-  where
-    isPos α = not (extensionality (getConfig γ)) || rtv_is_pol (ty_var_info α)
+consE γ e'@(App e (Type τ)) = withJoinTypeApp e' e τ (consE γ e) (consTyApp γ e' e τ)
 
 consE γ e'@(App e a) | Just aDict <- getExprDict γ a
   = case dhasinfo (dlookup (denv γ) aDict) (getExprFun γ e) of
-      Just riSig -> return $ fromRISig riSig
-      _          -> do
-        ([], πs, te) <- bkUniv <$> consE γ e
+      Just riSig -> return $ SpecType $ fromRISig riSig
+      _          -> withJoinTypeCG (consE γ e) $ \st -> do
+        let ([], πs, te) = bkUniv st
         te'          <- instantiatePreds "App Dict" γ e' $ foldr RAllP te πs
         (γ', te''')  <- dropExists γ te'
         te''         <- dropConstraints γ te'''
@@ -521,46 +513,49 @@ consE γ e'@(App e a) | Just aDict <- getExprDict γ a
         addPost γ'        $ maybe (checkUnbound γ' e' x t a) (F.subst1 t . (x,)) (argExpr γ a)
 
 consE γ e'@(App e a)
-  = do ([], πs, te) <- bkUniv <$> consE γ {- GM.tracePpr ("APP-EXPR: " ++ GM.showPpr (exprType e)) -} e
-       te1        <- instantiatePreds "App" γ e' $ foldr RAllP te πs
-       (γ', te2)  <- dropExists γ te1
-       te3        <- dropConstraints γ te2
-       updateLocA (exprLoc e) te3
-       let RFun x _ tx t _ = checkFun ("Non-fun App with caller ", e') γ te3
-       cconsE γ' a tx
-       makeSingleton γ' (simplify e') <$> addPost γ' (maybe (checkUnbound γ' e' x t a) (F.subst1 t . (x,)) (argExpr γ $ simplify a))
+  = withJoinTypeCG (consE γ e) $ \st -> do
+      let ([], πs, te) = bkUniv st
+      te1        <- instantiatePreds "App" γ e' $ foldr RAllP te πs
+      (γ', te2)  <- dropExists γ te1
+      te3        <- dropConstraints γ te2
+      updateLocA (exprLoc e) te3
+      let RFun x _ tx t _ = checkFun ("Non-fun App with caller ", e') γ te3
+      cconsE γ' a tx
+      makeSingleton γ' (simplify e') <$> addPost γ' (maybe (checkUnbound γ' e' x t a) (F.subst1 t . (x,)) (argExpr γ $ simplify a))
 
 consE γ (Lam α e) | isTyVar α
   = do γ' <- updateEnvironment γ α
        t' <- consE γ' e
-       return $ RAllT (makeRTVar $ rTyVar α) t' mempty
+       let mkRAllT = flip (RAllT (makeRTVar $ rTyVar α)) mempty 
+       return $ mapJoinType mkRAllT t'
 
 consE γ  e@(Lam x e1)
-  = do tx      <- freshTyType (typeclass (getConfig γ)) LamE (Var x) τx
+  = do tx      <- freshTyType (supportTypeclass γ) LamE (Var x) τx
        γ'      <- addTopLevelArg γ x' tx += ("consE", x', tx)
        t1      <- consE γ' e1
        addIdA x $ AnnDef tx
        addW     $ WfC γ tx
        tce     <- gets tyConEmbed
        lamSing <- lambdaSingleton γ tce x e1
-       return   $ RFun (F.symbol x) (mkRFInfo $ getConfig γ) tx t1 lamSing
+       let mkRFun = flip (RFun (F.symbol x) (mkRFInfo $ getConfig γ) tx) lamSing
+       return $ mapJoinType mkRFun t1
     where
       x' = F.symbol x
       FunTy { ft_arg = τx } = exprType e
 
 consE γ e@(Let _ _)
-  = cconsFreshE LetE γ e
+  = SpecType <$> cconsFreshE LetE γ e
 
 consE γ e@(Case _ _ _ [_])
   | Just p@Rs.PatProject{} <- Rs.lift e
   = consPattern γ p (exprType e)
 
 consE γ e@(Case _ _ _ cs)
-  = cconsFreshE (caseKVKind cs) γ e
+  = SpecType <$> cconsFreshE (caseKVKind cs) γ e
 
 consE γ (Tick tt e)
   = do t <- consE (setLocation γ (Sp.Tick tt)) e
-       addLocA Nothing (GM.tickSrcSpan tt) (AnnUse t)
+       addLocA Nothing (GM.tickSrcSpan tt) (AnnUse (getBaseType t))
        return t
 
 -- See Note [Type classes with a single method]
@@ -572,7 +567,7 @@ consE γ e@(Cast e' c)
   = castTy γ (exprType e) e' c
 
 consE γ e@(Coercion _)
-   = trueTy (typeclass (getConfig γ)) $ exprType e
+   = SpecType <$> trueTy (supportTypeclass γ) (exprType e)
 
 consE _ e@(Type t)
   = panic Nothing $ "consE cannot handle type " ++ GM.showPpr (e, t)
@@ -622,9 +617,28 @@ subsTyReft γ a t = mapExprReft (\_ -> F.applyCoSub coSub)
     coSub        = M.fromList [(F.symbol a, typeSort (emb γ) t)]
 
 --------------------------------------------------------------------------------
+-- | Type Synthesis for Type Application   -------------------------------------
+--------------------------------------------------------------------------------
+consTyApp :: CGEnv -> CoreExpr -> CoreExpr -> Type -> SpecType -> CG SpecType
+consTyApp γ e' e τ t = do
+  let RAllT α te _ = checkAll ("Non-all TyApp with expr ", e) γ t
+  t            <- if not (nopolyinfer (getConfig γ)) && isPos α && isGenericVar (ty_var_value α) te
+                    then freshTyType (supportTypeclass γ) TypeInstE e τ
+                    else trueTy (supportTypeclass γ) τ
+  addW          $ WfC γ t
+  t'           <- refreshVV t
+  tt0          <- instantiatePreds ("App Ty " ++ show e') γ e' (subsTyVarMeet' (ty_var_value α, t') te)
+  let tt        = makeSingleton γ (simplify e') $ subsTyReft γ (ty_var_value α) τ tt0
+  return $ case rTVarToBind α of
+    Just (x, _) -> maybe (checkUnbound γ e' x tt (Type τ :: CoreExpr)) (F.subst1 tt . (x,)) (argType τ)
+    Nothing     -> tt
+  where
+    isPos α = not (extensionality (getConfig γ)) || rtv_is_pol (ty_var_info α)
+
+--------------------------------------------------------------------------------
 -- | Type Synthesis for Special @Pattern@s -------------------------------------
 --------------------------------------------------------------------------------
-consPattern :: CGEnv -> Rs.Pattern -> Type -> CG SpecType
+consPattern :: CGEnv -> Rs.Pattern -> Type -> CG JoinType
 
 {- [NOTE] special type rule for monadic-bind application
 
@@ -634,7 +648,7 @@ consPattern :: CGEnv -> Rs.Pattern -> Type -> CG SpecType
  -}
 
 consPattern γ (Rs.PatBind e1 x e2 _ _ _ _ _) _ = do
-  tx <- checkMonad (msg, e1) γ <$> consE γ e1
+  tx <- checkMonad (msg, e1) γ . getBaseType <$> consE γ e1
   γ' <- γ += ("consPattern", F.symbol x, tx)
   addIdA x (AnnDef tx)
   consE γ' e2
@@ -647,11 +661,12 @@ consPattern γ (Rs.PatBind e1 x e2 _ _ _ _ _) _ = do
     ------------------------
       G |- return e ~ m et
  -}
-consPattern γ (Rs.PatReturn e m _ _ _) t = do
-  et    <- F.notracepp "Cons-Pattern-Ret" <$> consE γ e
-  mt    <- trueTy (typeclass (getConfig γ))  m
-  tt    <- trueTy (typeclass (getConfig γ))  t
-  return (mkRAppTy mt et tt) -- /// {-    $ RAppTy mt et mempty -}
+consPattern γ (Rs.PatReturn e m _ _ _) t
+  = withJoinTypeCG (consE γ e) $ \st -> do
+      let et = F.notracepp "Cons-Pattern-Ret" st
+      mt    <- trueTy (supportTypeclass γ)  m
+      tt    <- trueTy (supportTypeclass γ)  t
+      return $ mkRAppTy mt et tt
 
 {- [NOTE] special type rule for field projection, is
           t  = G(x)       ti = Proj(t, i)
@@ -661,17 +676,17 @@ consPattern γ (Rs.PatReturn e m _ _ _) t = do
 
 consPattern γ (Rs.PatProject xe _ τ c ys i) _ = do
   let yi = ys !! i
-  t    <- (addW . WfC γ) <<= freshTyType (typeclass (getConfig γ)) ProjectE (Var yi) τ
+  t    <- (addW . WfC γ) <<= freshTyType (supportTypeclass γ) ProjectE (Var yi) τ
   γ'   <- caseEnv γ xe [] (DataAlt c) ys (Just [i])
-  ti   <- {- γ' ??= yi -} varRefType γ' yi
-  addC (SubC γ' ti t) "consPattern:project"
-  return t
+  withJoinTypeCG (varRefType γ' yi) $ \ti -> do
+    addC (SubC γ' ti t) "consPattern:project"
+    return t
 
 consPattern γ (Rs.PatSelfBind _ e) _ =
   consE γ e
 
 consPattern γ p@Rs.PatSelfRecBind{} _ =
-  cconsFreshE LetE γ (Rs.lower p)
+  SpecType <$> cconsFreshE LetE γ (Rs.lower p)
 
 mkRAppTy :: SpecType -> SpecType -> SpecType -> SpecType
 mkRAppTy mt et RAppTy{}          = RAppTy mt et mempty
@@ -691,11 +706,11 @@ unRRTy (RRTy _ _ _ t) = unRRTy t
 unRRTy t              = t
 
 --------------------------------------------------------------------------------
-castTy  :: CGEnv -> Type -> CoreExpr -> Coercion -> CG SpecType
-castTy' :: CGEnv -> Type -> CoreExpr -> CG SpecType
+castTy  :: CGEnv -> Type -> CoreExpr -> Coercion -> CG JoinType
+castTy' :: CGEnv -> Type -> CoreExpr -> CG JoinType
 --------------------------------------------------------------------------------
 castTy γ t e (AxiomInstCo ca _ _)
-  = fromMaybe <$> castTy' γ t e <*> lookupNewType (coAxiomTyCon ca)
+  = fromMaybe <$> castTy' γ t e <*> fmap (fmap SpecType) (lookupNewType $ coAxiomTyCon ca)
 
 castTy γ t e (SymCo (AxiomInstCo ca _ _))
   = do mtc <- lookupNewType (coAxiomTyCon ca)
@@ -705,16 +720,15 @@ castTy γ t e (SymCo (AxiomInstCo ca _ _))
 castTy γ t e _
   = castTy' γ t e
 
-
 castTy' γ τ (Var x)
-  = do t0 <- trueTy (typeclass (getConfig γ)) τ
+  = do t0 <- trueTy (supportTypeclass γ) τ
        tx <- varRefType γ x
-       let t = mergeCastTys t0 tx
-       let ce = if typeclass (getConfig γ) && noADT (getConfig γ) then F.expr x
+       let ce = if supportTypeclass γ && noADT (getConfig γ) then F.expr x
                   else eCoerc (typeSort (emb γ) $ Ghc.expandTypeSynonyms $ varType x)
                          (typeSort (emb γ) τ)
                          $ F.expr x
-       return (t `strengthen` uTop (F.uexprReft ce) {- `F.meet` tx -})
+       let f  = (`strengthen` uTop (F.uexprReft ce)) . mergeCastTys t0
+       return $ mapJoinType f tx
   where eCoerc s t e
          | s == t    = e
          | otherwise = F.ECoerc s t e
@@ -802,7 +816,7 @@ isClassConCo co
 --------------------------------------------------------------------------------
 cconsFreshE :: KVKind -> CGEnv -> CoreExpr -> CG SpecType
 cconsFreshE kvkind γ e = do
-  t   <- freshTyType (typeclass (getConfig γ)) kvkind e $ exprType e
+  t   <- freshTyType (supportTypeclass γ) kvkind e $ exprType e
   addW $ WfC γ t
   cconsE γ e t
   return t
@@ -829,7 +843,7 @@ dropConstraints :: CGEnv -> SpecType -> CG SpecType
 dropConstraints cgenv (RFun x i tx@(RApp c _ _ _) t r) | isErasable c
   = flip (RFun x i tx) r <$> dropConstraints cgenv t
   where
-    isErasable = if typeclass (getConfig cgenv) then isEmbeddedDict else isClass
+    isErasable = if supportTypeclass cgenv then isEmbeddedDict else isClass
 dropConstraints cgenv (RRTy cts _ OCons rt)
   = do γ' <- foldM (\γ (x, t) -> γ `addSEnv` ("splitS", x,t)) cgenv xts
        addC (SubC γ' t1 t2)  "dropConstraints"
@@ -864,10 +878,9 @@ caseEnv γ x _ (DataAlt c) ys pIs = do
   let (x' : ys')   = F.symbol <$> (x:ys)
   xt0             <- checkTyCon ("checkTycon cconsCase", x) γ <$> γ ??= x
   let rt           = shiftVV xt0 x'
-  tdc             <- getDataConType γ (dataConWorkId c) >>= refreshVV
-  let tdc'         = instJoinTyCons rt tdc
-  let (rtd,yts',_) = unfoldR tdc' (unfoldQuot rt) ys
-  yts             <- projectTypes (typeclass (getConfig γ))  pIs yts'
+  tdc             <- getDataConType γ rt (dataConWorkId c) >>= refreshVV
+  let (rtd,yts',_) = unfoldR tdc rt ys
+  yts             <- projectTypes (supportTypeclass γ)  pIs yts'
   let ys''         = F.symbol <$> filter (not . if allowTC then GM.isEmbeddedDictVar else GM.isEvVar) ys
   let r1           = dataConReft   c   ys''
   let r2           = dataConMsReft rtd ys''
@@ -877,32 +890,12 @@ caseEnv γ x _ (DataAlt c) ys pIs = do
                          (xt0 : yts))
   cγ'             <- addBinders γ x' cbs
   addBinders cγ' x' [(x', substSelf <$> xt)]
-  where allowTC    = typeclass (getConfig γ)
+  where allowTC    = supportTypeclass γ
 
 caseEnv γ x acs a _ _ = do
   let x'  = F.symbol x
-  xt'    <- (`strengthen` uTop (altReft γ acs a)) <$> (γ ??= x)
+  xt'    <- (`strengthen` uTop (altReft γ acs a)) . getBaseType <$> (γ ??= x)
   addBinders γ x' [(x', xt')]
-
--- | Instantiate a data constructor type with a specific type constructor application
---   by replacing Join type constructors appropriately.
-instJoinTyCons :: SpecType -> SpecType -> SpecType
-instJoinTyCons (RApp tcon _ _ _) init = mapTyCon tyConInstFun init
-    where
-      tyConInstFun :: RTyCon -> RTyCon
-      tyConInstFun = case tcon of
-        t@(RTyCon c _ _) -> \case
-          u@(JoinTyCon c' _ _)
-            | c == c'   -> t
-            | otherwise -> u
-          u -> u
-        t@(QTyCon nm _ _ _ _ _) -> \case
-          u@(JoinTyCon _ _ qs) -> case M.lookup (F.symbol nm) qs of
-            Just _   -> t
-            Nothing  -> u
-          u -> u
-        _ -> id
-instJoinTyCons _ t = t
 
 ------------------------------------------------------
 -- SELF special substitutions
@@ -940,11 +933,6 @@ altReft γ acs DEFAULT    = mconcat ([notLiteralReft l | LitAlt l <- acs] ++ [no
                      | otherwise = mempty
 altReft _ _ _            = panic Nothing "Constraint : altReft"
 
-unfoldQuot :: SpecType -> SpecType
-unfoldQuot (RApp (QTyCon _ ut _ _ vs _) ts _ _) =
-  unfoldQuot $ F.foldl' (flip subsTyVarMeet') ut (zip vs ts)
-unfoldQuot t = t
-
 unfoldR :: SpecType -> SpecType -> [Var] -> (SpecType, [SpecType], SpecType)
 unfoldR td (RApp _ ts rs _) ys = (t3, tvys ++ yts, ignoreOblig rt)
   where
@@ -969,12 +957,12 @@ instantiateTys = L.foldl' go
 instantiatePvs :: SpecType -> [SpecProp] -> SpecType
 instantiatePvs           = L.foldl' go
   where
-    go (RAllP p tbody) r = replacePreds "instantiatePv" tbody [(p, r)]
+    go (RAllP p tbody) r = replacePreds ("instantiatePv " ++ show tbody) tbody [(p, r)]
     go t               _ = errorP "" ("Constraint.instantiatePvs: t = " ++ showpp t)
 
-checkTyCon :: (Outputable a) => (String, a) -> CGEnv -> SpecType -> SpecType
-checkTyCon _ _ t@RApp{} = t
-checkTyCon x g t        = checkErr x g t
+checkTyCon :: (Outputable a) => (String, a) -> CGEnv -> JoinType -> SpecType
+checkTyCon _ _ (SpecType t@RApp{}) = t
+checkTyCon x g t                   = checkErr x g (getBaseType t)
 
 checkFun :: (Outputable a) => (String, a) -> CGEnv -> SpecType -> SpecType
 checkFun _ _ t@RFun{} = t
@@ -999,7 +987,7 @@ varAnn γ x t
 -----------------------------------------------------------------------
 freshPredRef :: CGEnv -> CoreExpr -> PVar RSort -> CG SpecProp
 freshPredRef γ e (PV _ (PVProp rsort) _ as)
-  = do t    <- freshTyType (typeclass (getConfig γ))  PredInstE e (toType False rsort)
+  = do t    <- freshTyType (supportTypeclass γ)  PredInstE e (toType False rsort)
        args <- mapM (const fresh) as
        let targs = [(x, s) | (x, (s, y, z)) <- zip args as, F.EVar y == z ]
        γ' <- foldM (+=) γ [("freshPredRef", x, ofRSort τ) | (x, τ) <- targs]
@@ -1040,17 +1028,19 @@ lamExpr g e = do
       (\x -> todo Nothing ("coreToLogic not working lamExpr: " ++ x))
       (coreToLogic allowTC e)
 
-getDataConType :: (?callStack :: CallStack) => CGEnv -> Var -> CG SpecType
-getDataConType γ x = case M.lookup (F.symbol x) (cgQuotDataCons γ) of
-  Just t  -> refreshTy t
-  Nothing -> γ ??= x
+getDataConType :: (?callStack :: CallStack) => CGEnv -> SpecType -> Var -> CG SpecType
+getDataConType γ t x = case M.lookup (F.symbol x) (cgQuotDataCons γ) of
+  Just QDataCons {..} -> refreshTy $ case t of
+    RApp c _ _ _ -> fromMaybe qdcUnderlyingType (F.symbol c `M.lookup` qdcRefinedTypes)
+    _            -> qdcUnderlyingType
+  Nothing -> getBaseType <$> (γ ??= x)
 
 --------------------------------------------------------------------------------
-(??=) :: (?callStack :: CallStack) => CGEnv -> Var -> CG SpecType
+(??=) :: (?callStack :: CallStack) => CGEnv -> Var -> CG JoinType
 --------------------------------------------------------------------------------
 γ ??= x = case M.lookup x' (lcb γ) of
             Just e  -> consE (γ -= x') e
-            Nothing -> refreshTy tx
+            Nothing -> SpecType <$> refreshTy tx
           where
             x' = F.symbol x
             tx = fromMaybe tt (γ ?= x')
@@ -1058,10 +1048,11 @@ getDataConType γ x = case M.lookup (F.symbol x) (cgQuotDataCons γ) of
 
 
 --------------------------------------------------------------------------------
-varRefType :: (?callStack :: CallStack) => CGEnv -> Var -> CG SpecType
+varRefType :: (?callStack :: CallStack) => CGEnv -> Var -> CG JoinType
 --------------------------------------------------------------------------------
-varRefType γ x =
-  varRefType' γ x <$> (γ ??= x) -- F.tracepp (printf "varRefType x = [%s]" (showpp x))
+varRefType γ x = case M.lookup (F.symbol x) (cgQuotDataCons γ) of
+  Nothing  -> mapJoinType (varRefType' γ x) <$> (γ ??= x)
+  Just qdc -> makeJoinUnion γ qdc $ return . varRefType' γ x
 
 varRefType' :: CGEnv -> Var -> SpecType -> SpecType
 varRefType' γ x t'
@@ -1075,20 +1066,13 @@ varRefType' γ x t'
     strengthen' | higherOrderFlag γ = strengthenMeet
                 | otherwise         = strengthenTop
 
---------------------------------------------------------------------------------
-dataRefType :: (?callStack :: CallStack) => CGEnv -> Var -> CG SpecType
---------------------------------------------------------------------------------
-dataRefType γ x = case M.lookup (F.symbol x) (cgQuotDataCons γ) of
-  Nothing -> varRefType γ x
-  Just t  -> varRefType' γ x <$> refreshTy t
-
 -- | create singleton types for function application
 makeSingleton :: CGEnv -> CoreExpr -> SpecType -> SpecType
 makeSingleton γ cexpr t
   | higherOrderFlag γ, App f x <- simplify cexpr
   = case (funExpr γ f, argForAllExpr x) of
       (Just f', Just x')
-                 | not (if typeclass (getConfig γ) then GM.isEmbeddedDictExpr x else GM.isPredExpr x) -- (isClassPred $ exprType x)
+                 | not (if supportTypeclass γ then GM.isEmbeddedDictExpr x else GM.isPredExpr x) -- (isClassPred $ exprType x)
                  -> strengthenMeet t (uTop $ F.exprReft (F.EApp f' x'))
       (Just f', Just _)
                  -> strengthenMeet t (uTop $ F.exprReft f')
@@ -1108,7 +1092,6 @@ makeSingleton γ cexpr t
       = argExpr γ e
 
 
-
 funExpr :: CGEnv -> CoreExpr -> Maybe F.Expr
 
 funExpr _ (Var v)
@@ -1116,7 +1099,7 @@ funExpr _ (Var v)
 
 funExpr γ (App e1 e2)
   = case (funExpr γ e1, argExpr γ e2) of
-      (Just e1', Just e2') | not (if typeclass (getConfig γ) then GM.isEmbeddedDictExpr e2
+      (Just e1', Just e2') | not (if supportTypeclass γ then GM.isEmbeddedDictExpr e2
                                                              else GM.isPredExpr e2) -- (isClassPred $ exprType e2)
                            -> Just (F.EApp e1' e2')
       (Just e1', Just _)   -> Just e1'
@@ -1179,7 +1162,102 @@ isGenericVar α st =  all (\(c, α') -> (α'/=α) || isGenericClass c ) (classCo
                         | (c, ts) <- tyClasses t
                         , t'      <- ts
                         , α'      <- freeTyVars t']
-    isGenericClass c = className c `elem` [ordClassName, eqClassName] -- , functorClassName, monadClassName]
+    isGenericClass c = className c `elem` [ordClassName, eqClassName] -- , functorClassName, monadClassName
+
+
+
+--------------------------------------------------------------------------------
+-- | Join Type Functions and Accessors -----------------------------------------
+--------------------------------------------------------------------------------
+
+getBaseType :: JoinType -> SpecType
+getBaseType (SpecType t)         = t
+getBaseType JoinType {join_base} = join_base
+
+mapJoinType :: (SpecType -> SpecType) -> JoinType -> JoinType
+mapJoinType f (SpecType t)    = SpecType (f t)
+mapJoinType f t@JoinType {..} = t { join_apply = fmap f . join_apply }
+
+withJoinType :: JoinType -> (SpecType -> CG SpecType) -> CG JoinType
+withJoinType (SpecType t) f = SpecType <$> f t
+withJoinType t@JoinType {join_apply} f
+  = return t { join_apply = join_apply >=> f }
+
+withJoinTypeCG :: CG JoinType -> (SpecType -> CG SpecType) -> CG JoinType
+withJoinTypeCG cgt f = do
+  t <- cgt
+  withJoinType t f
+
+withJoinTypeApp
+  :: CoreExpr
+  -> CoreExpr
+  -> Type
+  -> CG JoinType
+  -> (SpecType -> CG SpecType)
+  -> CG JoinType
+withJoinTypeApp e' e τ cgt f = cgt >>= \case
+  SpecType t              -> SpecType <$> f t
+  t@JoinType {join_tyapp} -> return t { join_tyapp = (e', e, τ) : join_tyapp }
+
+instantiateJoinType :: CGEnv -> SpecType -> JoinType -> CG SpecType
+instantiateJoinType _ _ (SpecType t) = return t
+instantiateJoinType γ t JoinType {..}
+  = case ty_res trep of
+      RApp (QTyCon c ut _ _ tvs _) ts _ _
+        | Just dt <- M.lookup (F.val c) join_unions -> do
+            bt <- F.foldrM synth join_base join_tyapp
+            let t0  = ty_res $ toRTypeRep bt
+                t1  = appQuotTyCon ut tvs ts
+                t1' = expandQuotTyCons ut
+            addC (SubC γ t0 t1) ("instantiateJoinType: " ++ show t0 ++ " <: " ++ show t1)
+            case Unify.simpleUnify (S.fromList tvs) t1 t1' of
+              Nothing  -> do
+                -- addWarning e
+                join_apply dt
+              Just sub -> do
+                applyJoinSub sub dt >>= join_apply
+      _                                            -> do
+        F.foldrM synth join_base join_tyapp >>= join_apply
+    where
+      synth (e', e, τ) = consTyApp γ e' e τ
+      trep             = toRTypeRep t
+
+applyJoinSub :: M.HashMap RTyVar SpecType -> SpecType -> CG SpecType
+applyJoinSub sub t'@(RAllT α t r)
+  | M.null sub                              = return t'
+  | Just u <- M.lookup tyvar sub = do
+      let nt = subsTyVarMeet' (tyvar, u) t
+      applyJoinSub (M.delete tyvar sub) nt
+  | otherwise                               = do
+      nt <- applyJoinSub sub t
+      return $ RAllT α nt r
+  where
+    tyvar = ty_var_value α
+applyJoinSub sub t
+  | M.null sub                              = return t
+  | otherwise -- Should never be reached
+      = panic Nothing
+          (  "Incompatible substitution constructed for resolving join type application:\nSubstitution:"
+          ++ show sub
+          ++ "\nType:"
+          ++ show t
+          )
+
+makeJoinUnion :: CGEnv -> QDataCons -> (SpecType -> CG SpecType) -> CG JoinType
+makeJoinUnion γ QDataCons {..} f = do
+  base <- traverse refreshTy (γ ?= qdcUnderlyingName)
+  return JoinType
+    { join_base   = fromMaybe qdcUnderlyingType base
+    , join_unions = qdcRefinedTypes
+    , join_apply  = f
+    , join_tyapp  = []
+    }
+
+--------------------------------------------------------------------------------
+-- | Auxiliary functions                 ---------------------------------------
+--------------------------------------------------------------------------------
+supportTypeclass :: HasConfig t => t -> Bool
+supportTypeclass = typeclass . getConfig
 
 -- instance MonadFail CG where
 --  fail msg = panic Nothing msg

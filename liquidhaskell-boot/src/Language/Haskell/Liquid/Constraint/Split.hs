@@ -30,7 +30,7 @@ import           Prelude hiding (error)
 import           Text.PrettyPrint.HughesPJ hiding (first, parens)
 
 import           Data.Maybe          (fromMaybe)
-import           Data.HashMap.Strict as M
+
 import           Control.Monad
 import           Control.Monad.State (gets)
 import qualified Control.Exception as Ex
@@ -238,6 +238,7 @@ splitC allowTC (SubC γ t1'@(RAllT α1 t1 _) t2'@(RAllT α2 t2 _))
 splitC allowTC (SubC _ (RApp c1 _ _ _) (RApp c2 _ _ _)) | (if allowTC then isEmbeddedDict else isClass) c1 && c1 == c2
   = return []
 
+{-
 splitC allowTC (SubC γ t1@(RApp tc@(RTyCon c _ _) _ _ _) (RApp tc'@(JoinTyCon c' _ _) us ps' r'))
   | c == c'   = splitC allowTC (SubC γ t1 (RApp tc us ps' r'))
   | otherwise = do
@@ -254,7 +255,7 @@ splitC allowTC
       addWarning
         $ ErrQuotApp (getLocation γ)
                      (pprint nm <+> text "is not a subtype constructor of" <+> pprint tc)
-      return []
+      return []-}
 
 splitC allowTC (SubC γ (RApp (QTyCon c1 lt _ _ ltvs _) ts _ _)
                        (RApp (QTyCon c2 rt _ _ rtvs _) us _ _)) = do
@@ -283,6 +284,9 @@ splitC _ (SubC γ t1@(RApp (RTyCon _ _ inf) _ _ _) t2@RApp{})
 splitC _ (SubC γ t1@(RVar a1 _) t2@(RVar a2 _))
   | a1 == a2
   = bsplitC γ t1 t2
+
+splitC allowTC (SubC γ t (RApp (QTyCon _ u _ _ tvs _) ts _ _))
+  = splitC allowTC (SubC γ t (appQuotTyCon u tvs ts))
 
 splitC _ (SubC γ (RApp (QTyCon c1 _ _ _ _ _) _ _ _) t2)
   = do
