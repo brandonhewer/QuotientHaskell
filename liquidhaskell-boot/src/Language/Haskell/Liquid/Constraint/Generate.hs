@@ -452,8 +452,7 @@ cconsLazyLet :: CGEnv
              -> CG ()
 cconsLazyLet γ (Let (NonRec x ex) e) t
   = do tx <- trueTy (supportTypeclass γ) (varType x)
-       let x' = F.symbol x
-       γ' <- (addTopLevelArg γ x' tx, "Let NonRec") +++= (x', ex, tx)
+       γ' <- (γ, "Let NonRec") +++= (F.symbol x, ex, tx)
        cconsE γ' e t
 cconsLazyLet _ _ _
   = panic Nothing "Constraint.Generate.cconsLazyLet called on invalid inputs"
