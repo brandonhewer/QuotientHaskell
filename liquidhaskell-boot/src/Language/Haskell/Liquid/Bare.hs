@@ -238,20 +238,21 @@ makeGhcSpec0 cfg src lmap mspecsNoCls = do
   let qenv     = addSpecQuots name sigEnv env
   let lSpec1   = lSpec0 <> makeLiftedSpec1 cfg src tycEnv lmap mySpec1
   let mySpec   = mySpec2 <> lSpec1
-  let specs    = M.insert name mySpec iSpecs2
+  let specs0   = M.insert name mySpec iSpecs2
   let myRTE    = myRTEnv       src qenv sigEnv rtEnv
-  let (dg5, measEnv) = withDiagnostics $ makeMeasEnv      qenv tycEnv sigEnv       specs
-  let (dg4, sig) = withDiagnostics $ makeSpecSig cfg name specs qenv sigEnv   tycEnv measEnv (_giCbs src)
+  let (dg5, measEnv) = withDiagnostics $ makeMeasEnv      qenv tycEnv sigEnv       specs0
+  let (dg4, sig) = withDiagnostics $ makeSpecSig cfg name specs0 qenv sigEnv   tycEnv measEnv (_giCbs src)
   elaboratedSig <-
     if allowTC then Bare.makeClassAuxTypes (elaborateSpecType coreToLg simplifier) datacons instMethods
                               >>= elaborateSig sig
                else pure sig
+  let specs    = M.adjust (addQuotientReflects sig) name specs0
   let qual     = makeSpecQual cfg qenv tycEnv measEnv rtEnv specs
   let sData    = makeSpecData  src qenv sigEnv measEnv elaboratedSig specs
   let (dg1, spcVars) = withDiagnostics $ makeSpecVars cfg src mySpec qenv measEnv
   let (dg2, spcTerm) = withDiagnostics $ makeSpecTerm cfg     mySpec qenv       name
-  let (dg3, refl)    = withDiagnostics $ makeSpecRefl cfg src measEnv specs qenv name elaboratedSig tycEnv
   let laws           = makeSpecLaws qenv sigEnv (gsTySigs elaboratedSig ++ gsAsmSigs elaboratedSig) measEnv specs
+  let (dg3, refl)    = withDiagnostics $ makeSpecRefl cfg src measEnv specs qenv name elaboratedSig tycEnv
   let (dg6, quots)   = withDiagnostics $ makeSpecQuots qenv sigEnv (M.toList specs)
   let finalLiftedSpec = makeLiftedSpec name src qenv refl sData elaboratedSig qual myRTE lSpec1
   let diags    = mconcat [dg0, dg1, dg2, dg3, dg4, dg5, dg6]
@@ -459,6 +460,15 @@ getBaseTyCon :: SpecType -> Maybe Ghc.TyCon
 getBaseTyCon (RApp (RTyCon c _ _)       _ _ _) = Just c
 getBaseTyCon (RApp (QTyCon _ u _ _ _ _) _ _ _) = getBaseTyCon u
 getBaseTyCon _                                 = Nothing
+
+addQuotientReflects :: GhcSpecSig -> Ms.BareSpec -> Ms.BareSpec
+addQuotientReflects SpSig {gsTySigs} sp@Ms.Spec {reflects}
+  = sp { reflects = L.foldl' addReflect reflects gsTySigs }
+    where
+      addReflect :: S.HashSet LocSymbol -> (Ghc.Var, LocSpecType) -> S.HashSet LocSymbol
+      addReflect syms (v, t)
+        | containsQuotientArgument (F.val t) = S.insert (GM.dropModuleNames <$> varLocSym v) syms
+        | otherwise                          = syms
 
 --------------------------------------------------------------------------------
 -- | [NOTE]: REFLECT-IMPORTS
@@ -759,9 +769,9 @@ makeSpecRefl cfg src menv specs env name sig tycEnv = do
         | (x, lt, e) <- xtes
         , let s = symbol x
         ]
-  let sigVars  = F.notracepp "SIGVARS" $ (fst3 <$> xtes)            -- reflects
-                                      ++ (fst  <$> gsAsmSigs sig)   -- assumes
-                                      ++ (fst  <$> gsRefSigs sig)
+  let sigVars  = F.notracepp "SIGVARS" $ (fst3 <$> xtes)         -- reflects
+                                      ++ (fst <$> gsAsmSigs sig) -- assumes
+                                      ++ (fst <$> gsRefSigs sig)
   return SpRefl
     { gsLogicMap   = lmap
     , gsAutoInst   = autoInst
@@ -774,7 +784,7 @@ makeSpecRefl cfg src menv specs env name sig tycEnv = do
     , gsRewritesWith = rwrWith
     }
   where
-    lawMethods   = F.notracepp "Law Methods" $ concatMap Ghc.classMethods (fst <$> Bare.meCLaws menv)
+    lawMethods   = F.notracepp "Law Methods" $ concatMap (Ghc.classMethods . fst) (Bare.meCLaws menv)
     mySpec       = M.lookupDefault mempty name specs
     rflSyms      = S.fromList (getReflects specs)
     lmap         = Bare.reLMap env

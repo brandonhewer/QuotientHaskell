@@ -10,7 +10,6 @@ data Polar
   |/ turn :: r:Magnitude -> a:Int -> (r, a) == (r, a + 360)
 @-}
 
-{-@ reflect rotate @-}
 {-@ rotate :: Int -> Polar -> Polar @-}
 rotate :: Int -> (Double, Int) -> (Double, Int)
 rotate x (r, a) = (r, a + x)

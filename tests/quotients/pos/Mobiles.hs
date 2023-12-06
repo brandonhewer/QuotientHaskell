@@ -15,13 +15,11 @@ example :: Tree a -> Tree a
 example Leaf        = Leaf
 example (Bin x t u) = Bin x u t
 
-{-@ reflect tmap @-}
 {-@ tmap :: (a -> b) -> Mobile a -> Mobile b @-}
 tmap :: (a -> b) -> Tree a -> Tree b
 tmap _ Leaf        = Leaf
 tmap f (Bin x t u) = Bin (f x) (tmap f t) (tmap f u)
 
-{-@ reflect filterT @-}
 {-@ filterT :: (a -> Bool) -> Mobile a -> Mobile a @-}
 filterT :: (a -> Bool) -> Tree a -> Tree a
 filterT _ Leaf        = Leaf

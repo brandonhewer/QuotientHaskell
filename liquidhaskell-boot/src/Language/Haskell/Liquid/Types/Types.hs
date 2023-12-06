@@ -152,6 +152,7 @@ module Language.Haskell.Liquid.Types.Types (
   , mapExprReft
   , mapBot, mapBind, mapRFInfo, mapTyCon
   , foldRType
+  , containsQuotientArgument
 
 
   -- * ???
@@ -1838,6 +1839,16 @@ foldRType f = go
     go a (RAppTy t t' _)    = foldl' step a [t, t']
     go a (RApp _ ts rs _)   = foldl' prep (foldl' step a ts) rs
     go a (RRTy e _ _ t)     = foldl' step a (t : (snd <$> e))
+
+onRTypeArguments :: ([RType c tv r] -> a) -> RType c tv r -> a
+onRTypeArguments f t = let RTypeRep {..} = toRTypeRep t in f ty_args
+
+isQuotientTyApp :: RType RTyCon tv r -> Bool
+isQuotientTyApp (RApp QTyCon {} _ _ _) = True
+isQuotientTyApp _                      = False
+
+containsQuotientArgument :: RType RTyCon tv r -> Bool
+containsQuotientArgument = onRTypeArguments (any isQuotientTyApp)
 
 ------------------------------------------------------------------------------------------------------
 -- isBase' x t = traceShow ("isBase: " ++ showpp x) $ isBase t

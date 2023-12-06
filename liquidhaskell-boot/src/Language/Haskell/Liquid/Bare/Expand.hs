@@ -562,7 +562,6 @@ cookSpecQuotTypes env sigEnv@Bare.SigEnv {..} mname bt
       => F.Symbol -> BareQuotientType -> m RTyCon
     cookSpecQuotType md QuotientType {..} = do
       qtycs <- get
-
       case Bare.resolveSpecQuotientTyCon env mname qtyName qtycs of
         Right (qtyc, _) -> return qtyc
         Left _          -> do
