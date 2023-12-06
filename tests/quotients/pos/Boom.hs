@@ -1,3 +1,5 @@
+{-# LANGUAGE TupleSections         #-}
+
 {-@ LIQUID "--reflection" @-}
 
 module Boom where
@@ -40,6 +42,12 @@ lmap _ Empty      = Empty
 lmap f (Leaf a)   = Leaf (f a)
 lmap f (Join t u) = Join (lmap f t) (lmap f u)
 
+{-@ smap :: (a -> b) -> Set a -> Set b @-}
+smap :: (a -> b) -> Tree a -> Tree b
+smap _ Empty      = Empty
+smap f (Leaf a)   = Leaf (f a)
+smap f (Join t u) = Join (smap f t) (smap f u)
+
 {-@ lfilter :: (a -> Bool) -> List a -> List a @-}
 lfilter :: (a -> Bool) -> Tree a -> Tree a
 lfilter _ Empty = Empty
@@ -59,6 +67,12 @@ contains :: Eq a => a -> Tree a -> Bool
 contains _ Empty      = False
 contains x (Leaf y)   = x == y
 contains x (Join t u) = contains x t || contains x u
+
+{-@ cartesian :: Set a -> Set b -> Set (a, b) @-}
+cartesian :: Tree a -> Tree b -> Tree (a, b)
+cartesian Empty      t     = Empty
+cartesian (Leaf a)   t     = smap (a,) t
+cartesian (Join u v) t     = Join (cartesian u t) (cartesian v t)
 
 {-@ sumL :: List Int -> Int @-}
 sumL :: Tree Int -> Int

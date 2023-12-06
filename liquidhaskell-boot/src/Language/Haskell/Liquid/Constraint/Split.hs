@@ -313,7 +313,8 @@ splitC _ (SubR γ o r)
     err = case o of
             OQuot _ _ ->
               let F.Reft (_, F.PIff _ p) = rr
-               in Just $ ErrAssTypeQ src o (text $ show o ++ "type error") g p
+                  condition              = F.substf (F.eVar . F.tidySymbol) p
+               in Just $ ErrAssTypeQ src o (text $ show o ++ "type error") g condition
             _       -> Just $ ErrAssType src o (text $ show o ++ "type error") g (rHole rr)
 
     rr  = F.toReft r

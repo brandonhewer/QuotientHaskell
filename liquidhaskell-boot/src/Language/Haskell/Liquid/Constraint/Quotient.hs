@@ -61,7 +61,6 @@ import           Language.Haskell.Liquid.Constraint.Types
   , QuotientRewrite
   , QuotientTypeDef
   , SubC
-  , TopLevelDefinition
   )
 import qualified Language.Haskell.Liquid.Constraint.Types as CG
 import           Language.Haskell.Liquid.Types
@@ -1249,6 +1248,8 @@ data QuotientCase
   = QuotientCase
       { scrutinee       :: !GHC.Var
         -- | ^ The bound variable (scrutinee)
+      , scrutineeType   :: !SpecType
+        -- | ^ The type of the scrutinee
       , quotientTypes   :: ![QuotientSubst]
         -- | ^ The (quotient) type hierarchy of the scrutinee
       , altCases        :: ![CoreAlt]
@@ -1371,12 +1372,13 @@ performQuotientChecks
   -> CG ()
 performQuotientChecks γ x alts γs τ ty
   = whenJust (CG.lookupREnv (F.symbol x) (CG.renv γ)) $ \case
-      LH.RApp (LH.QTyCon nm _ _ _ vs _) ts _ _ ->
+      t@(LH.RApp (LH.QTyCon nm _ _ _ vs _) ts _ _) ->
         whenJust (M.lookup (F.val nm) (CG.cgQuotTyDefs γ))
           $ \qty ->
               checkRespectfulness γ
                 $ QuotientCase
                     { scrutinee       = x
+                    , scrutineeType   = t
                     , quotientTypes
                         = quotientTypeHierarchy γ
                             $ QuotientSubst
@@ -1472,14 +1474,15 @@ checkRespectfulness γ QuotientCase {..} = do
           lResult   = normaliseWithEnv nbeEnv st caseType lhs
           rResult   = normaliseWithEnv nbeEnv st caseType frhs
           condition = makeRespectCondition lResult rResult
-      γ' <- mkEnv cγ domain $ CG.cgTopLevel γ
+      γ' <- mkEnv cγ domain
       whenJust condition $ mkConstraint γ' qsym ""
 
-    mkEnv :: CGEnv -> [(Symbol, SpecType)] -> Maybe TopLevelDefinition -> CG CGEnv
-    mkEnv cγ domain Nothing   = Fold.foldlM CG.addEEnv cγ domain
-    mkEnv _ domain (Just CG.TopLevelDefinition {..}) = do
-      γ' <- Fold.foldlM CG.addEEnv tldEnv domain
-      Fold.foldlM CG.addEEnv γ' (zipExcept (scrutineeSym ==) tldArguments tldArgTypes)
+    mkEnv :: CGEnv -> [(Symbol, SpecType)] -> CG CGEnv
+    mkEnv cγ domain = case CG.cgTopLevel γ of
+      Nothing                         -> Fold.foldlM CG.addEEnv cγ domain
+      Just CG.TopLevelDefinition {..} -> do
+        γ' <- Fold.foldlM CG.addEEnv tldEnv domain
+        Fold.foldlM CG.addEEnv γ' (zipExcept (scrutineeSym ==) tldArguments tldArgTypes)
 
     mkConstraint :: CGEnv -> Symbol -> String -> F.Expr -> CG ()
     mkConstraint γ' qsym msg p
