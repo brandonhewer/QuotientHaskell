@@ -75,6 +75,7 @@ import           Control.DeepSeq
 import           Data.Maybe               (isJust, mapMaybe)
 import           Control.Monad.State
 
+import           Language.Haskell.Liquid.Constraint.NBETypes
 import           Language.Haskell.Liquid.GHC.SpanStack
 import           Liquid.GHC.API    as Ghc hiding ( (<+>)
                                                                   , vcat
@@ -118,13 +119,8 @@ data CGEnv = CGE
   , cerr   :: !(Maybe (TError SpecType))             -- ^ error that should be reported at the user
   , cgInfo :: !TargetInfo                            -- ^ top-level TargetInfo
   , cgVar  :: !(Maybe Var)                           -- ^ top level function being checked
-  , cgTopLevel       :: !(Maybe TopLevelDefinition)
-    -- ^ The top level definition being checked and its arguments (in reverse order).
-    --   Value is Nothing when checking auxiliary let expressions
-  , cgQuotTyDefs     :: !(M.HashMap F.Symbol QuotientTypeDef)
-    -- ^ Quotient type definitions
-  , cgQuotDataCons   :: !(M.HashMap F.Symbol QDataCons)
-    -- ^ Refinements of data constructors
+  , cgTopLevel :: !(Maybe TopLevelDefinition)
+  , cgNBEEnv   :: !NBEEnv
   } -- deriving (Data, Typeable)
 
 instance HasConfig CGEnv where
@@ -164,13 +160,6 @@ data TopLevelDefinition
 -- | Quotient Types        -----------------------------------------------------
 --------------------------------------------------------------------------------
 
-data QDataCons
-  = QDataCons
-      { qdcUnderlyingName :: !F.Symbol
-      , qdcUnderlyingType :: !SpecType
-      , qdcRefinedTypes   :: !(M.HashMap F.Symbol SpecType)
-      } deriving Show
-
 data JoinType
   = SpecType !SpecType
   | JoinType
@@ -178,34 +167,6 @@ data JoinType
       , join_unions :: !(M.HashMap F.Symbol SpecType)
       , join_apply  :: !(SpecType -> CG SpecType)
       , join_tyapp  :: ![(CoreExpr, CoreExpr, Type)]
-      }
-
-{-
-data QSpecType
-  = SpecType !SpecType
-  | QConType !QDataCons !(SpecType -> CG SpecType)-}
-
-data QuotientRewrite
-  = QuotientRewrite
-      { rwPattern      :: !F.QPattern
-        -- | ^ The pattern to check for unification with when deciding whether to rewrite
-        --     an expression
-      , rwExpr         :: !F.Expr
-        -- | ^ The expression to rewrite to after applying the unifying substitution
-      , rwPrecondition :: !(Maybe F.Expr)
-        -- | ^ The precondition for when this rewrite rule should be applied
-      , rwFreeVars     :: !(S.HashSet F.Symbol)
-        -- | ^ The free variables that appear in rwPattern and rwExpr
-      } deriving Show
-
-data QuotientTypeDef
-  = QuotientTypeDef
-      { qtdName     :: !F.LocSymbol
-      , qtdType     :: !SpecType
-      , qtdQuots    :: ![SpecQuotient]
-      , qtdRewrites :: ![QuotientRewrite]
-      , qtdTyVars   :: ![RTyVar]
-      , qtdArity    :: !Int
       }
 
 --------------------------------------------------------------------------------
@@ -313,6 +274,7 @@ data CGInfo = CGInfo
   , ghcI       :: !TargetInfo
   , dataConTys :: ![(Var, SpecType)]                  -- ^ Refined Types of Data Constructors
   , unsorted   :: !F.Templates                        -- ^ Potentially unsorted expressions
+  , nbeState   :: !NBEState                           -- ^ Cached state for handling respectfulness theorems
   }
 
 
@@ -513,7 +475,7 @@ instance NFData RInv where
   rnf (RInv x y z) = rnf x `seq` rnf y `seq` rnf z
 
 instance NFData CGEnv where
-  rnf (CGE x1 _ x3 _ x4 x5 x55 x6 x7 x8 x9 _ _ _ x10 _ _ _ _ _ _ _ _ _ _ _ _ _)
+  rnf (CGE x1 _ x3 _ x4 x5 x55 x6 x7 x8 x9 _ _ _ x10 _ _ _ _ _ _ _ _ _ _ _ _)
     = x1 `seq` {- rnf x2 `seq` -} seq x3
          `seq` rnf x5
          `seq` rnf x55

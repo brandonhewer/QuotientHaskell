@@ -27,6 +27,7 @@ import qualified Language.Fixpoint.Types                       as F
 import qualified Language.Haskell.Liquid.UX.CTags              as Tg
 import           Language.Haskell.Liquid.Constraint.Fresh
 import           Language.Haskell.Liquid.Constraint.Env
+import           Language.Haskell.Liquid.Constraint.NBETypes
 import qualified Language.Haskell.Liquid.Constraint.Unify      as Unify
 import           Language.Haskell.Liquid.WiredIn               (dictionaryVar)
 import qualified Language.Haskell.Liquid.GHC.SpanStack         as Sp
@@ -34,6 +35,7 @@ import           Language.Haskell.Liquid.GHC.Misc             ( idDataConM, hasB
 import           Liquid.GHC.API               as Ghc
 import           Language.Haskell.Liquid.Misc
 import           Language.Fixpoint.Misc
+import           Language.Haskell.Liquid.Constraint.ToFixpoint  (makeSimplify)
 import           Language.Haskell.Liquid.Constraint.Types
 
 import           Language.Haskell.Liquid.Types hiding (binds, Loc, loc, freeTyVars, Def)
@@ -73,10 +75,11 @@ initEnv info
        let cbs   = giCbs . giSrc $ info
        rTrue   <- mapM (mapSndM (true allowTC)) f6
        let dconM = M.fromList (map (first F.symbol) f4)
-       qcons   <- makeQuotDataCons dconM (gsQuotCons $ gsQuots sp)
-       let γ0    = measEnv sp (head bs) cbs tcb lt1s lt2s (f6 ++ bs!!3) (bs!!5) hs qcons info
-       γ  <- globalize <$> foldM (+=) γ0 ( [("initEnv", x, y) | (x, y) <- concat (rTrue:tail bs)])
-       return γ {invs = is (invs1 ++ invs2)}
+       let γ0    = measEnv sp (head bs) cbs tcb lt1s lt2s (f6 ++ bs!!3) (bs!!5) hs info
+       γ     <- globalize <$> foldM (+=) γ0 ( [("initEnv", x, y) | (x, y) <- concat (rTrue:tail bs)])
+       qcons <- makeQuotDataCons dconM (gsQuotCons $ gsQuots sp)
+       ne    <- initNBEEnv (gsQuotTyCons $ gsQuots sp) (gsQuotients $ gsQuots sp) qcons
+       return γ {invs = is (invs1 ++ invs2), cgNBEEnv = ne}
   where
     allowTC      = typeclass (getConfig info)
     sp           = giSpec info
@@ -170,11 +173,10 @@ measEnv :: TargetSpec
         -> [(F.Symbol, SpecType)]
         -> [(F.Symbol, SpecType)]
         -> [F.Symbol]
-        -> M.HashMap F.Symbol QDataCons
         -> TargetInfo
         -> CGEnv
 --------------------------------------------------------------------------------
-measEnv sp xts cbs _tcb lt1s lt2s asms itys hs qcons info = CGE
+measEnv sp xts cbs _tcb lt1s lt2s asms itys hs info = CGE
   { cgLoc    = Sp.empty
   , renv     = fromListREnv (second val <$> gsMeas (gsData sp)) []
   , syenv    = F.fromListSEnv (gsFreeSyms (gsName sp))
@@ -200,50 +202,14 @@ measEnv sp xts cbs _tcb lt1s lt2s asms itys hs qcons info = CGE
   , cerr     = Nothing
   , cgInfo   = info
   , cgVar    = Nothing
-  , cgTopLevel     = Nothing
-  , cgQuotTyDefs   = makeQuotTyDef <$> qTyCons
-  , cgQuotDataCons = qcons
+  , cgTopLevel = Nothing
+  , cgNBEEnv   = mempty
   }
   where
       tce         = gsTcEmbeds (gsName sp)
       filterHO xs = if higherOrderFlag sp then xs else filter (F.isFirstOrder . snd) xs
       lts         = lt1s ++ lt2s
       tcb'        = []
-      qTyCons     = gsQuotTyCons (gsQuots sp)
-      quots       = gsQuotients $ gsQuots sp
-
-      makeQuotTyDef :: SpecQuotientType -> QuotientTypeDef
-      makeQuotTyDef sqt
-        = QuotientTypeDef
-            { qtdName     = qtyName sqt
-            , qtdType     = qtyType sqt
-            , qtdQuots    = quotients
-            , qtdTyVars   = qtyTyVars sqt
-            , qtdArity    = qtyArity sqt
-            , qtdRewrites = rewrites
-            }
-          where
-            (quotients, rewrites)
-              = foldr
-                  (\q (qs, rws) -> case M.lookup q quots of
-                      Nothing -> (qs, rws)
-                      Just sq -> (sq : qs, makeQuotRewrite sq : rws)
-                  ) ([], []) (allQuotients sqt)
-
-            allQuotients QuotientType {qtyType, qtyQuots}
-              = case qtyType of
-                  RApp (QTyCon nm _ _ _ _ _) _ _ _
-                    | Just q <- M.lookup (F.val nm) qTyCons -> qtyQuots ++ allQuotients q
-                  _                                         -> qtyQuots
-
-      makeQuotRewrite :: SpecQuotient -> QuotientRewrite
-      makeQuotRewrite sq
-        = QuotientRewrite
-            { rwPattern      = F.val $ qtLeft sq
-            , rwExpr         = F.val $ qtRight sq
-            , rwFreeVars     = M.keysSet $ qtVars sq
-            , rwPrecondition = getQuotientReft sq
-            }
 
 assm :: TargetInfo -> [(Var, SpecType)]
 assm = assmGrty (giImpVars . giSrc)
@@ -322,6 +288,7 @@ initCGI cfg info = CGInfo {
   , allowHO    = higherOrderFlag cfg
   , ghcI       = info
   , unsorted   = F.notracepp "UNSORTED" $ F.makeTemplates $ gsUnsorted $ gsData spc
+  , nbeState   = mempty
   }
   where
     tce        = gsTcEmbeds nspc
@@ -460,3 +427,124 @@ getQuotientReft Quotient { qtVars }
       substReft :: (F.Symbol, Maybe F.Reft) -> Maybe F.Expr
       substReft (_, Nothing)               = Nothing
       substReft (v, Just (F.Reft (v', e))) = Just $ F.subst1 e (v', F.EVar v)
+
+initNBEEnv
+  :: M.HashMap F.Symbol SpecQuotientType
+  -> M.HashMap F.Symbol SpecQuotient
+  -> M.HashMap F.Symbol QDataCons
+  -> CG NBEEnv
+initNBEEnv qtcs quots qcons = do
+  rs <- gets getReflects
+  ss <- gets getSelectors
+  dc <- gets getDataCons
+  ut <- unfoldTypes rs
+
+  return NBE
+    { nbeDefs          = rs
+    , nbeSelectors     = ss
+    , nbeGuards        = []
+    , nbeQuotientTypes = makeQuotTyDef <$> qtcs -- CG.qtdRewrites <$> CG.cgQuotTyDefs γ
+    , nbeUnfoldTypes   = ut
+    , nbeDataCons
+        = NBEDataCons
+            { nbeDataConEnv     = dc
+            , nbeQuotDataConEnv = qcons
+            }
+    }
+  where
+    getReflects :: CGInfo -> M.HashMap F.Symbol NBEDefinition
+    getReflects
+      = M.fromList
+      . map mkNBEDefinition
+      . gsHAxioms
+      . gsRefl
+      . giSpec
+      . ghcI
+
+    getSelectors :: CGInfo -> M.HashMap F.Symbol (F.Symbol, Int)
+    getSelectors
+      = M.fromList
+      . concatMap (mapMaybe makeSel . makeSimplify)
+      . dataConTys
+
+    getDataCons :: CGInfo -> M.HashMap F.Symbol SpecType
+    getDataCons
+      = M.fromList
+      . map (first F.symbol)
+      . dataConTys
+
+    mkNBEDefinition :: (Var, LocSpecType, F.Equation) -> (F.Symbol, NBEDefinition)
+    mkNBEDefinition (v, t, F.Equ {..})
+      = let s = F.symbol v
+         in ( s
+            , NBEDefinition
+                { nbeType        = F.val t
+                , nbeDefinition  = foldr F.ELam eqBody eqArgs
+                , nbeIsRecursive = S.member s (F.exprSymbolsSet eqBody)
+                }
+            )
+
+    makeSel :: F.Rewrite -> Maybe (F.Symbol, (F.Symbol, Int))
+    makeSel rw
+      | F.EVar x <- F.smBody rw
+          = (F.smName rw,) . (F.smDC rw,) <$> L.elemIndex x (F.smArgs rw)
+      | otherwise = Nothing
+
+    unfoldTypes :: M.HashMap F.Symbol NBEDefinition -> CG (M.HashMap F.Symbol UnfoldType)
+    unfoldTypes ds = do
+      isTermCheck <- gets stcheck
+      if isTermCheck then
+        M.traverseWithKey unfoldType ds
+      else
+        return mempty
+
+    unfoldType :: F.Symbol -> NBEDefinition -> CG UnfoldType
+    unfoldType s NBEDefinition {nbeIsRecursive}
+      | nbeIsRecursive = do
+          isTermDef <- gets $ doesTerminate s
+          return
+            $ if isTermDef then
+                CompleteUnfold
+              else
+                LimitedUnfold 1
+      | otherwise = return CompleteUnfold
+
+    doesTerminate :: F.Symbol -> CGInfo -> Bool
+    doesTerminate s CGInfo {specLVars, specLazy, specTmVars}
+      = let s1 = S.map F.symbol specLVars
+            s2 = S.map F.symbol specLazy
+            s3 = S.map F.symbol specTmVars
+         in not (S.member s s1 || S.member s s2 || S.member s s3)
+
+    makeQuotRewrite :: SpecQuotient -> QuotientRewrite
+    makeQuotRewrite sq
+      = QuotientRewrite
+          { rwPattern      = F.val $ qtLeft sq
+          , rwExpr         = F.val $ qtRight sq
+          , rwFreeVars     = M.keysSet $ qtVars sq
+          , rwPrecondition = getQuotientReft sq
+          }
+
+    makeQuotTyDef :: SpecQuotientType -> QuotientTypeDef
+    makeQuotTyDef sqt
+      = QuotientTypeDef
+          { qtdName     = qtyName sqt
+          , qtdType     = qtyType sqt
+          , qtdQuots    = quotients
+          , qtdTyVars   = qtyTyVars sqt
+          , qtdArity    = qtyArity sqt
+          , qtdRewrites = rewrites
+          }
+        where
+          (quotients, rewrites)
+            = foldr
+                (\q (qs, rws) -> case M.lookup q quots of
+                    Nothing -> (qs, rws)
+                    Just sq -> (sq : qs, makeQuotRewrite sq : rws)
+                ) ([], []) (allQuotients sqt)
+
+          allQuotients QuotientType {qtyType, qtyQuots}
+            = case qtyType of
+                RApp (QTyCon nm _ _ _ _ _) _ _ _
+                  | Just q <- M.lookup (F.val nm) qtcs -> qtyQuots ++ allQuotients q
+                _                                         -> qtyQuots

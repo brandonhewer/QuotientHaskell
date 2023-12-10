@@ -53,6 +53,7 @@ library
                       Language.Haskell.Liquid.Constraint.Generate
                       Language.Haskell.Liquid.Constraint.Init
                       Language.Haskell.Liquid.Constraint.Monad
+                      Language.Haskell.Liquid.Constraint.NBETypes
                       Language.Haskell.Liquid.Constraint.Qualifier
                       Language.Haskell.Liquid.Constraint.Quotient
                       Language.Haskell.Liquid.Constraint.Split

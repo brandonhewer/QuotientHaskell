@@ -62,6 +62,10 @@ sumB Empty      = 0
 sumB (Leaf n)   = n
 sumB (Join x y) = sumB x + sumB y
 
+{-@ sumL :: List Int -> Int @-}
+sumL :: Tree Int -> Int
+sumL t = sumB t
+
 {-@ contains :: Eq a => a -> Set a -> Bool @-}
 contains :: Eq a => a -> Tree a -> Bool
 contains _ Empty      = False
@@ -74,6 +78,8 @@ cartesian Empty      t     = Empty
 cartesian (Leaf a)   t     = smap (a,) t
 cartesian (Join u v) t     = Join (cartesian u t) (cartesian v t)
 
-{-@ sumL :: List Int -> Int @-}
-sumL :: Tree Int -> Int
-sumL t = sumB t
+{-@ bindSet :: Set a -> (a -> Tree b) -> Set b @-}
+bindSet :: Tree a -> (a -> Tree b) -> Tree b
+bindSet Empty      _ = Empty
+bindSet (Leaf a)   f = f a
+bindSet (Join t u) f = Join (bindSet t f) (bindSet u f)

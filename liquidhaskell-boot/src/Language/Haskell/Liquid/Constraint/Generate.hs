@@ -45,6 +45,7 @@ import           Language.Haskell.Liquid.Constraint.Fresh ( addKuts, freshTyType
 import           Language.Haskell.Liquid.Constraint.Init ( initEnv, initCGI )
 import           Language.Haskell.Liquid.Constraint.Env
 import           Language.Haskell.Liquid.Constraint.Monad
+import           Language.Haskell.Liquid.Constraint.NBETypes
 import           Language.Haskell.Liquid.Constraint.Quotient
 import           Language.Haskell.Liquid.Constraint.Split ( splitC, splitW )
 import           Language.Haskell.Liquid.Constraint.Relational (consAssmRel, consRelTop)
@@ -1029,8 +1030,11 @@ lamExpr g e = do
       (\x -> todo Nothing ("coreToLogic not working lamExpr: " ++ x))
       (coreToLogic allowTC e)
 
+quotDataCons :: CGEnv -> M.HashMap F.Symbol QDataCons
+quotDataCons = nbeQuotDataConEnv . nbeDataCons . cgNBEEnv
+
 getDataConType :: (?callStack :: CallStack) => CGEnv -> SpecType -> Var -> CG SpecType
-getDataConType γ t x = case M.lookup (F.symbol x) (cgQuotDataCons γ) of
+getDataConType γ t x = case M.lookup (F.symbol x) (quotDataCons γ) of
   Just QDataCons {..} -> refreshTy $ case t of
     RApp c _ _ _ -> fromMaybe qdcUnderlyingType (F.symbol c `M.lookup` qdcRefinedTypes)
     _            -> qdcUnderlyingType
@@ -1051,7 +1055,7 @@ getDataConType γ t x = case M.lookup (F.symbol x) (cgQuotDataCons γ) of
 --------------------------------------------------------------------------------
 varRefType :: (?callStack :: CallStack) => CGEnv -> Var -> CG JoinType
 --------------------------------------------------------------------------------
-varRefType γ x = case M.lookup (F.symbol x) (cgQuotDataCons γ) of
+varRefType γ x = case M.lookup (F.symbol x) (quotDataCons γ) of
   Nothing  -> mapJoinType (varRefType' γ x) <$> (γ ??= x)
   Just qdc -> makeJoinUnion γ qdc $ return . varRefType' γ x
 
