@@ -1,4 +1,3 @@
-{-# LANGUAGE DeriveTraversable     #-}
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE LambdaCase            #-}
@@ -818,8 +817,8 @@ resolveQuotDataCon Nothing CG.QDataCons {qdcUnderlyingType}
 resolveQuotDataCon (Just t) CG.QDataCons {..}
   = case ty_res of
       LH.RApp c _ _ _
-        | sym == qdcUnderlyingName -> qdcUnderlyingType
-        | otherwise                -> MB.fromMaybe qdcUnderlyingType (M.lookup sym qdcRefinedTypes)
+        | sym == qdcUnderlyingTyCon -> qdcUnderlyingType
+        | otherwise                 -> MB.fromMaybe qdcUnderlyingType (M.lookup sym qdcRefinedTypes)
         where
           sym = F.symbol c
       _               -> qdcUnderlyingType

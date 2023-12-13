@@ -268,8 +268,8 @@ consBind isRec' γ (x, e, Assumed spect)
     where πs   = ty_preds $ toRTypeRep spect
 
 consBind isRec' γ (x, e, Unknown)
-  = do t'    <- consE (γ `setBind` x) e
-       t     <- topSpecType x (getBaseType t')
+  = do t'    <- consE (γ `setBind` x) e >>= getBaseType γ
+       t     <- topSpecType x t'
        addIdA x (defAnn isRec' t)
        when (GM.isExternalId x) (addKuts x t)
        return $ Asserted t
@@ -487,12 +487,12 @@ consE γ (Var x) | GM.isDataConId x
                      then fmap ignoreSelf <$> it
                      else it
        let t    = mapJoinType f t1
-       addLocA (Just x) (getLocation γ) (varAnn γ x $ getBaseType t)
+       addLocA (Just x) (getLocation γ) (varAnn γ x $ getSimpleBase t)
        return t
 
 consE γ (Var x)
   = do t <- varRefType γ x
-       addLocA (Just x) (getLocation γ) (varAnn γ x $ getBaseType t)
+       addLocA (Just x) (getLocation γ) (varAnn γ x $ getSimpleBase t)
        return t
 
 consE _ (Lit c)
@@ -556,7 +556,7 @@ consE γ e@(Case _ _ _ cs)
 
 consE γ (Tick tt e)
   = do t <- consE (setLocation γ (Sp.Tick tt)) e
-       addLocA Nothing (GM.tickSrcSpan tt) (AnnUse (getBaseType t))
+       addLocA Nothing (GM.tickSrcSpan tt) (AnnUse (getSimpleBase t))
        return t
 
 -- See Note [Type classes with a single method]
@@ -649,7 +649,7 @@ consPattern :: CGEnv -> Rs.Pattern -> Type -> CG JoinType
  -}
 
 consPattern γ (Rs.PatBind e1 x e2 _ _ _ _ _) _ = do
-  tx <- checkMonad (msg, e1) γ . getBaseType <$> consE γ e1
+  tx <- checkMonad (msg, e1) γ <$> (consE γ e1 >>= getBaseType γ)
   let x' = F.symbol x
   γ' <- addTopLevelArg γ x' tx += ("consPattern", x', tx)
   addIdA x (AnnDef tx)
@@ -896,7 +896,8 @@ caseEnv γ x _ (DataAlt c) ys pIs = do
 
 caseEnv γ x acs a _ _ = do
   let x'  = F.symbol x
-  xt'    <- (`strengthen` uTop (altReft γ acs a)) . getBaseType <$> (γ ??= x)
+  xt  <- γ ??= x
+  xt' <- (`strengthen` uTop (altReft γ acs a)) <$> getBaseType γ xt
   addBinders γ x' [(x', xt')]
 
 ------------------------------------------------------
@@ -964,7 +965,7 @@ instantiatePvs           = L.foldl' go
 
 checkTyCon :: (Outputable a) => (String, a) -> CGEnv -> JoinType -> SpecType
 checkTyCon _ _ (SpecType t@RApp{}) = t
-checkTyCon x g t                   = checkErr x g (getBaseType t)
+checkTyCon x g t                   = checkErr x g (getSimpleBase t)
 
 checkFun :: (Outputable a) => (String, a) -> CGEnv -> SpecType -> SpecType
 checkFun _ _ t@RFun{} = t
@@ -1038,7 +1039,7 @@ getDataConType γ t x = case M.lookup (F.symbol x) (quotDataCons γ) of
   Just QDataCons {..} -> refreshTy $ case t of
     RApp c _ _ _ -> fromMaybe qdcUnderlyingType (F.symbol c `M.lookup` qdcRefinedTypes)
     _            -> qdcUnderlyingType
-  Nothing -> getBaseType <$> (γ ??= x)
+  Nothing -> (γ ??= x) >>= getBaseType γ
 
 --------------------------------------------------------------------------------
 (??=) :: (?callStack :: CallStack) => CGEnv -> Var -> CG JoinType
@@ -1175,9 +1176,16 @@ isGenericVar α st =  all (\(c, α') -> (α'/=α) || isGenericClass c ) (classCo
 -- | Join Type Functions and Accessors -----------------------------------------
 --------------------------------------------------------------------------------
 
-getBaseType :: JoinType -> SpecType
-getBaseType (SpecType t)         = t
-getBaseType JoinType {join_base} = join_base
+getSimpleBase :: JoinType -> SpecType
+getSimpleBase (SpecType t)         = t
+getSimpleBase JoinType {join_base} = join_base
+
+getBaseType :: CGEnv -> JoinType -> CG SpecType
+getBaseType _ (SpecType t)  = return t
+getBaseType γ JoinType {..} = do
+  F.foldrM synth join_base join_tyapp >>= join_apply
+  where
+    synth (e', e, τ) = consTyApp γ e' e τ
 
 mapJoinType :: (SpecType -> SpecType) -> JoinType -> JoinType
 mapJoinType f (SpecType t)    = SpecType (f t)

@@ -29,7 +29,7 @@ import           Text.Megaparsec                        hiding (ParseError)
 import           Text.Megaparsec.Char
 import qualified Data.HashMap.Strict                    as M
 import qualified Data.HashSet                           as S
-import           Data.Data
+import           Data.Data                              hiding (Fixity)
 import qualified Data.Maybe                             as Mb -- (isNothing, fromMaybe)
 import           Data.Char                              (isSpace, isAlphaNum)
 import           Data.List                              (foldl', partition)
@@ -1545,9 +1545,13 @@ bbindP   = lowerIdP <* reservedOp "::"
 
 dataConP :: [Symbol] -> Parser DataCtor
 dataConP as = do
-  x   <- dataConNameP
+  x <- dataConNameP
+  dataConPWith x as
+
+dataConPWith :: Located Symbol -> [Symbol] -> Parser DataCtor
+dataConPWith name as = do
   xts <- dataConFieldsP
-  return $ DataCtor x as [] xts Nothing
+  return $ DataCtor name as [] xts Nothing
 
 adtDataConP :: [Symbol] -> Parser DataCtor
 adtDataConP as = do
@@ -1628,17 +1632,27 @@ dataOrQuotDeclBodyP :: SourcePos -> LocSymbol -> Parser BPspec
 dataOrQuotDeclBodyP pos x = do
   vanilla         <- null <$> many locUpperIdP
   as              <- many noWhere -- TODO: check this again
-  mps             <- predVarDefsP
-  case mps of
-    []
-      | vanilla ->
-          try (DDecl <$> dataDeclWithP pos vanilla x Nothing as [])
-          <|> (QDecl <$> quotDeclBodyP pos x as)
-    ps -> DDecl <$> dataDeclWithP pos vanilla x Nothing as ps
+  ps              <- predVarDefsP
+  if vanilla then do
+    mdcn <- optional dataConNameP
+
+    case mdcn of
+      Nothing  -> QDecl <$> quotDeclBodyP pos x as
+      Just dcn ->
+        try (DDecl <$> dataDeclWithCon dcn pos vanilla x Nothing as ps)
+          <|> (QDecl <$> quotDeclBodyWithP dcn pos x as)
+  else
+    DDecl <$> dataDeclWithP pos vanilla x Nothing as ps
 
 quotDeclBodyP :: SourcePos -> LocSymbol -> [Symbol] -> Parser QuotDecl
 quotDeclBodyP pos x as = do
   utype <- reservedOp "=" >> bareTypeP
+  qtors <- some (reservedOp "|/" >> quotConP as)
+  return $ QuotDecl x as utype qtors pos
+
+quotDeclBodyWithP :: LocSymbol -> SourcePos -> LocSymbol -> [Symbol] -> Parser QuotDecl
+quotDeclBodyWithP tyc pos x as = do
+  utype <- reservedOp "=" >> dummyP (liftM3 (bCon $ mkBTyCon tyc) predicatesP (many bareTyArgP) mmonoPredicateP)
   qtors <- some (reservedOp "|/" >> quotConP as)
   return $ QuotDecl x as utype qtors pos
 
@@ -1654,6 +1668,20 @@ dataDeclWithP pos vanilla x fsize as ps = do
   (pTy, dcs)  <- dataCtorsP as
   let dn      = dataDeclName pos x vanilla dcs
   return      $ DataDecl dn as ps (Just dcs) pos fsize pTy DataUser
+
+dataDeclWithCon
+  :: Located Symbol
+  -> SourcePos
+  -> Bool
+  -> LocSymbol
+  -> Maybe SizeFun
+  -> [Symbol]
+  -> [PVar BSort]
+  -> Parser DataDecl
+dataDeclWithCon dcn pos vanilla x fsize as ps = do
+  dcs <- dataCtorsPWith dcn as
+  let dn = dataDeclName pos x vanilla dcs
+  return $ DataDecl dn as ps (Just dcs) pos fsize Nothing DataUser
 
 dataDeclName :: SourcePos -> LocSymbol -> Bool -> [DataCtor] -> DataName
 dataDeclName _ x True  _     = DnName x               -- vanilla data    declaration
@@ -1677,8 +1705,14 @@ dataCtorsP as = do
                 <|>                        ((,)         <$> dataPropTyP <*> block (adtDataConP as)                  )
   return (pTy, Misc.sortOn (val . dcName) dcs)
 
+dataCtorsPWith :: Located Symbol -> [Symbol] -> Parser [DataCtor]
+dataCtorsPWith dcon as = do
+  dc  <- dataConPWith dcon as
+  dcs <- many (reservedOp "|" *> dataConP as <* notFollowedBy (reservedOp "|/"))
+  return $ Misc.sortOn (val . dcName) (dc : dcs)
+
 quotConBindsP :: Parser [(Symbol, BareType)]
-quotConBindsP = many (try quotConBindP <* reservedOp "->") <?> "quotConBindP"
+quotConBindsP = many (try (quotConBindP <* reservedOp "->")) <?> "quotConBindP"
 
 quotConBindP :: Parser (Symbol, BareType)
 quotConBindP = (,) <$> symbolP <* reservedOp ":" <*> (_pct <$> compP)
@@ -1691,12 +1725,21 @@ quotConP as = do
   QuotCtor x as bs l <$> locLexeme exprP
 
 quotPatternP :: Parser QPattern
-quotPatternP
-  =   parenPat
-  <|> (upperIdP >>= consPat)
-  <|> (QPLit <$> constantP)
-  <|> (QPVar <$> lowerIdP)
+quotPatternP = do
+  bp <- basePat
+  tl <- many (reservedOp ":" >> basePat)
+
+  if null tl
+    then return bp
+    else let (t : ts) = tl in return $ listCons bp (makeListPat t ts)
   where
+    basePat :: Parser QPattern
+    basePat
+      =  parenPat
+      <|> (upperIdP >>= consPat)
+      <|> (QPLit <$> constantP)
+      <|> (QPVar <$> lowerIdP)
+
     argPat :: Parser QPattern
     argPat
       =   parenPat
@@ -1718,6 +1761,13 @@ quotPatternP
     consPat x = do
       args <- many argPat
       return $ QPCons (length args) x args
+
+    makeListPat :: QPattern -> [QPattern] -> QPattern
+    makeListPat h []       = h
+    makeListPat h (t : ts) = listCons h (makeListPat t ts)
+
+    listCons :: QPattern -> QPattern -> QPattern
+    listCons x xs = QPCons 2 (symbol ("GHC.Types.:" :: String)) [x, xs]
 
 noWhere :: Parser Symbol
 noWhere =

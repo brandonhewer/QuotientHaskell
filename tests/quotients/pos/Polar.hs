@@ -13,3 +13,15 @@ data Polar
 {-@ rotate :: Int -> Polar -> Polar @-}
 rotate :: Int -> (Double, Int) -> (Double, Int)
 rotate x (r, a) = (r, a + x)
+
+data Tree a = Empty | Leaf a | Join (Tree a) (Tree a)
+
+{-@ reflect cons @-}
+cons :: a -> [a] -> [a]
+cons x xs = x : xs
+
+{-@
+data Bag a
+  =  [a]
+  |/ comm :: x:a -> y:a -> xs:[a] -> x : y : xs == cons y (cons x xs)
+@-}

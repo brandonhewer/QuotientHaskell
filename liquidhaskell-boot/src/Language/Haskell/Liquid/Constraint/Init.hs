@@ -328,9 +328,10 @@ makeQuotDataCons dcm qdcs = traverse refreshQDataCons $ M.mapMaybeWithKey makeQu
     makeQuotDataCon dc QuotientDataCons {..} = do
       t <- M.lookup dc dcm
       return QDataCons
-        { qdcUnderlyingName = qdcBaseTyCon
-        , qdcUnderlyingType = t
-        , qdcRefinedTypes   = M.fromList $ makeRefined qdcBaseTyCon t <$> qdcQuotTyCons
+        { qdcUnderlyingTyCon = qdcBaseTyCon
+        , qdcUnderlyingName  = dc
+        , qdcUnderlyingType  = t
+        , qdcRefinedTypes    = M.fromList $ makeRefined qdcBaseTyCon t <$> qdcQuotTyCons
         }
 
     makeRefined :: F.Symbol -> SpecType -> (RTyCon, SpecQuotientType, SpecType) -> (F.Symbol, SpecType)

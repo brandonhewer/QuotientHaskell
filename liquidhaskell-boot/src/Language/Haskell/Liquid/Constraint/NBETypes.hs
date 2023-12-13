@@ -13,9 +13,10 @@ import Language.Haskell.Liquid.Types (RTyVar, SpecQuotient, SpecType)
 
 data QDataCons
   = QDataCons
-      { qdcUnderlyingName :: !Symbol
-      , qdcUnderlyingType :: !SpecType
-      , qdcRefinedTypes   :: !(HashMap Symbol SpecType)
+      { qdcUnderlyingTyCon :: !Symbol
+      , qdcUnderlyingName  :: !Symbol
+      , qdcUnderlyingType  :: !SpecType
+      , qdcRefinedTypes    :: !(HashMap Symbol SpecType)
       } deriving Show
 
 data QuotientRewrite
