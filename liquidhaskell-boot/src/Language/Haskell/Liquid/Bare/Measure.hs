@@ -211,10 +211,6 @@ qualifiedDataName :: ModName -> DataName -> DataName
 qualifiedDataName modName (DnName lx) = DnName (updateLHNameSymbol (qualifyModName modName) <$> lx)
 qualifiedDataName modName (DnCon  lx) = DnCon  (updateLHNameSymbol (qualifyModName modName) <$> lx)
 
-updateLHNameSymbol :: (F.Symbol -> F.Symbol) -> LHName -> LHName
-updateLHNameSymbol f (LHNResolved n s) = LHNResolved n (f s)
-updateLHNameSymbol f (LHNUnresolved n s) = LHNUnresolved n (f s)
-
 {-tyConDataDecl :: {tc:TyCon | isAlgTyCon tc} -> Maybe DataDecl @-}
 tyConDataDecl :: ((Ghc.TyCon, DataName), HasDataDecl) -> Maybe DataDecl
 tyConDataDecl (_, HasDecl)

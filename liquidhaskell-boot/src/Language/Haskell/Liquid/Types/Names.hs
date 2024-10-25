@@ -19,6 +19,7 @@ module Language.Haskell.Liquid.Types.Names
   , makeUnresolvedLHName
   , mapLHNames
   , mapMLocLHNames
+  , updateLHNameSymbol
   ) where
 
 import Control.DeepSeq
@@ -188,3 +189,7 @@ mapMLocLHNames f = go
   where
     go :: forall b. Data b => b -> m b
     go = gmapM (go `extM` f)
+
+updateLHNameSymbol :: (Symbol -> Symbol) -> LHName -> LHName
+updateLHNameSymbol f (LHNResolved n s) = LHNResolved n (f s)
+updateLHNameSymbol f (LHNUnresolved n s) = LHNUnresolved n (f s)
