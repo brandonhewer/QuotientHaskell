@@ -234,8 +234,8 @@ tyConDataDecl ((tc, dn), NoDecl szF)
 
 tyConDataName :: Ghc.TyCon -> Maybe DataName
 tyConDataName tc
-  | vanillaTc  = Just (DnName ((\x -> makeGHCLHName (Ghc.getName x) (F.symbol x)) <$> GM.locNamedThing tc))
-  | d:_ <- dcs = Just (DnCon  ((\x -> makeGHCLHName (Ghc.getName x) (F.symbol x)) <$> GM.locNamedThing d ))
+  | vanillaTc  = Just $ DnName $ makeGHCLHNameLocated tc
+  | d:_ <- dcs = Just $ DnCon $ makeGHCLHNameLocated d
   | otherwise  = Nothing
   where
     vanillaTc  = Ghc.isVanillaAlgTyCon tc
@@ -247,7 +247,7 @@ dataConDecl d     = {- F.notracepp msg $ -} DataCtor dx (F.symbol <$> as) [] xts
     isGadt        = not (Ghc.isVanillaDataCon d)
     -- msg           = printf "dataConDecl (gadt = %s)" (show isGadt)
     xts           = [(Bare.makeDataConSelector Nothing d i, RT.bareOfType t) | (i, t) <- its ]
-    dx            = (\x -> makeGHCLHName (Ghc.getName x) (F.symbol x)) <$> GM.locNamedThing d
+    dx            = makeGHCLHNameLocated d
     its           = zip [1..] ts
     (as,_ps,ts,ty)  = Ghc.dataConSig d
     outT          = Just (RT.bareOfType ty :: BareType)

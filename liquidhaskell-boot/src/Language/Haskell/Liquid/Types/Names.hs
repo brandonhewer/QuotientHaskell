@@ -14,6 +14,8 @@ module Language.Haskell.Liquid.Types.Names
   , getLHNameResolved
   , getLHNameSymbol
   , makeGHCLHName
+  , makeGHCLHNameLocated
+  , makeLocalLHName
   , makeUnresolvedLHName
   , mapLHNames
   , mapMLocLHNames
@@ -28,7 +30,7 @@ import Data.String (fromString)
 import GHC.Generics
 import GHC.Stack
 import Language.Fixpoint.Types
-import Language.Haskell.Liquid.GHC.Misc () -- Symbolic GHC.Name
+import Language.Haskell.Liquid.GHC.Misc (locNamedThing) -- Symbolic GHC.Name
 import qualified Liquid.GHC.API as GHC
 import Text.PrettyPrint.HughesPJ.Compat
 
@@ -154,6 +156,13 @@ makeResolvedLHName = LHNResolved
 
 makeGHCLHName :: GHC.Name -> Symbol -> LHName
 makeGHCLHName n s = makeResolvedLHName (LHRGHC n) s
+
+makeLocalLHName :: Symbol -> LHName
+makeLocalLHName s = LHNResolved (LHRLocal s) s
+
+makeGHCLHNameLocated :: (GHC.NamedThing a, Symbolic a) => a -> Located LHName
+makeGHCLHNameLocated x =
+    makeGHCLHName (GHC.getName x) (symbol x) <$ locNamedThing x
 
 makeUnresolvedLHName :: LHNameSpace -> Symbol -> LHName
 makeUnresolvedLHName = LHNUnresolved
