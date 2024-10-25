@@ -134,7 +134,7 @@ makeClassDataDecl = fmap (uncurry classDeclToDataDecl)
 -- maybe this should be fixed right after the GHC API refactoring?
 classDeclToDataDecl :: Ghc.Class -> [(Ghc.Id, LocBareType)] -> DataDecl
 classDeclToDataDecl cls refinedIds = DataDecl
-  { tycName   = DnName ((\x -> lhNameFromGHCName (Ghc.getName x) (F.symbol x)) <$> GM.locNamedThing cls)
+  { tycName   = DnName ((\x -> makeGHCLHName (Ghc.getName x) (F.symbol x)) <$> GM.locNamedThing cls)
   , tycTyVars = tyVars
   , tycPVars  = []
   , tycDCons  = Just [dctor]
@@ -145,7 +145,7 @@ classDeclToDataDecl cls refinedIds = DataDecl
   }
  where
   dctor = F.notracepp "classDeclToDataDecl"
-    DataCtor { dcName   = F.dummyLoc $ lhNameFromGHCName (Ghc.getName classDc) (F.symbol classDc)
+    DataCtor { dcName   = F.dummyLoc $ makeGHCLHName (Ghc.getName classDc) (F.symbol classDc)
     -- YL: same as class tyvars??
     -- Ans: it's been working so far so probably yes
                    , dcTyVars = tyVars

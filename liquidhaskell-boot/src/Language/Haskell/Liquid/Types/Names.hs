@@ -13,7 +13,7 @@ module Language.Haskell.Liquid.Types.Names
   , makeResolvedLHName
   , getLHNameResolved
   , getLHNameSymbol
-  , lhNameFromGHCName
+  , makeGHCLHName
   , makeUnresolvedLHName
   , mapLHNames
   , mapMLocLHNames
@@ -152,8 +152,8 @@ instance PPrint LHName where
 makeResolvedLHName :: LHResolvedName -> Symbol -> LHName
 makeResolvedLHName = LHNResolved
 
-lhNameFromGHCName :: GHC.Name -> Symbol -> LHName
-lhNameFromGHCName n s = makeResolvedLHName (LHRGHC n) s
+makeGHCLHName :: GHC.Name -> Symbol -> LHName
+makeGHCLHName n s = makeResolvedLHName (LHRGHC n) s
 
 makeUnresolvedLHName :: LHNameSpace -> Symbol -> LHName
 makeUnresolvedLHName = LHNUnresolved
