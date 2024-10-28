@@ -456,7 +456,7 @@ import GHC.Core.Opt.OccurAnal         as Ghc
 import GHC.Core.TyCo.FVs              as Ghc (tyCoVarsOfCo, tyCoVarsOfType)
 import GHC.Driver.Backend             as Ghc (interpreterBackend)
 import GHC.Driver.Env                 as Ghc
-    ( HscEnv(hsc_NC, hsc_mod_graph, hsc_unit_env, hsc_dflags, hsc_plugins)
+    ( HscEnv(hsc_NC, hsc_unit_env, hsc_dflags, hsc_plugins)
     , Hsc
     , hscSetFlags, hscUpdateFlags
     )
