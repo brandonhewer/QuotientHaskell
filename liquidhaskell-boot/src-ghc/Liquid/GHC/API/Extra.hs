@@ -13,7 +13,6 @@ module Liquid.GHC.API.Extra (
   , directImports
   , fsToUnitId
   , isPatErrorAlt
-  , lookupModSummary
   , minus_RDR
   , modInfoLookupName
   , moduleInfoTc
@@ -59,7 +58,6 @@ import GHC.Types.TypeEnv
 import GHC.Types.Unique               (getUnique, hasKey)
 
 import GHC.Unit.Module.ModDetails     (md_types)
-import GHC.Unit.Module.ModSummary     (isBootSummary)
 import GHC.Utils.Outputable           as Ghc hiding ((<>))
 
 import GHC.Unit.Module
@@ -178,16 +176,6 @@ addNoInlinePragmasToBinds tcg = tcg{ tcg_binds = go (tcg_binds tcg) }
           { abe_poly = markId poly
           , abe_mono = markId mono }
 
-
-lookupModSummary :: HscEnv -> ModuleName -> Maybe ModSummary
-lookupModSummary hscEnv mdl = do
-   let mg = hsc_mod_graph hscEnv
-       mods_by_name = [ ms | ms <- mgModSummaries mg
-                      , ms_mod_name ms == mdl
-                      , NotBoot == isBootSummary ms ]
-   case mods_by_name of
-     [ms] -> Just ms
-     _    -> Nothing
 
 -- | Our own simplified version of 'ModuleInfo' to overcome the fact we cannot construct the \"original\"
 -- one as the constructor is not exported, and 'getHomeModuleInfo' and 'getPackageModuleInfo' are not
