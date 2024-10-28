@@ -225,10 +225,15 @@ lhDynFlags _ hscEnv =
 -- TODO: We shouldn't rely on exports to find out what's in a ModGuts
 -- https://github.com/ucsd-progsys/liquidhaskell/pull/2388#issuecomment-2411418479
 desugarerDynFlags :: DynFlags -> DynFlags
-desugarerDynFlags df = df
+desugarerDynFlags df = (foldl gopt_unset df disabledOpts)
     { debugLevel   = 1                  -- To keep source note ticks
     , backend      = interpreterBackend -- To export everything
     }
+  where
+    disabledOpts =
+      [ Opt_EnableRewriteRules -- Disable stream fusion
+      ]
+
 
 --------------------------------------------------------------------------------
 -- | Parsing phase -------------------------------------------------------------

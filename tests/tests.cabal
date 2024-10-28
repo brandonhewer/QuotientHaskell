@@ -904,6 +904,7 @@ executable reflect-pos
                       DoubleLit
                     , ReflString0
                     , ReflString1
+                    , T2405
 
     ghc-options:      -fplugin=LiquidHaskell -fkeep-going -O0
     if flag(measure-timings)
