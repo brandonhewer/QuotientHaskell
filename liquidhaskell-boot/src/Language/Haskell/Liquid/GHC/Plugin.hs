@@ -365,9 +365,9 @@ processInputSpec
   -> BareSpec
   -> TcM (Either LiquidCheckException LiquidLib)
 processInputSpec cfg pipelineData modSummary inputSpec = do
-  hscEnv <- getTopEnv
+  tcg <- getGblEnv
   debugLog $ " Input spec: \n" ++ show inputSpec
-  debugLog $ "Relevant ===> \n" ++ unlines (renderModule <$> S.toList (relevantModules (hsc_mod_graph hscEnv) modGuts))
+  debugLog $ "Direct ===> \n" ++ unlines (renderModule <$> S.toList (directImports tcg))
 
   logicMap :: LogicMap <- liftIO LH.makeLogicMap
 
@@ -380,17 +380,13 @@ processInputSpec cfg pipelineData modSummary inputSpec = do
       , lhModuleSummary   = modSummary
       , lhModuleTcData    = pdTcData pipelineData
       , lhModuleGuts      = pdUnoptimisedCore pipelineData
-      , lhRelevantModules = relevantModules (hsc_mod_graph hscEnv) modGuts
+      , lhRelevantModules = directImports tcg
       }
 
   -- liftIO $ putStrLn ("liquidHaskellCheck 6: " ++ show isIg)
   if isIgnore inputSpec
     then pure $ Left (ErrorsOccurred [])
     else checkLiquidHaskellContext lhContext
-
-  where
-    modGuts :: ModGuts
-    modGuts = pdUnoptimisedCore pipelineData
 
 liquidHaskellCheckWithConfig
   :: Config -> PipelineData -> ModSummary -> TcM (Either LiquidCheckException LiquidLib)

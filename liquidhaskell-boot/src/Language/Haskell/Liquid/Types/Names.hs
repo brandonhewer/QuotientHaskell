@@ -13,10 +13,13 @@ module Language.Haskell.Liquid.Types.Names
   , makeResolvedLHName
   , getLHNameResolved
   , getLHNameSymbol
-  , lhNameFromGHCName
+  , makeGHCLHName
+  , makeGHCLHNameLocated
+  , makeLocalLHName
   , makeUnresolvedLHName
   , mapLHNames
   , mapMLocLHNames
+  , updateLHNameSymbol
   ) where
 
 import Control.DeepSeq
@@ -28,7 +31,7 @@ import Data.String (fromString)
 import GHC.Generics
 import GHC.Stack
 import Language.Fixpoint.Types
-import Language.Haskell.Liquid.GHC.Misc () -- Symbolic GHC.Name
+import Language.Haskell.Liquid.GHC.Misc (locNamedThing) -- Symbolic GHC.Name
 import qualified Liquid.GHC.API as GHC
 import Text.PrettyPrint.HughesPJ.Compat
 
@@ -152,8 +155,15 @@ instance PPrint LHName where
 makeResolvedLHName :: LHResolvedName -> Symbol -> LHName
 makeResolvedLHName = LHNResolved
 
-lhNameFromGHCName :: GHC.Name -> Symbol -> LHName
-lhNameFromGHCName n s = makeResolvedLHName (LHRGHC n) s
+makeGHCLHName :: GHC.Name -> Symbol -> LHName
+makeGHCLHName n s = makeResolvedLHName (LHRGHC n) s
+
+makeLocalLHName :: Symbol -> LHName
+makeLocalLHName s = LHNResolved (LHRLocal s) s
+
+makeGHCLHNameLocated :: (GHC.NamedThing a, Symbolic a) => a -> Located LHName
+makeGHCLHNameLocated x =
+    makeGHCLHName (GHC.getName x) (symbol x) <$ locNamedThing x
 
 makeUnresolvedLHName :: LHNameSpace -> Symbol -> LHName
 makeUnresolvedLHName = LHNUnresolved
@@ -179,3 +189,7 @@ mapMLocLHNames f = go
   where
     go :: forall b. Data b => b -> m b
     go = gmapM (go `extM` f)
+
+updateLHNameSymbol :: (Symbol -> Symbol) -> LHName -> LHName
+updateLHNameSymbol f (LHNResolved n s) = LHNResolved n (f s)
+updateLHNameSymbol f (LHNUnresolved n s) = LHNUnresolved n (f s)

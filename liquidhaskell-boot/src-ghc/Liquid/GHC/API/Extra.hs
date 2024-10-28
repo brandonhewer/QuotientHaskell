@@ -10,14 +10,13 @@ module Liquid.GHC.API.Extra (
   , apiComments
   , apiCommentsParsedSource
   , dataConSig
+  , directImports
   , fsToUnitId
   , isPatErrorAlt
-  , lookupModSummary
   , minus_RDR
   , modInfoLookupName
   , moduleInfoTc
   , qualifiedNameFS
-  , relevantModules
   , renderWithStyle
   , showPprQualified
   , showPprDebug
@@ -36,7 +35,6 @@ import Data.Data (Data, gmapQr, gmapT)
 import Data.Generics (extQ, extT)
 import Data.Foldable                  (asum)
 import Data.List                      (sortOn)
-import qualified Data.Map as Map
 import qualified Data.Set as S
 import GHC.Builtin.Names ( dollarIdKey, minusName )
 import GHC.Core                       as Ghc
@@ -59,19 +57,10 @@ import GHC.Types.SrcLoc               as Ghc
 import GHC.Types.TypeEnv
 import GHC.Types.Unique               (getUnique, hasKey)
 
-import GHC.Unit.Module.Deps           as Ghc (Dependencies(dep_direct_mods))
-import GHC.Unit.Module.Graph          as Ghc
-  ( NodeKey(NodeKey_Module)
-  , ModNodeKeyWithUid(ModNodeKeyWithUid)
-  , mgTransDeps
-  )
 import GHC.Unit.Module.ModDetails     (md_types)
-import GHC.Unit.Module.ModSummary     (isBootSummary)
 import GHC.Utils.Outputable           as Ghc hiding ((<>))
 
 import GHC.Unit.Module
-import GHC.Unit.Module.ModGuts
-import GHC.Unit.Module.Deps (Usage(..))
 
 -- 'fsToUnitId' is gone in GHC 9, but we can bring code it in terms of 'fsToUnit' and 'toUnitId'.
 fsToUnitId :: FastString -> UnitId
@@ -90,18 +79,6 @@ tyConRealArity tc = go 0 (tyConKind tc)
         Nothing -> acc
         Just ks -> go (acc + 1) ks
 
-getDependenciesModuleNames :: ModuleGraph -> UnitId -> Dependencies -> [ModuleNameWithIsBoot]
-getDependenciesModuleNames mg unitId deps =
-    mapMaybe nodeKeyToModuleName $ S.toList $ S.unions $ catMaybes
-      [ Map.lookup k tdeps
-      | (_, m) <- S.toList $ dep_direct_mods deps
-      , let k = NodeKey_Module $ ModNodeKeyWithUid m unitId
-      ]
-  where
-    tdeps = mgTransDeps mg
-    nodeKeyToModuleName (NodeKey_Module (ModNodeKeyWithUid m _)) = Just m
-    nodeKeyToModuleName _ = Nothing
-
 renderWithStyle :: DynFlags -> SDoc -> PprStyle -> String
 renderWithStyle dynflags sdoc style = Ghc.renderWithContext (Ghc.initSDocContext dynflags style) sdoc
 
@@ -110,35 +87,9 @@ dataConSig :: DataCon -> ([TyCoVar], ThetaType, [Type], Type)
 dataConSig dc
   = (dataConUnivAndExTyCoVars dc, dataConTheta dc, map irrelevantMult $ dataConOrigArgTys dc, dataConOrigResTy dc)
 
--- | The collection of dependencies and usages modules which are relevant for liquidHaskell
-relevantModules :: ModuleGraph -> ModGuts -> S.Set Module
-relevantModules mg modGuts = used `S.union` dependencies
-  where
-    dependencies :: S.Set Module
-    dependencies = S.fromList $ map (toModule . gwib_mod)
-                              . filter ((NotBoot ==) . gwib_isBoot)
-                              . getDependenciesModuleNames mg thisUnitId $ deps
-
-    deps :: Dependencies
-    deps = mg_deps modGuts
-
-    thisModule :: Module
-    thisModule = mg_module modGuts
-
-    thisUnitId = moduleUnitId thisModule
-
-    toModule :: ModuleName -> Module
-    toModule = unStableModule . mkStableModule thisUnitId
-
-    used :: S.Set Module
-    used = S.fromList $ foldl' collectUsage mempty . mg_usages $ modGuts
-      where
-        collectUsage :: [Module] -> Usage -> [Module]
-        collectUsage acc = \case
-          UsagePackageModule     { usg_mod      = modl    } -> modl : acc
-          UsageHomeModule        { usg_mod_name = modName } -> toModule modName : acc
-          UsageMergedRequirement { usg_mod      = modl    } -> modl : acc
-          _ -> acc
+-- | Extracts the direct imports of a module.
+directImports :: TcGblEnv -> S.Set Module
+directImports = S.fromList . moduleEnvKeys . imp_mods . tcg_imports
 
 -- | Abstraction of 'EpaComment'.
 data ApiComment
@@ -225,16 +176,6 @@ addNoInlinePragmasToBinds tcg = tcg{ tcg_binds = go (tcg_binds tcg) }
           { abe_poly = markId poly
           , abe_mono = markId mono }
 
-
-lookupModSummary :: HscEnv -> ModuleName -> Maybe ModSummary
-lookupModSummary hscEnv mdl = do
-   let mg = hsc_mod_graph hscEnv
-       mods_by_name = [ ms | ms <- mgModSummaries mg
-                      , ms_mod_name ms == mdl
-                      , NotBoot == isBootSummary ms ]
-   case mods_by_name of
-     [ms] -> Just ms
-     _    -> Nothing
 
 -- | Our own simplified version of 'ModuleInfo' to overcome the fact we cannot construct the \"original\"
 -- one as the constructor is not exported, and 'getHomeModuleInfo' and 'getPackageModuleInfo' are not
