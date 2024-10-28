@@ -1,7 +1,10 @@
 {-# OPTIONS_GHC -fplugin=LiquidHaskellBoot #-}
 module Prelude_LHAssumptions where
 
+import Data.Foldable_LHAssumptions()
+import Data.List_LHAssumptions()
 import GHC.Base_LHAssumptions()
+import GHC.Classes_LHAssumptions()
 import GHC.Float_LHAssumptions()
 import GHC.Maybe_LHAssumptions()
 import GHC.Num_LHAssumptions()
