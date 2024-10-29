@@ -978,7 +978,15 @@ allAsmSigs env myName specs = do
   vSigs    <- forM aSigs $ \(name, locallyDefined, x, t) -> do
                 vMb <- lookupSymbolOrLHName name locallyDefined x
                 return (vMb, (locallyDefined, name, t))
-  return    $ Misc.groupList [ (v, z) | (Just v, z) <- vSigs ]
+  return $ Misc.groupList
+    [ (v, z) | (Just v, z) <- vSigs
+      -- TODO: we require signatures to be in scope because LH includes them in
+      -- the environment of contraints sometimes. The criteria to add bindings to
+      -- constraints should account instead for what logic functions are used in
+      -- the constraints, which should be easier to do when precise renaming has
+      -- been implemented for expressions and reflected functions.
+    , isUsedExternalVar v || isInScope v
+    ]
   where
     lookupSymbolOrLHName :: ModName -> Bool -> SymbolOrLHName -> Bare.Lookup (Maybe Ghc.Var)
     lookupSymbolOrLHName _name _locallyDefined (SOLLHName x) =
@@ -1012,6 +1020,28 @@ allAsmSigs env myName specs = do
        not $ M.member m $ qiNames (Bare.reQualImps env)
     isAbsoluteQualifiedSym Nothing =
        False
+
+    isUsedExternalVar :: Ghc.Var -> Bool
+    isUsedExternalVar v = case Ghc.idDetails v of
+      Ghc.DataConWrapId dc ->
+        Ghc.getName v `Ghc.elemNameSet` Bare.reUsedExternals env
+         ||
+        Ghc.getName (Ghc.dataConWorkId dc) `Ghc.elemNameSet` Bare.reUsedExternals env
+      _ ->
+        Ghc.getName v `Ghc.elemNameSet` Bare.reUsedExternals env
+
+    isInScope :: Ghc.Var -> Bool
+    isInScope v0 =
+      let inScope v = not $ null $
+            Ghc.lookupGRE_Name
+              (Ghc.tcg_rdr_env $ Bare.reTcGblEnv env)
+              (Ghc.getName v)
+       in -- Names of data constructors are not found in the variable namespace
+          -- so we look them instead in the data constructor namespace.
+          case Ghc.idDetails v0 of
+            Ghc.DataConWrapId dc -> inScope dc
+            Ghc.DataConWorkId dc -> inScope dc
+            _ -> inScope v0
 
 resolveAsmVar :: Bare.Env -> ModName -> Bool -> LocSymbol -> Bare.Lookup (Maybe Ghc.Var)
 resolveAsmVar env name True  lx = Just  <$> Bare.lookupGhcVar env name "resolveAsmVar-True"  lx

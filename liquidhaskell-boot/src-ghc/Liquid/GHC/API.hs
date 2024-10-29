@@ -445,7 +445,12 @@ import GHC.Plugins                    as Ghc ( Serialized(Serialized)
                                              , extendIdSubst
                                              , substExpr
                                              )
-import GHC.Core.FVs                   as Ghc (exprFreeVars, exprFreeVarsList, exprSomeFreeVarsList)
+import GHC.Core.FVs                   as Ghc
+    ( exprFreeVars
+    , exprFreeVarsList
+    , exprsOrphNames
+    , exprSomeFreeVarsList
+    )
 import GHC.Core.Opt.OccurAnal         as Ghc
     ( occurAnalysePgm )
 import GHC.Core.TyCo.FVs              as Ghc (tyCoVarsOfCo, tyCoVarsOfType)
@@ -630,6 +635,11 @@ import GHC.Types.Name                 as Ghc
     )
 import GHC.Types.Name.Env             as Ghc
     ( lookupNameEnv )
+import GHC.Types.Name.Set             as Ghc
+    ( NameSet
+    , elemNameSet
+    , nameSetElemsStable
+    )
 import GHC.Types.Name.Cache           as Ghc (NameCache)
 import GHC.Types.Name.Occurrence      as Ghc
     ( NameSpace
@@ -655,6 +665,7 @@ import GHC.Types.Name.Reader          as Ghc
     , globalRdrEnvElts
     , greName
     , lookupGRE
+    , lookupGRE_Name
     , mkQual
     , mkRdrQual
     , mkRdrUnqual
