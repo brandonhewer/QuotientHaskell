@@ -28,6 +28,7 @@ module Language.Haskell.Liquid.Bare.Resolve
   , lookupGhcDnTyCon
   , lookupGhcTyCon
   , lookupGhcVar
+  , lookupGhcIdLHName
   , lookupGhcNamedVar
   , matchTyCon
 
@@ -561,6 +562,14 @@ lookupGhcDataConLHName env lname = do
      Ghc.AConLike (Ghc.RealDataCon d) -> Right d
      _ -> panic
            (Just $ GM.fSrcSpan lname) $ "not a data constructor: " ++ show (val lname)
+
+lookupGhcIdLHName :: HasCallStack => Env -> Located LHName -> Lookup Ghc.Id
+lookupGhcIdLHName env lname = do
+   case lookupTyThing env lname of
+     Ghc.AConLike (Ghc.RealDataCon d) -> Right (Ghc.dataConWorkId d)
+     Ghc.AnId x -> Right x
+     _ -> panic
+           (Just $ GM.fSrcSpan lname) $ "not a variable of data constructor: " ++ show (val lname)
 
 -------------------------------------------------------------------------------
 -- | Checking existence of names

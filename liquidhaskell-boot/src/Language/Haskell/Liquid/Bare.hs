@@ -975,10 +975,18 @@ allAsmSigs env myName specs = do
   let aSigs = [ (name, locallyDefined, x, t) | (name, spec) <- M.toList specs
                                    , (locallyDefined, x, t) <- getAsmSigs myName name spec ]
   vSigs    <- forM aSigs $ \(name, locallyDefined, x, t) -> do
+                vMb <- lookupSymbolOrLHName name locallyDefined x
+                return (vMb, (locallyDefined, name, t))
+  return    $ Misc.groupList [ (v, z) | (Just v, z) <- vSigs ]
+  where
+    lookupSymbolOrLHName :: ModName -> Bool -> SymbolOrLHName -> Bare.Lookup (Maybe Ghc.Var)
+    lookupSymbolOrLHName _name _locallyDefined (SOLLHName x) =
+      Just <$> Bare.lookupGhcIdLHName env x
+    lookupSymbolOrLHName name locallyDefined (SOLSymbol x) = do
                 -- Qualified assumes that refer to module aliases import declarations
                 -- are resolved looking at import declarations
                 let (mm, s) = Bare.unQualifySymbol (val x)
-                vMb <- if not (isAbsoluteQualifiedSym mm) then resolveAsmVar env name locallyDefined x
+                if not (isAbsoluteQualifiedSym mm) then resolveAsmVar env name locallyDefined x
                        else if locallyDefined then
                          -- Fully qualified assumes that are locally defined produce an error if they aren't found
                          lookupImportedSym x (mm, s)
@@ -989,9 +997,7 @@ allAsmSigs env myName specs = do
                          -- LH seems to send here assumes for data constructors that
                          -- yield Nothing, like for GHC.Types.W#
                          return $ lookupImportedSymMaybe (mm, s)
-                return (vMb, (locallyDefined, name, t))
-  return    $ Misc.groupList [ (v, z) | (Just v, z) <- vSigs ]
-  where
+
     lookupImportedSym x qp =
       let errRes = Left [Bare.errResolve "variable" "Var" x]
        in maybe errRes (Right . Just) $
@@ -1010,13 +1016,18 @@ resolveAsmVar :: Bare.Env -> ModName -> Bool -> LocSymbol -> Bare.Lookup (Maybe 
 resolveAsmVar env name True  lx = Just  <$> Bare.lookupGhcVar env name "resolveAsmVar-True"  lx
 resolveAsmVar env name False lx = return $  Bare.maybeResolveSym     env name "resolveAsmVar-False" lx  <|> GM.maybeAuxVar (F.val lx)
 
+-- | Temporary data type to represent a symbol or an LHName while not all of the
+-- code has been migrated to use LHName.
+data SymbolOrLHName = SOLSymbol LocSymbol | SOLLHName (Located LHName)
 
-getAsmSigs :: ModName -> ModName -> Ms.BareSpec -> [(Bool, LocSymbol, LocBareType)]
+getAsmSigs :: ModName -> ModName -> Ms.BareSpec -> [(Bool, SymbolOrLHName, LocBareType)]
 getAsmSigs myName name spec
-  | myName == name = [ (True, fmap getLHNameSymbol x,  t) | (x, t) <- Ms.asmSigs spec ] -- MUST    resolve, or error
-  | otherwise      = [ (False, x', t) | (x, t) <- map (first (fmap getLHNameSymbol)) (Ms.asmSigs spec)
-                                                  ++ Ms.sigs spec
-                                      , let x' = qSym x           ]  -- MAY-NOT resolve
+  | myName == name = [ (True, SOLLHName x,  t) | (x, t) <- Ms.asmSigs spec ] -- MUST    resolve, or error
+  | otherwise      =
+      [ (False, x, t)
+      | (x, t) <- map (first SOLLHName) (Ms.asmSigs spec)
+                  ++ map (first (SOLSymbol . qSym)) (Ms.sigs spec)
+      ]
   where
     qSym           = fmap (GM.qualifySymbol ns)
     ns             = F.symbol name
