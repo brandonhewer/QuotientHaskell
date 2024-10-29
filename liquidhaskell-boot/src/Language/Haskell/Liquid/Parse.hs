@@ -789,7 +789,7 @@ bTup ts rs r
       (reftUReft r)
   where
     args       = [(Mb.fromMaybe dummySymbol x, mapReft mempty t) | (x,t) <- ts]
-    makeProp i = RProp (take i args) ((snd <$> ts)!!i)
+    makeProp i = RProp (reverse $ take i args) ((snd <$> ts)!!i)
     rs'        = makeProp <$> [1..(length ts-1)]
 
 
