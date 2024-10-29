@@ -231,7 +231,9 @@ desugarerDynFlags df = (foldl gopt_unset df disabledOpts)
     }
   where
     disabledOpts =
-      [ Opt_EnableRewriteRules -- Disable stream fusion
+      [ Opt_EnableRewriteRules -- Prevent the simple optimizer from firing rewrite rules
+                               -- during desugaring. See tests/reflect/pos/T2405.hs for
+                               -- a discussion of an example where this is unwanted.
       ]
 
 
