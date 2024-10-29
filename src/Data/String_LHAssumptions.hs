@@ -8,7 +8,7 @@ import GHC.Types_LHAssumptions()
 {-@
 measure stringlen :: a -> Int
 
-assume GHC.Internal.Data.String.fromString
+assume fromString
     ::  forall a. IsString a
     =>  i : [Char]
     ->  { o : a | i ~~ o && len i == stringlen o }

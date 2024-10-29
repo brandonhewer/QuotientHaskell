@@ -7,12 +7,12 @@ import GHC.Ptr
 import GHC.Types_LHAssumptions()
 
 {-@
-assume GHC.Internal.IO.Handle.Text.hGetBuf :: Handle -> Ptr a -> n:Nat
+assume hGetBuf :: Handle -> Ptr a -> n:Nat
         -> (IO {v:Nat | v <= n})
 
-assume GHC.Internal.IO.Handle.Text.hGetBufNonBlocking :: Handle -> Ptr a -> n:Nat
+assume hGetBufNonBlocking :: Handle -> Ptr a -> n:Nat
                    -> (IO {v:Nat | v <= n})
 
-assume GHC.Internal.IO.Handle.hFileSize :: Handle
+assume hFileSize :: Handle
           -> (IO {v:Integer | v >= 0})
 @-}

@@ -29,8 +29,8 @@ embed Addr#    as Str
 
 embed Integer as int
 
-assume GHC.Types.True    :: {v:Bool | v     }
-assume GHC.Types.False   :: {v:Bool | (~ v) }
+assume True    :: {v:Bool | v     }
+assume False   :: {v:Bool | (~ v) }
 assume GHC.Types.isTrue# :: n:_ -> {v:Bool | (n = 1 <=> v)}
 
 assume GHC.Types.D# :: x:Double# -> {v: Double | v = (x :: real) }

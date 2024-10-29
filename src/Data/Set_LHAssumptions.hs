@@ -4,6 +4,7 @@ module Data.Set_LHAssumptions where
 
 import Data.Set
 import GHC.Types_LHAssumptions()
+import Prelude hiding (null)
 
 {-@
 
@@ -43,20 +44,20 @@ measure Set_sub  :: (Set a) -> (Set a) -> Bool
 //  ---------------------------------------------------------------------------------------------
 
 assume isSubsetOf    :: (Ord a) => x:(Set a) -> y:(Set a) -> {v:Bool | v <=> Set_sub x y}
-assume Data.Set.Internal.member        :: Ord a => x:a -> xs:(Set a) -> {v:Bool | v <=> Set_mem x xs}
-assume Data.Set.Internal.null          :: Ord a => xs:(Set a) -> {v:Bool | v <=> Set_emp xs}
+assume member        :: Ord a => x:a -> xs:(Set a) -> {v:Bool | v <=> Set_mem x xs}
+assume null          :: Ord a => xs:(Set a) -> {v:Bool | v <=> Set_emp xs}
 
-assume Data.Set.Internal.empty         :: {v:(Set a) | Set_emp v}
-assume Data.Set.Internal.singleton     :: x:a -> {v:(Set a) | v = (Set_sng x)}
-assume Data.Set.Internal.insert        :: Ord a => x:a -> xs:(Set a) -> {v:(Set a) | v = Set_cup xs (Set_sng x)}
-assume Data.Set.Internal.delete        :: (Ord a) => x:a -> xs:(Set a) -> {v:(Set a) | v = Set_dif xs (Set_sng x)}
+assume empty         :: {v:(Set a) | Set_emp v}
+assume singleton     :: x:a -> {v:(Set a) | v = (Set_sng x)}
+assume insert        :: Ord a => x:a -> xs:(Set a) -> {v:(Set a) | v = Set_cup xs (Set_sng x)}
+assume delete        :: (Ord a) => x:a -> xs:(Set a) -> {v:(Set a) | v = Set_dif xs (Set_sng x)}
 
-assume Data.Set.Internal.union         :: Ord a => xs:(Set a) -> ys:(Set a) -> {v:(Set a) | v = Set_cup xs ys}
-assume Data.Set.Internal.intersection  :: Ord a => xs:(Set a) -> ys:(Set a) -> {v:(Set a) | v = Set_cap xs ys}
-assume Data.Set.Internal.difference    :: Ord a => xs:(Set a) -> ys:(Set a) -> {v:(Set a) | v = Set_dif xs ys}
+assume union         :: Ord a => xs:(Set a) -> ys:(Set a) -> {v:(Set a) | v = Set_cup xs ys}
+assume intersection  :: Ord a => xs:(Set a) -> ys:(Set a) -> {v:(Set a) | v = Set_cap xs ys}
+assume difference    :: Ord a => xs:(Set a) -> ys:(Set a) -> {v:(Set a) | v = Set_dif xs ys}
 
-assume Data.Set.Internal.fromList :: Ord a => xs:[a] -> {v:Set a | v = listElts xs}
-assume Data.Set.Internal.toList   :: Ord a => s:Set a -> {xs:[a] | s = listElts xs}
+assume fromList :: Ord a => xs:[a] -> {v:Set a | v = listElts xs}
+assume toList   :: Ord a => s:Set a -> {xs:[a] | s = listElts xs}
 
 //  ---------------------------------------------------------------------------------------------
 //  -- | The set of elements in a list ----------------------------------------------------------
