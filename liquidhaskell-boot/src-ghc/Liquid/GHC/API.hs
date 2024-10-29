@@ -28,12 +28,7 @@ import           GHC                  as Ghc
     , FixityDirection(InfixN, InfixR)
     , FixitySig(FixitySig)
     , GenLocated(L)
-    , GeneralFlag
-        ( Opt_Haddock
-        , Opt_InsertBreakpoints
-        , Opt_KeepRawTokenStream
-        , Opt_IgnoreInterfacePragmas
-        )
+    , GeneralFlag(..)
     , Ghc
     , GhcException(CmdLineError, ProgramError)
     , GhcLink(LinkInMemory)
