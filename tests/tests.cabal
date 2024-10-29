@@ -2286,6 +2286,7 @@ executable basic-pos
                     , SkipDerived00
                     , T2349
                     , T2369
+                    , T2404
 
     ghc-options:      -fplugin=LiquidHaskell -fkeep-going -O0
     if flag(measure-timings)
