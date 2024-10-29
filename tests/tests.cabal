@@ -1949,6 +1949,7 @@ executable unit-pos-3
                     , T2096
                     , T2235
                     , T2237
+                    , T2404
                     , T385
                     , T531
                     , T595a
@@ -2286,7 +2287,6 @@ executable basic-pos
                     , SkipDerived00
                     , T2349
                     , T2369
-                    , T2404
 
     ghc-options:      -fplugin=LiquidHaskell -fkeep-going -O0
     if flag(measure-timings)
