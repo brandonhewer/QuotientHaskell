@@ -45,6 +45,7 @@ import qualified Liquid.GHC.API            as Ghc
 import           Language.Haskell.Liquid.GHC.Types          (StableName)
 import           Language.Haskell.Liquid.Types.Errors
 import           Language.Haskell.Liquid.Types.DataDecl
+import           Language.Haskell.Liquid.Types.Names
 import           Language.Haskell.Liquid.Types.PredType
 import           Language.Haskell.Liquid.Types.RefType
 import           Language.Haskell.Liquid.Types.RType
@@ -1012,8 +1013,8 @@ resolveAsmVar env name False lx = return $  Bare.maybeResolveSym     env name "r
 
 getAsmSigs :: ModName -> ModName -> Ms.BareSpec -> [(Bool, LocSymbol, LocBareType)]
 getAsmSigs myName name spec
-  | myName == name = [ (True,  x,  t) | (x, t) <- Ms.asmSigs spec ] -- MUST    resolve, or error
-  | otherwise      = [ (False, x', t) | (x, t) <- Ms.asmSigs spec
+  | myName == name = [ (True, fmap getLHNameSymbol x,  t) | (x, t) <- Ms.asmSigs spec ] -- MUST    resolve, or error
+  | otherwise      = [ (False, x', t) | (x, t) <- map (first (fmap getLHNameSymbol)) (Ms.asmSigs spec)
                                                   ++ Ms.sigs spec
                                       , let x' = qSym x           ]  -- MAY-NOT resolve
   where
@@ -1345,8 +1346,9 @@ makeLiftedSpec :: ModName -> GhcSrc -> Bare.Env
 -----------------------------------------------------------------------------------------
 makeLiftedSpec name src _env refl sData sig qual myRTE lSpec0 = lSpec0
   { Ms.asmSigs    = F.notracepp   ("makeLiftedSpec : ASSUMED-SIGS " ++ F.showpp name ) (xbs ++ myDCs)
-  , Ms.reflSigs   = F.notracepp "REFL-SIGS"         xbs
-  , Ms.sigs       = F.notracepp   ("makeLiftedSpec : LIFTED-SIGS " ++ F.showpp name )  $ mkSigs (gsTySigs sig)
+  , Ms.reflSigs   = F.notracepp "REFL-SIGS" $ map (first (fmap getLHNameSymbol)) xbs
+  , Ms.sigs       = F.notracepp   ("makeLiftedSpec : LIFTED-SIGS " ++ F.showpp name ) $
+                      map (first (fmap getLHNameSymbol)) $ mkSigs (gsTySigs sig)
   , Ms.invariants = [ (Bare.varLocSym <$> x, Bare.specToBare <$> t)
                        | (x, t) <- gsInvariants sData
                        , isLocInFile srcF t
@@ -1358,11 +1360,11 @@ makeLiftedSpec name src _env refl sData sig qual myRTE lSpec0 = lSpec0
   }
   where
     myDCs         = [(x,t) | (x,t) <- mkSigs (gsCtors sData)
-                           , F.symbol name == fst (GM.splitModuleName $ val x)]
+                           , F.symbol name == fst (GM.splitModuleName $ getLHNameSymbol $ val x)]
     mkSigs xts    = [ toBare (x, t) | (x, t) <- xts
                     ,  S.member x sigVars && isExportedVar (toTargetSrc src) x
                     ]
-    toBare (x, t) = (Bare.varLocSym x, Bare.specToBare <$> t)
+    toBare (x, t) = (makeGHCLHNameLocatedFromId x, Bare.specToBare <$> t)
     xbs           = toBare <$> reflTySigs
     sigVars       = S.difference defVars reflVars
     defVars       = S.fromList (_giDefVars src)

@@ -29,6 +29,7 @@ import Data.Maybe
 
 import           Control.Monad
 import           Control.Monad.State
+import           Data.Bifunctor (second)
 import           Data.Functor ((<&>))
 import qualified Control.Exception         as Ex
 import qualified Data.HashMap.Strict       as M
@@ -385,7 +386,7 @@ instance Expand a => Expand (M.HashMap k a) where
 expandBareSpec :: BareRTEnv -> F.SourcePos -> Ms.BareSpec -> Ms.BareSpec
 expandBareSpec rtEnv l sp = sp
   { measures   = expand rtEnv l (measures   sp)
-  , asmSigs    = expand rtEnv l (asmSigs    sp)
+  , asmSigs    = map (second (expand rtEnv l)) (asmSigs sp)
   , sigs       = expand rtEnv l (sigs       sp)
   , localSigs  = expand rtEnv l (localSigs  sp)
   , reflSigs   = expand rtEnv l (reflSigs   sp)

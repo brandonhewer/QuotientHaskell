@@ -15,6 +15,7 @@ module Language.Haskell.Liquid.Types.Names
   , getLHNameSymbol
   , makeGHCLHName
   , makeGHCLHNameLocated
+  , makeGHCLHNameLocatedFromId
   , makeLocalLHName
   , makeUnresolvedLHName
   , mapLHNames
@@ -86,6 +87,7 @@ data LHName
 data LHNameSpace
     = LHTcName
     | LHDataConName
+    | LHVarName
   deriving (Data, Eq, Generic, Ord)
 
 instance B.Binary LHNameSpace
@@ -164,6 +166,13 @@ makeLocalLHName s = LHNResolved (LHRLocal s) s
 makeGHCLHNameLocated :: (GHC.NamedThing a, Symbolic a) => a -> Located LHName
 makeGHCLHNameLocated x =
     makeGHCLHName (GHC.getName x) (symbol x) <$ locNamedThing x
+
+makeGHCLHNameLocatedFromId :: GHC.Id -> Located LHName
+makeGHCLHNameLocatedFromId x =
+    case GHC.idDetails x of
+      GHC.DataConWrapId dc -> makeGHCLHNameLocated (GHC.getName dc)
+      GHC.DataConWorkId dc -> makeGHCLHNameLocated (GHC.getName dc)
+      _ -> makeGHCLHNameLocated x
 
 makeUnresolvedLHName :: LHNameSpace -> Symbol -> LHName
 makeUnresolvedLHName = LHNUnresolved

@@ -639,10 +639,18 @@ import GHC.Types.Name.Occurrence      as Ghc
     , tcName
     )
 import GHC.Types.Name.Reader          as Ghc
-    ( GlobalRdrEnv
+    ( FieldsOrSelectors(WantNormal)
+    , GlobalRdrEnv
+    , GREInfo
     , ImpItemSpec(ImpAll)
     , LookupGRE(LookupRdrName)
-    , WhichGREs(SameNameSpace)
+    , WhichGREs
+        ( SameNameSpace
+        , RelevantGREs
+        , includeFieldSelectors
+        , lookupTyConsAsWell
+        , lookupVariablesForFields
+        )
     , getRdrName
     , globalRdrEnvElts
     , greName
