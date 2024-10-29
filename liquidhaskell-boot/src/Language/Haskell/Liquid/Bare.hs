@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleContexts          #-}
+{-# LANGUAGE LambdaCase                #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
 {-# LANGUAGE ScopedTypeVariables       #-}
 {-# LANGUAGE TupleSections             #-}
@@ -1355,7 +1356,7 @@ makeLiftedSpec :: ModName -> GhcSrc -> Bare.Env
                -> GhcSpecRefl -> GhcSpecData -> GhcSpecSig -> GhcSpecQual -> BareRTEnv
                -> Ms.BareSpec -> Ms.BareSpec
 -----------------------------------------------------------------------------------------
-makeLiftedSpec name src _env refl sData sig qual myRTE lSpec0 = lSpec0
+makeLiftedSpec name src env refl sData sig qual myRTE lSpec0 = lSpec0
   { Ms.asmSigs    = F.notracepp   ("makeLiftedSpec : ASSUMED-SIGS " ++ F.showpp name ) (xbs ++ myDCs)
   , Ms.reflSigs   = F.notracepp "REFL-SIGS" $ map (first (fmap getLHNameSymbol)) xbs
   , Ms.sigs       = F.notracepp   ("makeLiftedSpec : LIFTED-SIGS " ++ F.showpp name ) $
@@ -1370,8 +1371,7 @@ makeLiftedSpec name src _env refl sData sig qual myRTE lSpec0 = lSpec0
   , Ms.qualifiers = filter (isLocInFile srcF) (gsQualifiers qual)
   }
   where
-    myDCs         = [(x,t) | (x,t) <- mkSigs (gsCtors sData)
-                           , F.symbol name == fst (GM.splitModuleName $ getLHNameSymbol $ val x)]
+    myDCs         = filter (isLocalName . val . fst) $ mkSigs (gsCtors sData)
     mkSigs xts    = [ toBare (x, t) | (x, t) <- xts
                     ,  S.member x sigVars && isExportedVar (toTargetSrc src) x
                     ]
@@ -1383,6 +1383,12 @@ makeLiftedSpec name src _env refl sData sig qual myRTE lSpec0 = lSpec0
     reflVars      = S.fromList (fst <$> reflTySigs)
     -- myAliases fld = M.elems . fld $ myRTE
     srcF          = _giTarget src
+
+    isLocalName = \case
+      LHNResolved (LHRGHC n) _ ->
+        Just (Ghc.tcg_mod (Bare.reTcGblEnv env)) == Ghc.nameModule_maybe n
+      _ ->
+        False
 
 -- | Returns 'True' if the input determines a location within the input file. Due to the fact we might have
 -- Haskell sources which have \"companion\" specs defined alongside them, we also need to account for this
