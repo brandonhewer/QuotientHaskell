@@ -14,8 +14,6 @@ module Liquid.GHC.API.Extra (
   , fsToUnitId
   , isPatErrorAlt
   , minus_RDR
-  , modInfoLookupName
-  , moduleInfoTc
   , qualifiedNameFS
   , renderWithStyle
   , showPprQualified
@@ -28,7 +26,6 @@ module Liquid.GHC.API.Extra (
   , untick
   ) where
 
-import Control.Monad.IO.Class
 import           Liquid.GHC.API.StableModule      as StableModule
 import GHC hiding (modInfoLookupName)
 import Data.Data (Data, gmapQr, gmapT)
@@ -45,8 +42,6 @@ import GHC.Core.Type                  as Ghc hiding (typeKind , isPredTy, extend
 import GHC.Data.FastString            as Ghc
 import GHC.Data.Maybe
 import qualified GHC.Data.Strict
-import GHC.Driver.Env
-import GHC.Driver.Main
 import GHC.Driver.Session             as Ghc
 import GHC.Tc.Types
 import GHC.Types.Id
@@ -54,10 +49,8 @@ import GHC.Types.Basic
 import GHC.Types.Name                 (isSystemName, nameModule_maybe, occNameFS)
 import GHC.Types.Name.Reader          (nameRdrName)
 import GHC.Types.SrcLoc               as Ghc
-import GHC.Types.TypeEnv
 import GHC.Types.Unique               (getUnique, hasKey)
 
-import GHC.Unit.Module.ModDetails     (md_types)
 import GHC.Utils.Outputable           as Ghc hiding ((<>))
 
 import GHC.Unit.Module
@@ -175,23 +168,6 @@ addNoInlinePragmasToBinds tcg = tcg{ tcg_binds = go (tcg_binds tcg) }
                        , abe_mono = mono } = abe
           { abe_poly = markId poly
           , abe_mono = markId mono }
-
-
--- | Our own simplified version of 'ModuleInfo' to overcome the fact we cannot construct the \"original\"
--- one as the constructor is not exported, and 'getHomeModuleInfo' and 'getPackageModuleInfo' are not
--- exported either, so we had to backport them as well.
-newtype ModuleInfoLH = ModuleInfoLH { minflh_type_env :: TypeEnv }
-
-modInfoLookupName :: (GhcMonad m) => ModuleInfoLH -> Name -> m (Maybe TyThing)
-modInfoLookupName minf name = do
-  case lookupTypeEnv (minflh_type_env minf) name of
-    Just tyThing -> return (Just tyThing)
-    Nothing      -> lookupGlobalName name
-
-moduleInfoTc :: HscEnv -> TcGblEnv -> IO ModuleInfoLH
-moduleInfoTc hscEnv tcGblEnv = do
-  details <- md_types <$> liftIO (makeSimpleDetails (hsc_logger hscEnv) tcGblEnv)
-  pure ModuleInfoLH { minflh_type_env = details }
 
 -- | Tells if a case alternative calls to patError
 isPatErrorAlt :: CoreAlt -> Bool
