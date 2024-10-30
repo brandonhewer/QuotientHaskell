@@ -181,7 +181,8 @@ lookupTyThing :: (GhcMonad m) => TcGblEnv -> Name -> m (Name, Maybe TyThing)
 lookupTyThing tcGblEnv name = do
     hscEnv <- getSession
     mbTy <- runMaybeT . msum . map MaybeT $
-        [ lookupName name
+        [ pure (lookupNameEnv (tcg_type_env tcGblEnv) name)
+        , lookupName name
         , do minf <- liftIO $ moduleInfoTc hscEnv tcGblEnv
              modInfoLookupName minf name
         ]

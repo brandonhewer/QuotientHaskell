@@ -494,7 +494,15 @@ import GHC.Tc.Solver                  as Ghc
     )
 import GHC.Tc.Types                   as Ghc
     ( Env(env_top)
-    , TcGblEnv(tcg_anns, tcg_exports, tcg_insts, tcg_mod, tcg_rdr_env, tcg_rn_imports)
+    , TcGblEnv
+        ( tcg_anns
+        , tcg_exports
+        , tcg_insts
+        , tcg_mod
+        , tcg_rdr_env
+        , tcg_rn_imports
+        , tcg_type_env
+        )
     , TcM
     , TcRn
     )
@@ -620,6 +628,8 @@ import GHC.Types.Name                 as Ghc
     , occNameString
     , stableNameCmp
     )
+import GHC.Types.Name.Env             as Ghc
+    ( lookupNameEnv )
 import GHC.Types.Name.Cache           as Ghc (NameCache)
 import GHC.Types.Name.Occurrence      as Ghc
     ( NameSpace
