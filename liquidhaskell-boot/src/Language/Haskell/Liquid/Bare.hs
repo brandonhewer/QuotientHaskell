@@ -168,10 +168,12 @@ makeTargetSpec cfg lmap targetSrc bareSpec dependencies = do
       --     Ghc.execOptions
 
       diagOrSpec <- makeGhcSpec cfg (fromTargetSrc targetSrc) lmap legacyBareSpec legacyDependencies
-      return $ do
-        (warns, ghcSpec) <- diagOrSpec
-        let (targetSpec, liftedSpec) = toTargetSpec ghcSpec
-        pure (phaseOneWarns <> warns, targetSpec, liftedSpec)
+      case diagOrSpec of
+        Left d -> return $ Left d
+        Right (warns, ghcSpec) -> do
+          let (targetSpec, liftedSpec) = toTargetSpec ghcSpec
+          liftedSpec' <- removeUnexportedLocalAssumptions liftedSpec
+          return $ Right (phaseOneWarns <> warns, targetSpec, liftedSpec')
 
     toLegacyDep :: (Ghc.StableModule, LiftedSpec) -> (ModName, Ms.BareSpec)
     toLegacyDep (sm, ls) = (ModName SrcImport (Ghc.moduleName . Ghc.unStableModule $ sm), unsafeFromLiftedSpec ls)
@@ -181,6 +183,17 @@ makeTargetSpec cfg lmap targetSrc bareSpec dependencies = do
 
     legacyBareSpec :: Ms.BareSpec
     legacyBareSpec = fromBareSpec bareSpec
+
+    -- Assumptions about local functions that are not exported aren't useful for
+    -- other modules.
+    removeUnexportedLocalAssumptions :: LiftedSpec -> Ghc.TcRn LiftedSpec
+    removeUnexportedLocalAssumptions lspec = do
+      tcg <- Ghc.getGblEnv
+      let exportedNames = Ghc.availsToNameSet (Ghc.tcg_exports tcg)
+          exportedAssumption (LHNResolved (LHRGHC n) _) =
+            Ghc.nameModule_maybe n /= Just (Ghc.tcg_mod tcg) || Ghc.elemNameSet n exportedNames
+          exportedAssumption _ = True
+      return lspec { liftedAsmSigs = S.filter (exportedAssumption . val . fst) (liftedAsmSigs lspec) }
 
 -------------------------------------------------------------------------------------
 -- | @makeGhcSpec@ invokes @makeGhcSpec0@ to construct the @GhcSpec@ and then

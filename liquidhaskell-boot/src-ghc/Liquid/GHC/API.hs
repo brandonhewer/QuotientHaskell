@@ -548,6 +548,7 @@ import GHC.Types.Annotations          as Ghc
 import GHC.Types.Avail                as Ghc
     ( AvailInfo(Avail, AvailTC)
     , availNames
+    , availsToNameSet
     )
 import GHC.Types.Basic                as Ghc
     ( Arity
