@@ -952,7 +952,7 @@ lookupTyThing env lc@(Loc _ _ c0) = unsafePerformIO $ do
         LHRIndex i -> panic (Just $ GM.fSrcSpan lc) $ "cannot resolve a LHRIndex " ++ show i
         LHRLogic (LogicName s _) -> panic (Just $ GM.fSrcSpan lc) $ "lookupTyThing: cannot resolve a LHRLogic name " ++ show s
         LHRGHC n -> do
-          (_, m) <- Ghc.reflectGhc (Interface.lookupTyThing (reTcGblEnv env) n) (reSession env)
+          m <- Ghc.reflectGhc (Interface.lookupTyThing (reTcGblEnv env) n) (reSession env)
           case m of
             Just tt -> return tt
             Nothing -> panic (Just $ GM.fSrcSpan lc) $ "not found: " ++ show c0
