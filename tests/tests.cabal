@@ -1858,7 +1858,8 @@ executable unit-pos-3
       buildable:      False
 
     other-modules:
-                      Streams
+                      NumRefl
+                    , Streams
                     , StrictPair0
                     , StrictPair1
                     , String00

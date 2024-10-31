@@ -27,6 +27,8 @@ coreToLogic = unlines
   , "define GHC.Types.True                 = (true)"
   , "define GHC.Internal.Real.div x y      = (x / y)"
   , "define GHC.Internal.Real.mod x y      = (x mod y)"
+  , "define GHC.Internal.Num.fromInteger x = (x)"
+  , "define GHC.Num.Integer.IS x           = (x)"
   , "define GHC.Classes.not x              = (~ x)"
   , "define GHC.Internal.Base.$ f x        = (f x)"
   , ""
