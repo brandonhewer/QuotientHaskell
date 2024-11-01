@@ -19,12 +19,15 @@ import           Language.Haskell.Liquid.Types.Names
 import           Language.Haskell.Liquid.Types.RType
 
 import           Control.Monad.Writer
+import qualified Data.Char                               as Char
 import           Data.Data (Data, gmapT)
 import           Data.Generics (extT)
 
 
 import qualified Data.HashSet                            as HS
 import qualified Data.HashMap.Strict                     as HM
+import qualified Data.Text                               as Text
+import qualified GHC.Types.Name.Occurrence
 
 import           Language.Fixpoint.Types hiding (Error, panic)
 import           Language.Haskell.Liquid.Types.Errors (TError(ErrDupNames, ErrResolve), panic)
@@ -79,39 +82,39 @@ resolveLHNames taliases globalRdrEnv =
         | otherwise ->
           case HM.lookup s taliases of
             Just (m, _) -> pure $ LHNResolved (LHRLogic $ LogicName s m) s
-            Nothing -> case GHC.lookupGRE globalRdrEnv (mkLookupGRE LHTcName s) of
-              [e] -> pure $ LHNResolved (LHRGHC $ GHC.greName e) s
-              es@(_:_) -> do
-                tell [ErrDupNames
-                        (LH.fSrcSpan lname)
-                        (pprint s)
-                        (map (PJ.text . showPprUnsafe) es)
-                     ]
-                pure $ val lname
-              [] -> do
-                tell [errResolve "type constructor" "Cannot resolve name" (s <$ lname)]
-                pure $ val lname
-      LHNUnresolved LHDataConName s ->
-          case GHC.lookupGRE globalRdrEnv (mkLookupGRE LHDataConName s) of
-            [e] ->
-              pure $ LHNResolved (LHRGHC $ GHC.greName e) s
-            es@(_:_) -> do
-              tell [ErrDupNames
-                      (LH.fSrcSpan lname)
-                      (pprint s)
-                      (map (PJ.text . showPprUnsafe) es)
-                   ]
-              pure $ val lname
-            [] -> do
-              tell [errResolve "data constructor" "Cannot resolve name" (s <$ lname)]
-              pure $ val lname
+            Nothing -> lookupGRELHName LHTcName lname s
+      LHNUnresolved LHVarName s
+        | isDataCon s -> lookupGRELHName LHDataConName lname s
+        | otherwise -> lookupGRELHName LHVarName lname s
+      LHNUnresolved ns s -> lookupGRELHName ns lname s
       n@(LHNResolved (LHRLocal _) _) -> pure n
       n ->
         let sp = Just $ LH.sourcePosSrcSpan $ loc lname
          in panic sp $ "resolveLHNames: Unexpected resolved name: " ++ show n
 
+    lookupGRELHName ns lname s =
+      case GHC.lookupGRE globalRdrEnv (mkLookupGRE ns s) of
+        [e] ->
+          pure $ LHNResolved (LHRGHC $ GHC.greName e) s
+        es@(_:_) -> do
+          tell [ErrDupNames
+                  (LH.fSrcSpan lname)
+                  (pprint s)
+                  (map (PJ.text . showPprUnsafe) es)
+               ]
+          pure $ val lname
+        [] -> do
+          tell [errResolve (nameSpaceKind ns) "Cannot resolve name" (s <$ lname)]
+          pure $ val lname
+
     errResolve :: PJ.Doc -> String -> LocSymbol -> Error
     errResolve k msg lx = ErrResolve (LH.fSrcSpan lx) k (pprint (val lx)) (PJ.text msg)
+
+    nameSpaceKind :: LHNameSpace -> PJ.Doc
+    nameSpaceKind = \case
+      LHTcName -> "type constructor"
+      LHDataConName -> "data constructor"
+      LHVarName -> "variable"
 
     mkLookupGRE ns s =
       let m = LH.takeModuleNames s
@@ -128,11 +131,22 @@ resolveLHNames taliases globalRdrEnv =
               GHC.mkRdrUnqual oname
             else
               GHC.mkRdrQual (GHC.mkModuleName $ symbolString m) oname
-       in GHC.LookupRdrName rdrn GHC.SameNameSpace
+       in GHC.LookupRdrName rdrn (mkWhichGREs ns)
+
+    mkWhichGREs :: LHNameSpace -> WhichGREs GHC.GREInfo
+    mkWhichGREs = \case
+      LHTcName -> GHC.SameNameSpace
+      LHDataConName -> GHC.SameNameSpace
+      LHVarName -> GHC.RelevantGREs
+        { GHC.includeFieldSelectors = GHC.WantNormal
+        , GHC.lookupVariablesForFields = True
+        , GHC.lookupTyConsAsWell = False
+        }
 
     mkGHCNameSpace = \case
       LHTcName -> GHC.tcName
       LHDataConName -> GHC.dataName
+      LHVarName -> GHC.Types.Name.Occurrence.varName
 
     tupleArity s =
       let a = read $ drop 5 $ symbolString s
@@ -140,6 +154,10 @@ resolveLHNames taliases globalRdrEnv =
             error $ "tupleArity: Too large (more than 64): " ++ show a
           else
             a
+
+    isDataCon s = case Text.uncons (Text.takeWhileEnd (/= '.') (symbolText s)) of
+      Just (c, _) -> Char.isUpper c || c == ':'
+      Nothing -> False
 
 -- | Changes unresolved names to local resolved names in the body of type
 -- aliases.

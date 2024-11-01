@@ -9,9 +9,9 @@ import GHC.Internal.Real
 import GHC.Types_LHAssumptions()
 
 {-@
-assume (GHC.Internal.Real.^) :: x:a -> y:{n:b | n >= 0} -> {z:a | (y == 0 => z == 1) && ((x == 0 && y /= 0) <=> z == 0)}
+assume (^) :: x:a -> y:{n:b | n >= 0} -> {z:a | (y == 0 => z == 1) && ((x == 0 && y /= 0) <=> z == 0)}
 
-assume GHC.Internal.Real.fromIntegral    :: x:a -> {v:b|v=x}
+assume fromIntegral    :: x:a -> {v:b|v=x}
 
 class (GHC.Internal.Num.Num a) => GHC.Internal.Real.Fractional a where
   (GHC.Internal.Real./)   :: x:a -> y:{v:a | v /= 0} -> {v:a | v == x / y}

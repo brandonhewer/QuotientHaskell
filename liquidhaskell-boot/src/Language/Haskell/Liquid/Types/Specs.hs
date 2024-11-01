@@ -398,7 +398,7 @@ data Spec ty bndr  = Spec
   { measures   :: ![Measure ty bndr]                                  -- ^ User-defined properties for ADTs
   , impSigs    :: ![(F.Symbol, F.Sort)]                               -- ^ Imported variables types
   , expSigs    :: ![(F.Symbol, F.Sort)]                               -- ^ Exported variables types
-  , asmSigs    :: ![(F.LocSymbol, ty)]                                -- ^ Assumed (unchecked) types; including reflected signatures
+  , asmSigs    :: ![(F.Located LHName, ty)]                                -- ^ Assumed (unchecked) types; including reflected signatures
   , asmReflectSigs :: ![(F.LocSymbol, F.LocSymbol)]                   -- ^ Assume reflects : left is the actual function and right the pretended one
   , sigs       :: ![(F.LocSymbol, ty)]                                -- ^ Imported functions and types
   , localSigs  :: ![(F.LocSymbol, ty)]                                -- ^ Local type signatures
@@ -588,7 +588,7 @@ data LiftedSpec = LiftedSpec
     -- ^ Imported variables types
   , liftedExpSigs    :: HashSet (F.Symbol, F.Sort)
     -- ^ Exported variables types
-  , liftedAsmSigs    :: HashSet (F.LocSymbol, LocBareType)
+  , liftedAsmSigs    :: HashSet (F.Located LHName, LocBareType)
     -- ^ Assumed (unchecked) types; including reflected signatures
   , liftedAsmReflectSigs    :: HashSet (F.LocSymbol, F.LocSymbol)
     -- ^ Reflected assumed signatures

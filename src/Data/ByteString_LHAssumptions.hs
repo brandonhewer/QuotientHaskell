@@ -13,7 +13,7 @@ invariant { bs : ByteString  | 0 <= bslen bs }
 
 invariant { bs : ByteString | bslen bs == stringlen bs }
 
-assume Data.ByteString.Internal.Type.empty :: { bs : ByteString | bslen bs == 0 }
+assume empty :: { bs : ByteString | bslen bs == 0 }
 
 assume Data.ByteString.singleton :: _ -> { bs : ByteString | bslen bs == 1 }
 

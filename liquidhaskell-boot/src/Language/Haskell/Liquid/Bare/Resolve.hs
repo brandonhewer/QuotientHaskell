@@ -28,6 +28,7 @@ module Language.Haskell.Liquid.Bare.Resolve
   , lookupGhcDnTyCon
   , lookupGhcTyCon
   , lookupGhcVar
+  , lookupGhcIdLHName
   , lookupGhcNamedVar
   , matchTyCon
 
@@ -105,6 +106,7 @@ makeEnv :: Config -> Ghc.Session -> Ghc.TcGblEnv -> GhcSrc -> LogicMap -> [(ModN
 makeEnv cfg session tcg src lmap specs = RE
   { reSession   = session
   , reTcGblEnv  = tcg
+  , reUsedExternals = usedExternals
   , reLMap      = lmap
   , reSyms      = syms
   , _reSubst    = makeVarSubst   src
@@ -120,6 +122,8 @@ makeEnv cfg session tcg src lmap specs = RE
     globalSyms  = concatMap getGlobalSyms specs
     syms        = [ (F.symbol v, v) | v <- vars ]
     vars        = srcVars src
+    usedExternals = Ghc.exprsOrphNames $ map snd $ Ghc.flattenBinds $ _giCbs src
+
 
 getGlobalSyms :: (ModName, BareSpec) -> [F.Symbol]
 getGlobalSyms (_, spec)
@@ -561,6 +565,14 @@ lookupGhcDataConLHName env lname = do
      Ghc.AConLike (Ghc.RealDataCon d) -> Right d
      _ -> panic
            (Just $ GM.fSrcSpan lname) $ "not a data constructor: " ++ show (val lname)
+
+lookupGhcIdLHName :: HasCallStack => Env -> Located LHName -> Lookup Ghc.Id
+lookupGhcIdLHName env lname = do
+   case lookupTyThing env lname of
+     Ghc.AConLike (Ghc.RealDataCon d) -> Right (Ghc.dataConWorkId d)
+     Ghc.AnId x -> Right x
+     _ -> panic
+           (Just $ GM.fSrcSpan lname) $ "not a variable of data constructor: " ++ show (val lname)
 
 -------------------------------------------------------------------------------
 -- | Checking existence of names

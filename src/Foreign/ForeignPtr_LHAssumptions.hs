@@ -3,18 +3,17 @@
 module Foreign.ForeignPtr_LHAssumptions where
 
 import Foreign.Concurrent_LHAssumptions()
-import Foreign.Storable
+import Foreign.ForeignPtr
 import GHC.ForeignPtr
-import GHC.Internal.Foreign.ForeignPtr.Imp
 import GHC.ForeignPtr_LHAssumptions()
 
 {-@
 
-assume GHC.Internal.ForeignPtr.withForeignPtr :: forall a b. fp:(ForeignPtr a)
+assume withForeignPtr :: forall a b. fp:(ForeignPtr a)
   -> ((PtrN a (fplen fp)) -> IO b)
   -> IO b
 
-assume GHC.Internal.Foreign.ForeignPtr.Imp.newForeignPtr ::  _ -> p:(PtrV a) -> (IO (ForeignPtrN a (plen p)))
+assume newForeignPtr ::  _ -> p:(PtrV a) -> (IO (ForeignPtrN a (plen p)))
 
 
 //  this uses `sizeOf (undefined :: a)`, so the ForeignPtr does not necessarily have length `n`

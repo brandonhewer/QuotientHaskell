@@ -832,7 +832,7 @@ type BPspec = Pspec LocBareType LocSymbol
 -- | The AST for a single parsed spec.
 data Pspec ty ctor
   = Meas    (Measure ty ctor)                             -- ^ 'measure' definition
-  | Assm    (LocSymbol, ty)                               -- ^ 'assume' signature (unchecked)
+  | Assm    (Located LHName, ty)                          -- ^ 'assume' signature (unchecked)
   | AssmReflect (LocSymbol, LocSymbol)                    -- ^ 'assume reflects' signature (unchecked)
   | Asrt    (LocSymbol, ty)                               -- ^ 'assert' signature (checked)
   | LAsrt   (LocSymbol, ty)                               -- ^ 'local' assertion -- TODO RJ: what is this
@@ -1108,7 +1108,7 @@ specP :: Parser BPspec
 specP
   = fallbackSpecP "assume" ((reserved "reflect" >> fmap AssmReflect assmReflectBindP)
         <|> (reserved "relational" >>  fmap AssmRel relationalP)
-        <|>                            fmap Assm   tyBindP  )
+        <|>                            fmap Assm   assumptionP  )
     <|> fallbackSpecP "assert"      (fmap Asrt    tyBindP  )
     <|> fallbackSpecP "autosize"    (fmap ASize   asizeP   )
     <|> (reserved "local"         >> fmap LAsrt   tyBindP  )
@@ -1251,6 +1251,13 @@ tyBindNoLocP = second val <$> tyBindP
 tyBindP :: Parser (LocSymbol, Located BareType)
 tyBindP =
   (,) <$> locBinderP <* reservedOp "::" <*> located genBareTypeP
+
+assumptionP :: Parser (Located LHName, Located BareType)
+assumptionP = do
+    x <- locBinderP
+    _ <- reservedOp "::"
+    t <- located genBareTypeP
+    return (makeUnresolvedLHName LHVarName <$> x, t)
 
 -- | Parses a loc symbol.
 assmReflectBindP :: Parser (LocSymbol, LocSymbol)

@@ -9,21 +9,21 @@ import GHC.Ptr
 {-@
 predicate PValid P N         = ((0 <= N) && (N < (plen P)))
 
-assume GHC.Internal.Foreign.Storable.poke        :: (Storable a)
+assume poke        :: (Storable a)
                              => {v: (Ptr a) | 0 < (plen v)}
                              -> a
                              -> (IO ())
 
-assume GHC.Internal.Foreign.Storable.peek        :: (Storable a)
+assume peek        :: (Storable a)
                              => p:{v: (Ptr a) | 0 < (plen v)}
                              -> (IO {v:a | v = (deref p)})
 
-assume GHC.Internal.Foreign.Storable.peekByteOff :: (Storable a)
+assume peekByteOff :: (Storable a)
                              => forall b. p:(Ptr b)
                              -> {v:Int | (PValid p v)}
                              -> (IO a)
 
-assume GHC.Internal.Foreign.Storable.pokeByteOff :: (Storable a)
+assume pokeByteOff :: (Storable a)
                              => forall b. p:(Ptr b)
                              -> {v:Int | (PValid p v)}
                              -> a

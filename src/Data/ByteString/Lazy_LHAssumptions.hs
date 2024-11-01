@@ -16,32 +16,32 @@ invariant { bs : ByteString | 0 <= bllen bs }
 
 invariant { bs : ByteString | bllen bs == stringlen bs }
 
-assume Data.ByteString.Lazy.empty :: { bs : ByteString | bllen bs == 0 }
+assume empty :: { bs : ByteString | bllen bs == 0 }
 
-assume Data.ByteString.Lazy.singleton
+assume singleton
     :: _ -> { bs : ByteString | bllen bs == 1 }
 
-assume Data.ByteString.Lazy.pack
+assume pack
     :: w8s : [_]
     -> { bs : _ | bllen bs == len w8s }
 
-assume Data.ByteString.Lazy.unpack
+assume unpack
     :: bs : ByteString
     -> { w8s : [_] | len w8s == bllen bs }
 
-assume Data.ByteString.Lazy.Internal.fromStrict
+assume fromStrict
     :: i : Data.ByteString.ByteString
     -> { o : ByteString | bllen o == bslen i }
 
-assume Data.ByteString.Lazy.Internal.toStrict
+assume toStrict
     :: i : ByteString
     -> { o : Data.ByteString.ByteString | bslen o == bllen i }
 
-assume Data.ByteString.Lazy.fromChunks
+assume fromChunks
     :: i : [Data.ByteString.ByteString]
     -> { o : ByteString | len i == 0 <=> bllen o == 0 }
 
-assume Data.ByteString.Lazy.toChunks
+assume toChunks
     :: i : ByteString
     -> { os : [{ o : Data.ByteString.ByteString | bslen o <= bllen i}] | len os == 0 <=> bllen i == 0 }
 

@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleContexts          #-}
+{-# LANGUAGE LambdaCase                #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
 {-# LANGUAGE ScopedTypeVariables       #-}
 {-# LANGUAGE TupleSections             #-}
@@ -45,6 +46,7 @@ import qualified Liquid.GHC.API            as Ghc
 import           Language.Haskell.Liquid.GHC.Types          (StableName)
 import           Language.Haskell.Liquid.Types.Errors
 import           Language.Haskell.Liquid.Types.DataDecl
+import           Language.Haskell.Liquid.Types.Names
 import           Language.Haskell.Liquid.Types.PredType
 import           Language.Haskell.Liquid.Types.RefType
 import           Language.Haskell.Liquid.Types.RType
@@ -166,10 +168,12 @@ makeTargetSpec cfg lmap targetSrc bareSpec dependencies = do
       --     Ghc.execOptions
 
       diagOrSpec <- makeGhcSpec cfg (fromTargetSrc targetSrc) lmap legacyBareSpec legacyDependencies
-      return $ do
-        (warns, ghcSpec) <- diagOrSpec
-        let (targetSpec, liftedSpec) = toTargetSpec ghcSpec
-        pure (phaseOneWarns <> warns, targetSpec, liftedSpec)
+      case diagOrSpec of
+        Left d -> return $ Left d
+        Right (warns, ghcSpec) -> do
+          let (targetSpec, liftedSpec) = toTargetSpec ghcSpec
+          liftedSpec' <- removeUnexportedLocalAssumptions liftedSpec
+          return $ Right (phaseOneWarns <> warns, targetSpec, liftedSpec')
 
     toLegacyDep :: (Ghc.StableModule, LiftedSpec) -> (ModName, Ms.BareSpec)
     toLegacyDep (sm, ls) = (ModName SrcImport (Ghc.moduleName . Ghc.unStableModule $ sm), unsafeFromLiftedSpec ls)
@@ -179,6 +183,17 @@ makeTargetSpec cfg lmap targetSrc bareSpec dependencies = do
 
     legacyBareSpec :: Ms.BareSpec
     legacyBareSpec = fromBareSpec bareSpec
+
+    -- Assumptions about local functions that are not exported aren't useful for
+    -- other modules.
+    removeUnexportedLocalAssumptions :: LiftedSpec -> Ghc.TcRn LiftedSpec
+    removeUnexportedLocalAssumptions lspec = do
+      tcg <- Ghc.getGblEnv
+      let exportedNames = Ghc.availsToNameSet (Ghc.tcg_exports tcg)
+          exportedAssumption (LHNResolved (LHRGHC n) _) =
+            Ghc.nameModule_maybe n /= Just (Ghc.tcg_mod tcg) || Ghc.elemNameSet n exportedNames
+          exportedAssumption _ = True
+      return lspec { liftedAsmSigs = S.filter (exportedAssumption . val . fst) (liftedAsmSigs lspec) }
 
 -------------------------------------------------------------------------------------
 -- | @makeGhcSpec@ invokes @makeGhcSpec0@ to construct the @GhcSpec@ and then
@@ -974,10 +989,26 @@ allAsmSigs env myName specs = do
   let aSigs = [ (name, locallyDefined, x, t) | (name, spec) <- M.toList specs
                                    , (locallyDefined, x, t) <- getAsmSigs myName name spec ]
   vSigs    <- forM aSigs $ \(name, locallyDefined, x, t) -> do
+                vMb <- lookupSymbolOrLHName name locallyDefined x
+                return (vMb, (locallyDefined, name, t))
+  return $ Misc.groupList
+    [ (v, z) | (Just v, z) <- vSigs
+      -- TODO: we require signatures to be in scope because LH includes them in
+      -- the environment of contraints sometimes. The criteria to add bindings to
+      -- constraints should account instead for what logic functions are used in
+      -- the constraints, which should be easier to do when precise renaming has
+      -- been implemented for expressions and reflected functions.
+    , isUsedExternalVar v || isInScope v
+    ]
+  where
+    lookupSymbolOrLHName :: ModName -> Bool -> SymbolOrLHName -> Bare.Lookup (Maybe Ghc.Var)
+    lookupSymbolOrLHName _name _locallyDefined (SOLLHName x) =
+      Just <$> Bare.lookupGhcIdLHName env x
+    lookupSymbolOrLHName name locallyDefined (SOLSymbol x) = do
                 -- Qualified assumes that refer to module aliases import declarations
                 -- are resolved looking at import declarations
                 let (mm, s) = Bare.unQualifySymbol (val x)
-                vMb <- if not (isAbsoluteQualifiedSym mm) then resolveAsmVar env name locallyDefined x
+                if not (isAbsoluteQualifiedSym mm) then resolveAsmVar env name locallyDefined x
                        else if locallyDefined then
                          -- Fully qualified assumes that are locally defined produce an error if they aren't found
                          lookupImportedSym x (mm, s)
@@ -988,9 +1019,7 @@ allAsmSigs env myName specs = do
                          -- LH seems to send here assumes for data constructors that
                          -- yield Nothing, like for GHC.Types.W#
                          return $ lookupImportedSymMaybe (mm, s)
-                return (vMb, (locallyDefined, name, t))
-  return    $ Misc.groupList [ (v, z) | (Just v, z) <- vSigs ]
-  where
+
     lookupImportedSym x qp =
       let errRes = Left [Bare.errResolve "variable" "Var" x]
        in maybe errRes (Right . Just) $
@@ -1005,17 +1034,44 @@ allAsmSigs env myName specs = do
     isAbsoluteQualifiedSym Nothing =
        False
 
+    isUsedExternalVar :: Ghc.Var -> Bool
+    isUsedExternalVar v = case Ghc.idDetails v of
+      Ghc.DataConWrapId dc ->
+        Ghc.getName v `Ghc.elemNameSet` Bare.reUsedExternals env
+         ||
+        Ghc.getName (Ghc.dataConWorkId dc) `Ghc.elemNameSet` Bare.reUsedExternals env
+      _ ->
+        Ghc.getName v `Ghc.elemNameSet` Bare.reUsedExternals env
+
+    isInScope :: Ghc.Var -> Bool
+    isInScope v0 =
+      let inScope v = not $ null $
+            Ghc.lookupGRE_Name
+              (Ghc.tcg_rdr_env $ Bare.reTcGblEnv env)
+              (Ghc.getName v)
+       in -- Names of data constructors are not found in the variable namespace
+          -- so we look them instead in the data constructor namespace.
+          case Ghc.idDetails v0 of
+            Ghc.DataConWrapId dc -> inScope dc
+            Ghc.DataConWorkId dc -> inScope dc
+            _ -> inScope v0
+
 resolveAsmVar :: Bare.Env -> ModName -> Bool -> LocSymbol -> Bare.Lookup (Maybe Ghc.Var)
 resolveAsmVar env name True  lx = Just  <$> Bare.lookupGhcVar env name "resolveAsmVar-True"  lx
 resolveAsmVar env name False lx = return $  Bare.maybeResolveSym     env name "resolveAsmVar-False" lx  <|> GM.maybeAuxVar (F.val lx)
 
+-- | Temporary data type to represent a symbol or an LHName while not all of the
+-- code has been migrated to use LHName.
+data SymbolOrLHName = SOLSymbol LocSymbol | SOLLHName (Located LHName)
 
-getAsmSigs :: ModName -> ModName -> Ms.BareSpec -> [(Bool, LocSymbol, LocBareType)]
+getAsmSigs :: ModName -> ModName -> Ms.BareSpec -> [(Bool, SymbolOrLHName, LocBareType)]
 getAsmSigs myName name spec
-  | myName == name = [ (True,  x,  t) | (x, t) <- Ms.asmSigs spec ] -- MUST    resolve, or error
-  | otherwise      = [ (False, x', t) | (x, t) <- Ms.asmSigs spec
-                                                  ++ Ms.sigs spec
-                                      , let x' = qSym x           ]  -- MAY-NOT resolve
+  | myName == name = [ (True, SOLLHName x,  t) | (x, t) <- Ms.asmSigs spec ] -- MUST    resolve, or error
+  | otherwise      =
+      [ (False, x, t)
+      | (x, t) <- map (first SOLLHName) (Ms.asmSigs spec)
+                  ++ map (first (SOLSymbol . qSym)) (Ms.sigs spec)
+      ]
   where
     qSym           = fmap (GM.qualifySymbol ns)
     ns             = F.symbol name
@@ -1343,10 +1399,11 @@ makeLiftedSpec :: ModName -> GhcSrc -> Bare.Env
                -> GhcSpecRefl -> GhcSpecData -> GhcSpecSig -> GhcSpecQual -> BareRTEnv
                -> Ms.BareSpec -> Ms.BareSpec
 -----------------------------------------------------------------------------------------
-makeLiftedSpec name src _env refl sData sig qual myRTE lSpec0 = lSpec0
+makeLiftedSpec name src env refl sData sig qual myRTE lSpec0 = lSpec0
   { Ms.asmSigs    = F.notracepp   ("makeLiftedSpec : ASSUMED-SIGS " ++ F.showpp name ) (xbs ++ myDCs)
-  , Ms.reflSigs   = F.notracepp "REFL-SIGS"         xbs
-  , Ms.sigs       = F.notracepp   ("makeLiftedSpec : LIFTED-SIGS " ++ F.showpp name )  $ mkSigs (gsTySigs sig)
+  , Ms.reflSigs   = F.notracepp "REFL-SIGS" $ map (first (fmap getLHNameSymbol)) xbs
+  , Ms.sigs       = F.notracepp   ("makeLiftedSpec : LIFTED-SIGS " ++ F.showpp name ) $
+                      map (first (fmap getLHNameSymbol)) $ mkSigs (gsTySigs sig)
   , Ms.invariants = [ (Bare.varLocSym <$> x, Bare.specToBare <$> t)
                        | (x, t) <- gsInvariants sData
                        , isLocInFile srcF t
@@ -1357,12 +1414,11 @@ makeLiftedSpec name src _env refl sData sig qual myRTE lSpec0 = lSpec0
   , Ms.qualifiers = filter (isLocInFile srcF) (gsQualifiers qual)
   }
   where
-    myDCs         = [(x,t) | (x,t) <- mkSigs (gsCtors sData)
-                           , F.symbol name == fst (GM.splitModuleName $ val x)]
+    myDCs         = filter (isLocalName . val . fst) $ mkSigs (gsCtors sData)
     mkSigs xts    = [ toBare (x, t) | (x, t) <- xts
                     ,  S.member x sigVars && isExportedVar (toTargetSrc src) x
                     ]
-    toBare (x, t) = (Bare.varLocSym x, Bare.specToBare <$> t)
+    toBare (x, t) = (makeGHCLHNameLocatedFromId x, Bare.specToBare <$> t)
     xbs           = toBare <$> reflTySigs
     sigVars       = S.difference defVars reflVars
     defVars       = S.fromList (_giDefVars src)
@@ -1370,6 +1426,12 @@ makeLiftedSpec name src _env refl sData sig qual myRTE lSpec0 = lSpec0
     reflVars      = S.fromList (fst <$> reflTySigs)
     -- myAliases fld = M.elems . fld $ myRTE
     srcF          = _giTarget src
+
+    isLocalName = \case
+      LHNResolved (LHRGHC n) _ ->
+        Just (Ghc.tcg_mod (Bare.reTcGblEnv env)) == Ghc.nameModule_maybe n
+      _ ->
+        False
 
 -- | Returns 'True' if the input determines a location within the input file. Due to the fact we might have
 -- Haskell sources which have \"companion\" specs defined alongside them, we also need to account for this

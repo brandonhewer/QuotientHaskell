@@ -445,7 +445,12 @@ import GHC.Plugins                    as Ghc ( Serialized(Serialized)
                                              , extendIdSubst
                                              , substExpr
                                              )
-import GHC.Core.FVs                   as Ghc (exprFreeVars, exprFreeVarsList, exprSomeFreeVarsList)
+import GHC.Core.FVs                   as Ghc
+    ( exprFreeVars
+    , exprFreeVarsList
+    , exprsOrphNames
+    , exprSomeFreeVarsList
+    )
 import GHC.Core.Opt.OccurAnal         as Ghc
     ( occurAnalysePgm )
 import GHC.Core.TyCo.FVs              as Ghc (tyCoVarsOfCo, tyCoVarsOfType)
@@ -543,6 +548,7 @@ import GHC.Types.Annotations          as Ghc
 import GHC.Types.Avail                as Ghc
     ( AvailInfo(Avail, AvailTC)
     , availNames
+    , availsToNameSet
     )
 import GHC.Types.Basic                as Ghc
     ( Arity
@@ -630,6 +636,11 @@ import GHC.Types.Name                 as Ghc
     )
 import GHC.Types.Name.Env             as Ghc
     ( lookupNameEnv )
+import GHC.Types.Name.Set             as Ghc
+    ( NameSet
+    , elemNameSet
+    , nameSetElemsStable
+    )
 import GHC.Types.Name.Cache           as Ghc (NameCache)
 import GHC.Types.Name.Occurrence      as Ghc
     ( NameSpace
@@ -639,14 +650,23 @@ import GHC.Types.Name.Occurrence      as Ghc
     , tcName
     )
 import GHC.Types.Name.Reader          as Ghc
-    ( GlobalRdrEnv
+    ( FieldsOrSelectors(WantNormal)
+    , GlobalRdrEnv
+    , GREInfo
     , ImpItemSpec(ImpAll)
     , LookupGRE(LookupRdrName)
-    , WhichGREs(SameNameSpace)
+    , WhichGREs
+        ( SameNameSpace
+        , RelevantGREs
+        , includeFieldSelectors
+        , lookupTyConsAsWell
+        , lookupVariablesForFields
+        )
     , getRdrName
     , globalRdrEnvElts
     , greName
     , lookupGRE
+    , lookupGRE_Name
     , mkQual
     , mkRdrQual
     , mkRdrUnqual

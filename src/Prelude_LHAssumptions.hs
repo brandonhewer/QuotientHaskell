@@ -16,7 +16,7 @@ import Liquid.Prelude.Totality_LHAssumptions()
 
 {-@
 
-assume GHC.Internal.Err.error :: {v:_ | false} -> a
+assume error :: {v:_ | false} -> a
 
 predicate Max V X Y = if X > Y then V = X else V = Y
 predicate Min V X Y = if X < Y then V = X else V = Y
