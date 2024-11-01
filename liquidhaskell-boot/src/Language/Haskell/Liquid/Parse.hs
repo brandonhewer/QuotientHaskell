@@ -1069,7 +1069,6 @@ mkSpec name xs         = (name,) $ qualifySpec (symbol name) Measure.Spec
   , Measure.asmReflectSigs = [(l, r) | AssmReflect (l, r) <- xs]
   , Measure.sigs       = [a | Asrt   a <- xs]
                       ++ [(y, t) | Asrts (ys, (t, _)) <- xs, y <- ys]
-  , Measure.localSigs  = []
   , Measure.reflSigs   = []
   , Measure.impSigs    = []
   , Measure.expSigs    = []

@@ -447,7 +447,6 @@ qualifyBareSpec env name l bs sp = sp
   { measures   = qualify env name l bs (measures   sp)
   , asmSigs    = qualify env name l bs (asmSigs    sp)
   , sigs       = qualify env name l bs (sigs       sp)
-  , localSigs  = qualify env name l bs (localSigs  sp)
   , reflSigs   = qualify env name l bs (reflSigs   sp)
   , dataDecls  = qualify env name l bs (dataDecls  sp)
   , newtyDecls = qualify env name l bs (newtyDecls sp)

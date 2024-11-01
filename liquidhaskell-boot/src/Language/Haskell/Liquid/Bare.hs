@@ -891,7 +891,7 @@ makeTySigs env sigEnv name spec = do
 bareTySigs :: Bare.Env -> ModName -> Ms.BareSpec -> Bare.Lookup [(Ghc.Var, LocBareType)]
 bareTySigs env name spec = checkDuplicateSigs <$> vts
   where
-    vts = forM ( Ms.sigs spec ++ Ms.localSigs spec ) $ \ (x, t) -> do
+    vts = forM ( Ms.sigs spec ) $ \ (x, t) -> do
             v <- F.notracepp "LOOKUP-GHC-VAR" $ Bare.lookupGhcVar env name "rawTySigs" x
             return (v, t)
 
