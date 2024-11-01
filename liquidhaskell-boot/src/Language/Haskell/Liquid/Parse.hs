@@ -1108,7 +1108,7 @@ specP :: Parser BPspec
 specP
   = fallbackSpecP "assume" ((reserved "reflect" >> fmap AssmReflect assmReflectBindP)
         <|> (reserved "relational" >>  fmap AssmRel relationalP)
-        <|>                            fmap Assm   assumptionP  )
+        <|>                            fmap Assm   tyBindLHNameP  )
     <|> fallbackSpecP "assert"      (fmap Asrt    tyBindP  )
     <|> fallbackSpecP "autosize"    (fmap ASize   asizeP   )
     <|> (reserved "local"         >> fmap LAsrt   tyBindP  )
@@ -1252,8 +1252,12 @@ tyBindP :: Parser (LocSymbol, Located BareType)
 tyBindP =
   (,) <$> locBinderP <* reservedOp "::" <*> located genBareTypeP
 
-assumptionP :: Parser (Located LHName, Located BareType)
-assumptionP = do
+tyBindMethodP :: Parser (LocSymbol, Located BareType)
+tyBindMethodP =
+  (,) <$> located binderInfixParensP <* reservedOp "::" <*> located genBareTypeP
+
+tyBindLHNameP :: Parser (Located LHName, Located BareType)
+tyBindLHNameP = do
     x <- locBinderP
     _ <- reservedOp "::"
     t <- located genBareTypeP
