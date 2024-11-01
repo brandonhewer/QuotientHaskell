@@ -21,6 +21,7 @@ module Language.Haskell.Liquid.Parse
 import           Control.Arrow                          (second)
 import           Control.Monad
 import           Control.Monad.Identity
+import qualified Data.Char                              as Char
 import qualified Data.Foldable                          as F
 import           Data.String
 import           Data.Void
@@ -896,11 +897,17 @@ ppAsserts k lxs t mles
     ppLes Nothing    = ""
     ppLes (Just les) = "/" <+> pprintTidy k (val <$> les)
 
+pprintSymbolWithParens :: LHName -> PJ.Doc
+pprintSymbolWithParens lhname =
+    case show lhname of
+      n@(c:_) | not (Char.isAlpha c) -> "(" <> PJ.text n <> ")"
+      n -> PJ.text n
+
 ppPspec :: (PPrint t, PPrint c) => Tidy -> Pspec t c -> PJ.Doc
 ppPspec k (Meas m)
   = "measure" <+> pprintTidy k m
 ppPspec k (Assm (lx, t))
-  = "assume"  <+> pprintTidy k (val lx) <+> "::" <+> pprintTidy k t
+  = "assume"  <+> pprintSymbolWithParens (val lx) <+> "::" <+> pprintTidy k t
 ppPspec k (AssmReflect (lx, ly))
   = "assume reflect"  <+> pprintTidy k (val lx) <+> "as" <+> pprintTidy k (val ly)
 ppPspec k (Asrt (lx, t))
@@ -1469,13 +1476,10 @@ binderP    = pwr    <$> parens (idP bad)
 -}
 binderP :: Parser Symbol
 binderP =
-      symbol . (\ x -> "(" <> x <> ")") . symbolText <$> parens infixBinderIdP
+      parens infixBinderIdP
   <|> binderIdP
   -- Note: It is important that we do *not* use the LH/fixpoint reserved words here,
   -- because, for example, we must be able to use "assert" as an identifier.
-  --
-  -- TODO, Andres: I have no idea why we make the parens part of the symbol here.
-  -- But I'm reproducing this behaviour for now, as it is backed up via a few tests.
 
 measureDefP :: Parser Body -> Parser (Def (Located BareType) LocSymbol)
 measureDefP bodyP
