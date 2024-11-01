@@ -120,12 +120,7 @@ resolveLHNames taliases globalRdrEnv =
       let m = LH.takeModuleNames s
           n = LH.dropModuleNames s
           nString = symbolString n
-          -- TODO: Maybe change the parser so dataConNameP doesn't include the
-          -- parentheses around infix operators.
-          maybeUnpar = case nString of
-            '(':rest -> init rest
-            _ -> nString
-          oname = GHC.mkOccName (mkGHCNameSpace ns) maybeUnpar
+          oname = GHC.mkOccName (mkGHCNameSpace ns) nString
           rdrn =
             if m == "" then
               GHC.mkRdrUnqual oname

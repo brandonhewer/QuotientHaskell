@@ -1418,7 +1418,7 @@ riMethodSigP
   = try (do reserved "assume"
             (x, t) <- tyBindP
             return (x, RIAssumed t) )
- <|> do (x, t) <- tyBindP
+ <|> do (x, t) <- tyBindMethodP
         return (x, RISig t)
  <?> "riMethodSigP"
 
@@ -1479,6 +1479,16 @@ binderP =
   <|> binderIdP
   -- Note: It is important that we do *not* use the LH/fixpoint reserved words here,
   -- because, for example, we must be able to use "assert" as an identifier.
+
+-- | Like binderP, but surrounds infix operators with parenthesis.
+--
+-- This is only needed by `tests/parser/pos/T892.hs` and needs to be
+-- investigated why.
+binderInfixParensP :: Parser Symbol
+binderInfixParensP =
+      symbol . (\ x -> "(" <> x <> ")") . symbolText <$> parens infixBinderIdP
+  <|> binderIdP
+
 
 measureDefP :: Parser Body -> Parser (Def (Located BareType) LocSymbol)
 measureDefP bodyP
@@ -1581,7 +1591,7 @@ dataConNameP
   where
      idP p  = takeWhile1P Nothing (not . p)
      bad c  = isSpace c || c `elem` ("(,)" :: String)
-     pwr s  = symbol $ "(" <> s <> ")"
+     pwr s  = symbol s
 
 dataSizeP :: Parser (Maybe SizeFun)
 dataSizeP
