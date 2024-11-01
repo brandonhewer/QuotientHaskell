@@ -466,18 +466,21 @@ lowerIdTail l =
 
 bTyConP :: Parser BTyCon
 bTyConP
-  =  (reservedOp "'" >> (mkPromotedBTyCon . fmap (makeUnresolvedLHName LHDataConName) <$> locUpperIdP))
- <|> mkBTyCon . fmap (makeUnresolvedLHName LHTcName) <$> locUpperIdP
+  =  (reservedOp "'" >> mkPromotedBTyCon <$> locUpperIdLHNameP LHDataConName)
+ <|> mkBTyCon <$> locUpperIdLHNameP LHTcName
  <|> (reserved "*" >>
         return (mkBTyCon (dummyLoc $ makeUnresolvedLHName LHTcName $ symbol ("*" :: String)))
      )
  <?> "bTyConP"
 
+locUpperIdLHNameP :: LHNameSpace -> Parser (Located LHName)
+locUpperIdLHNameP ns = fmap (makeUnresolvedLHName ns) <$> locUpperIdP
+
 mkPromotedBTyCon :: Located LHName -> BTyCon
 mkPromotedBTyCon x = BTyCon x False True -- (consSym '\'' <$> x) False True
 
 classBTyConP :: Parser BTyCon
-classBTyConP = mkClassBTyCon . fmap (makeUnresolvedLHName LHTcName) <$> locUpperIdP
+classBTyConP = mkClassBTyCon <$> locUpperIdLHNameP LHTcName
 
 mkClassBTyCon :: Located LHName -> BTyCon
 mkClassBTyCon x = BTyCon x True False
@@ -1227,7 +1230,7 @@ filePathP     = angles $ some pathCharP
     pathChars = ['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9'] ++ ['.', '/']
 
 datavarianceP :: Parser (Located LHName, [Variance])
-datavarianceP = liftM2 (,) (fmap (makeUnresolvedLHName LHTcName) <$> locUpperIdP) (many varianceP)
+datavarianceP = liftM2 (,) (locUpperIdLHNameP LHTcName) (many varianceP)
 
 dsizeP :: Parser ([Located BareType], Located Symbol)
 dsizeP = liftM2 (,) (parens $ sepBy (located genBareTypeP) comma) locBinderP
@@ -1297,7 +1300,7 @@ genBareTypeP = bareTypeP
 
 embedP :: Parser (Located LHName, FTycon, TCArgs)
 embedP = do
-  x <- fmap (makeUnresolvedLHName LHTcName) <$> locUpperIdP
+  x <- locUpperIdLHNameP LHTcName
   a <- try (reserved "*" >> return WithArgs) <|> return NoArgs -- TODO: reserved "*" looks suspicious
   _ <- reserved "as"
   t <- fTyConP
