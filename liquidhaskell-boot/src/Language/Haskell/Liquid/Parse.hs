@@ -838,9 +838,9 @@ data Pspec ty ctor
   = Meas    (Measure ty ctor)                             -- ^ 'measure' definition
   | Assm    (Located LHName, ty)                          -- ^ 'assume' signature (unchecked)
   | AssmReflect (LocSymbol, LocSymbol)                    -- ^ 'assume reflects' signature (unchecked)
-  | Asrt    (LocSymbol, ty)                               -- ^ 'assert' signature (checked)
+  | Asrt    (Located LHName, ty)                          -- ^ 'assert' signature (checked)
   | LAsrt   (LocSymbol, ty)                               -- ^ 'local' assertion -- TODO RJ: what is this
-  | Asrts   ([LocSymbol], (ty, Maybe [Located Expr]))     -- ^ sym0, ..., symn :: ty / [m0,..., mn]
+  | Asrts   ([Located LHName], (ty, Maybe [Located Expr]))     -- ^ sym0, ..., symn :: ty / [m0,..., mn]
   | Impt    Symbol                                        -- ^ 'import' a specification module
   | DDecl   DataDecl                                      -- ^ refined 'data'    declaration
   | NTDecl  DataDecl                                      -- ^ refined 'newtype' declaration
@@ -886,9 +886,9 @@ instance (PPrint ty, PPrint ctor) => PPrint (Pspec ty ctor) where
 splice :: PJ.Doc -> [PJ.Doc] -> PJ.Doc
 splice sep = PJ.hcat . PJ.punctuate sep
 
-ppAsserts :: (PPrint t) => Tidy -> [LocSymbol] -> t -> Maybe [Located Expr] -> PJ.Doc
+ppAsserts :: (PPrint t) => Tidy -> [Located LHName] -> t -> Maybe [Located Expr] -> PJ.Doc
 ppAsserts k lxs t mles
-  = PJ.hcat [ splice ", " (pprintTidy k <$> (val <$> lxs))
+  = PJ.hcat [ splice ", " (map (pprintTidy k . val) lxs)
             , " :: "
             , pprintTidy k t
             , ppLes mles
@@ -1044,8 +1044,8 @@ qualifySpec name sp = sp { sigs      = [ (tx x, t)  | (x, t)  <- sigs sp]
                          -- , asmSigs   = [ (tx x, t)  | (x, t)  <- asmSigs sp]
                          }
   where
-    tx :: Located Symbol -> Located Symbol
-    tx = fmap (qualifySymbol name)
+    tx :: Located LHName -> Located LHName
+    tx = fmap (updateLHNameSymbol (qualifySymbol name))
 
 -- | Turns a list of parsed specifications into a "bare spec".
 --
@@ -1118,7 +1118,7 @@ specP
   = fallbackSpecP "assume" ((reserved "reflect" >> fmap AssmReflect assmReflectBindP)
         <|> (reserved "relational" >>  fmap AssmRel relationalP)
         <|>                            fmap Assm   tyBindLHNameP  )
-    <|> fallbackSpecP "assert"      (fmap Asrt    tyBindP  )
+    <|> fallbackSpecP "assert"      (fmap Asrt    tyBindLHNameP)
     <|> fallbackSpecP "autosize"    (fmap ASize   asizeP   )
     <|> (reserved "local"         >> fmap LAsrt   tyBindP  )
 
@@ -1184,10 +1184,10 @@ specP
 fallbackSpecP :: String -> Parser BPspec -> Parser BPspec
 fallbackSpecP kw p = do
   (Loc l1 l2 _) <- locReserved kw
-  p <|> fmap Asrts (tyBindsRemP (Loc l1 l2 (symbol kw)) )
+  p <|> fmap Asrts (tyBindsRemP (Loc l1 l2 (makeUnresolvedLHName LHVarName (symbol kw))) )
 
 -- | Same as tyBindsP, except the single initial symbol has already been matched
-tyBindsRemP :: LocSymbol -> Parser ([LocSymbol], (Located BareType, Maybe [Located Expr]))
+tyBindsRemP :: Located LHName -> Parser ([Located LHName], (Located BareType, Maybe [Located Expr]))
 tyBindsRemP sy = do
   reservedOp "::"
   tb <- termBareTypeP
@@ -1249,9 +1249,9 @@ varianceP = (reserved "bivariant"     >> return Bivariant)
         <|> (reserved "contravariant" >> return Contravariant)
         <?> "Invalid variance annotation\t Use one of bivariant, invariant, covariant, contravariant"
 
-tyBindsP :: Parser ([LocSymbol], (Located BareType, Maybe [Located Expr]))
+tyBindsP :: Parser ([Located LHName], (Located BareType, Maybe [Located Expr]))
 tyBindsP =
-  xyP (sepBy1 locBinderP comma) (reservedOp "::") termBareTypeP
+  xyP (sepBy1 locBinderLHNameP comma) (reservedOp "::") termBareTypeP
 
 tyBindNoLocP :: Parser (LocSymbol, BareType)
 tyBindNoLocP = second val <$> tyBindP
@@ -1458,6 +1458,10 @@ locUpperOrInfixIdP = locUpperIdP' <|> locInfixCondIdP
 locBinderP :: Parser (Located Symbol)
 locBinderP =
   located binderP -- TODO
+
+locBinderLHNameP :: Parser (Located LHName)
+locBinderLHNameP =
+  located $ makeUnresolvedLHName LHVarName <$> binderP
 
 -- | LHS of the thing being defined
 --

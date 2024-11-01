@@ -897,7 +897,7 @@ bareTySigs :: Bare.Env -> ModName -> Ms.BareSpec -> Bare.Lookup [(Ghc.Var, LocBa
 bareTySigs env name spec = checkDuplicateSigs <$> vts
   where
     vts = forM ( Ms.sigs spec ) $ \ (x, t) -> do
-            v <- F.notracepp "LOOKUP-GHC-VAR" $ Bare.lookupGhcVar env name "rawTySigs" x
+            v <- F.notracepp "LOOKUP-GHC-VAR" $ Bare.lookupGhcVar env name "rawTySigs" (getLHNameSymbol <$> x)
             return (v, t)
 
 -- checkDuplicateSigs :: [(Ghc.Var, LocSpecType)] -> [(Ghc.Var, LocSpecType)]
@@ -955,7 +955,7 @@ qualifyTermExpr env name rtEnv t le
 makeVarTExprs :: Bare.Env -> ModName -> Ms.BareSpec -> Bare.Lookup [(Ghc.Var, [Located F.Expr])]
 makeVarTExprs env name spec =
   forM (Ms.termexprs spec) $ \(x, es) -> do
-    vx <- Bare.lookupGhcVar env name "Var" x
+    vx <- Bare.lookupGhcVar env name "Var" (getLHNameSymbol <$> x)
     return (vx, es)
 
 ----------------------------------------------------------------------------------------
@@ -1077,7 +1077,7 @@ getAsmSigs myName name spec
   | otherwise      =
       [ (False, x, t)
       | (x, t) <- map (first SOLLHName) (Ms.asmSigs spec)
-                  ++ map (first (SOLSymbol . qSym)) (Ms.sigs spec)
+                  ++ map (first (SOLSymbol . qSym . fmap getLHNameSymbol)) (Ms.sigs spec)
       ]
   where
     qSym           = fmap (GM.qualifySymbol ns)
@@ -1410,7 +1410,7 @@ makeLiftedSpec name src env refl sData sig qual myRTE lSpec0 = lSpec0
   { Ms.asmSigs    = F.notracepp   ("makeLiftedSpec : ASSUMED-SIGS " ++ F.showpp name ) (xbs ++ myDCs)
   , Ms.reflSigs   = F.notracepp "REFL-SIGS" $ map (first (fmap getLHNameSymbol)) xbs
   , Ms.sigs       = F.notracepp   ("makeLiftedSpec : LIFTED-SIGS " ++ F.showpp name ) $
-                      map (first (fmap getLHNameSymbol)) $ mkSigs (gsTySigs sig)
+                      mkSigs (gsTySigs sig)
   , Ms.invariants = [ (Bare.varLocSym <$> x, Bare.specToBare <$> t)
                        | (x, t) <- gsInvariants sData
                        , isLocInFile srcF t

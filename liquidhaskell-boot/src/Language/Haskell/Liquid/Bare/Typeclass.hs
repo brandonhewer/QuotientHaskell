@@ -73,15 +73,15 @@ compileClasses src env (name, spec) rest =
       -- class methods
   (refinedMethods, sigsNew) = foldr grabClassSig (mempty, mempty) (sigs spec)
   grabClassSig
-    :: (F.LocSymbol, ty)
-    -> (M.HashMap Ghc.Class [(Ghc.Id, ty)], [(F.LocSymbol, ty)])
-    -> (M.HashMap Ghc.Class [(Ghc.Id, ty)], [(F.LocSymbol, ty)])
+    :: (F.Located LHName, ty)
+    -> (M.HashMap Ghc.Class [(Ghc.Id, ty)], [(F.Located LHName, ty)])
+    -> (M.HashMap Ghc.Class [(Ghc.Id, ty)], [(F.Located LHName, ty)])
   grabClassSig sigPair@(lsym, ref) (refs, sigs') = case clsOp of
     Nothing         -> (refs, sigPair : sigs')
     Just (cls, sig) -> (M.alter (merge sig) cls refs, sigs')
    where
     clsOp = do
-      var <- Bare.maybeResolveSym env name "grabClassSig" lsym
+      var <- Bare.maybeResolveSym env name "grabClassSig" $ getLHNameSymbol <$> lsym
       cls <- Ghc.isClassOpId_maybe var
       pure (cls, (var, ref))
     merge sig v = case v of
