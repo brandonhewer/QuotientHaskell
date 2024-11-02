@@ -494,8 +494,8 @@ lookupGhcNamedVar env name z = maybeResolveSym  env name "Var" lx
 
 lookupGhcVar :: Env -> ModName -> String -> LocSymbol -> Lookup Ghc.Var
 lookupGhcVar env name kind lx = case resolveLocSym env name kind lx of
-    Right v -> Mb.maybe (Right v) Right (lookupLocalVar env lx [v])
-    Left  e -> Mb.maybe (Left  e) Right (lookupLocalVar env lx [])
+    Right v -> Mb.maybe (Right v) (either Right Right) (lookupLocalVar (reLocalVars env) lx [v])
+    Left  e -> Mb.maybe (Left  e) (either Right Right) (lookupLocalVar (reLocalVars env) lx [])
 
   -- where
     -- err e   = Misc.errorP "error-lookupGhcVar" (F.showpp (e, F.loc lx, lx))
@@ -505,12 +505,11 @@ lookupGhcVar env name kind lx = case resolveLocSym env name kind lx of
 --   that also match the name @lx@; we then pick the "closest" definition.
 --   See tests/names/LocalSpec.hs for a motivating example.
 
-lookupLocalVar :: Env -> LocSymbol -> [Ghc.Var] -> Maybe Ghc.Var
-lookupLocalVar env lx gvs = findNearest lxn kvs
+lookupLocalVar :: F.Loc a => LocalVars -> LocSymbol -> [a] -> Maybe (Either a Ghc.Var)
+lookupLocalVar localVars lx gvs = findNearest lxn kvs
   where
-    _msg                  = "LOOKUP-LOCAL: " ++ F.showpp (F.val lx, lxn, kvs)
-    kvs                   = prioritizeRecBinds (M.lookupDefault [] x $ reLocalVars env) ++ gs
-    gs                    = [(F.sp_start $ F.srcSpan v, v) | v <- gvs]
+    kvs                   = prioritizeRecBinds (M.lookupDefault [] x localVars) ++ gs
+    gs                    = [(F.sp_start $ F.srcSpan v, Left v) | v <- gvs]
     lxn                   = F.sp_start $ F.srcSpan lx
     (_, x)                = unQualifySymbol (F.val lx)
 
@@ -520,9 +519,9 @@ lookupLocalVar env lx gvs = findNearest lxn kvs
     prioritizeRecBinds lvds =
       let (recs, nrecs) = L.partition lvdIsRec lvds
        in map lvdToPair (recs ++ nrecs)
-    lvdToPair lvd = (lvdSourcePos lvd, lvdVar lvd)
+    lvdToPair lvd = (lvdSourcePos lvd, Right (lvdVar lvd))
 
-    findNearest :: F.SourcePos -> [(F.SourcePos, Ghc.Var)] -> Maybe Ghc.Var
+    findNearest :: F.SourcePos -> [(F.SourcePos, b)] -> Maybe b
     findNearest key kvs1 = argMin [ (posDistance key k, v) | (k, v) <- kvs1 ]
 
     -- We prefer the var with the smaller distance, or equal distance
