@@ -635,7 +635,7 @@ import GHC.Types.Name                 as Ghc
     , stableNameCmp
     )
 import GHC.Types.Name.Env             as Ghc
-    ( lookupNameEnv )
+    ( NameEnv, lookupNameEnv, mkNameEnv )
 import GHC.Types.Name.Set             as Ghc
     ( NameSet
     , elemNameSet

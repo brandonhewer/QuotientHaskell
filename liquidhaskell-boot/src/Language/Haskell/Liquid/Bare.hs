@@ -123,12 +123,13 @@ to disk so that we can retrieve it later without having to re-check the relevant
 -- with a list of 'Warning's, which shouldn't abort the compilation (modulo explicit request from the user,
 -- to treat warnings and errors).
 makeTargetSpec :: Config
+               -> Bare.LocalVars
                -> LogicMap
                -> TargetSrc
                -> BareSpec
                -> TargetDependencies
                -> Ghc.TcRn (Either Diagnostics ([Warning], TargetSpec, LiftedSpec))
-makeTargetSpec cfg lmap targetSrc bareSpec dependencies = do
+makeTargetSpec cfg localVars lmap targetSrc bareSpec dependencies = do
   let targDiagnostics     = Bare.checkTargetSrc cfg targetSrc
   let depsDiagnostics     = mapM (Bare.checkBareSpec . snd) legacyDependencies
   let bareSpecDiagnostics = Bare.checkBareSpec legacyBareSpec
@@ -167,7 +168,7 @@ makeTargetSpec cfg lmap targetSrc bareSpec dependencies = do
       --     "let {len :: [a] -> Int; len _ = undefined}"
       --     Ghc.execOptions
 
-      diagOrSpec <- makeGhcSpec cfg (fromTargetSrc targetSrc) lmap legacyBareSpec legacyDependencies
+      diagOrSpec <- makeGhcSpec cfg localVars (fromTargetSrc targetSrc) lmap legacyBareSpec legacyDependencies
       case diagOrSpec of
         Left d -> return $ Left d
         Right (warns, ghcSpec) -> do
@@ -191,7 +192,9 @@ makeTargetSpec cfg lmap targetSrc bareSpec dependencies = do
       tcg <- Ghc.getGblEnv
       let exportedNames = Ghc.availsToNameSet (Ghc.tcg_exports tcg)
           exportedAssumption (LHNResolved (LHRGHC n) _) =
-            Ghc.nameModule_maybe n /= Just (Ghc.tcg_mod tcg) || Ghc.elemNameSet n exportedNames
+            case Ghc.nameModule_maybe n of
+              Nothing -> Ghc.elemNameSet n exportedNames
+              Just m -> m /= Ghc.tcg_mod tcg || Ghc.elemNameSet n exportedNames
           exportedAssumption _ = True
       return lspec { liftedAsmSigs = S.filter (exportedAssumption . val . fst) (liftedAsmSigs lspec) }
 
@@ -200,17 +203,18 @@ makeTargetSpec cfg lmap targetSrc bareSpec dependencies = do
 --   validates it using @checkGhcSpec@.
 -------------------------------------------------------------------------------------
 makeGhcSpec :: Config
+            -> Bare.LocalVars
             -> GhcSrc
             -> LogicMap
             -> Ms.BareSpec
             -> [(ModName, Ms.BareSpec)]
             -> Ghc.TcRn (Either Diagnostics ([Warning], GhcSpec))
 -------------------------------------------------------------------------------------
-makeGhcSpec cfg src lmap targetSpec dependencySpecs = do
+makeGhcSpec cfg localVars src lmap targetSpec dependencySpecs = do
   hscEnv <- Ghc.getTopEnv
   session <- Ghc.Session <$> Ghc.liftIO (newIORef hscEnv)
   tcg <- Ghc.getGblEnv
-  (dg0, sp) <- makeGhcSpec0 cfg session tcg src lmap targetSpec dependencySpecs
+  (dg0, sp) <- makeGhcSpec0 cfg session tcg localVars src lmap targetSpec dependencySpecs
   let diagnostics = Bare.checkTargetSpec (targetSpec : map snd dependencySpecs)
                                          (toTargetSrc src)
                                          (ghcSpecEnv sp)
@@ -252,12 +256,13 @@ makeGhcSpec0
   :: Config
   -> Ghc.Session
   -> Ghc.TcGblEnv
+  -> Bare.LocalVars
   -> GhcSrc
   -> LogicMap
   -> Ms.BareSpec
   -> [(ModName, Ms.BareSpec)]
   -> Ghc.TcRn (Diagnostics, GhcSpec)
-makeGhcSpec0 cfg session tcg src lmap targetSpec dependencySpecs = do
+makeGhcSpec0 cfg session tcg localVars src lmap targetSpec dependencySpecs = do
   -- build up environments
   tycEnv <- makeTycEnv1 name env (tycEnv0, datacons) coreToLg simplifier
   let tyi      = Bare.tcTyConMap   tycEnv
@@ -380,7 +385,7 @@ makeGhcSpec0 cfg session tcg src lmap targetSpec dependencySpecs = do
     embs     = makeEmbeds          src env (mySpec0 : map snd dependencySpecs)
     dm       = Bare.tcDataConMap tycEnv0
     (dg0, datacons, tycEnv0) = makeTycEnv0   cfg name env embs mySpec2 iSpecs2
-    env      = Bare.makeEnv cfg session tcg src lmap ((name, targetSpec) : dependencySpecs)
+    env      = Bare.makeEnv cfg session tcg localVars src lmap ((name, targetSpec) : dependencySpecs)
     -- check barespecs
     name     = F.notracepp ("ALL-SPECS" ++ zzz) $ _giTargetMod  src
     zzz      = F.showpp (fst <$> mspecs)
@@ -998,7 +1003,7 @@ allAsmSigs env myName specs = do
       -- constraints should account instead for what logic functions are used in
       -- the constraints, which should be easier to do when precise renaming has
       -- been implemented for expressions and reflected functions.
-    , isUsedExternalVar v || isInScope v
+    , isUsedExternalVar v || isInScope v || isLocalVar v
     ]
   where
     lookupSymbolOrLHName :: ModName -> Bool -> SymbolOrLHName -> Bare.Lookup (Maybe Ghc.Var)
@@ -1055,6 +1060,8 @@ allAsmSigs env myName specs = do
             Ghc.DataConWrapId dc -> inScope dc
             Ghc.DataConWorkId dc -> inScope dc
             _ -> inScope v0
+
+    isLocalVar = Mb.isNothing . Ghc.nameModule_maybe . Ghc.getName
 
 resolveAsmVar :: Bare.Env -> ModName -> Bool -> LocSymbol -> Bare.Lookup (Maybe Ghc.Var)
 resolveAsmVar env name True  lx = Just  <$> Bare.lookupGhcVar env name "resolveAsmVar-True"  lx

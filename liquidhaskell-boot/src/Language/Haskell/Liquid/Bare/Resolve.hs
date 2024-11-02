@@ -14,6 +14,7 @@
 module Language.Haskell.Liquid.Bare.Resolve
   ( -- * Creating the Environment
     makeEnv
+  , makeLocalVars
 
     -- * Resolving symbols
   , ResolveSym (..)
@@ -30,6 +31,7 @@ module Language.Haskell.Liquid.Bare.Resolve
   , lookupGhcVar
   , lookupGhcIdLHName
   , lookupGhcNamedVar
+  , lookupLocalVar
   , matchTyCon
 
   -- * Checking if names exist
@@ -102,10 +104,11 @@ type Lookup a = Either [Error] a
 -------------------------------------------------------------------------------
 -- | Creating an environment
 -------------------------------------------------------------------------------
-makeEnv :: Config -> Ghc.Session -> Ghc.TcGblEnv -> GhcSrc -> LogicMap -> [(ModName, BareSpec)] -> Env
-makeEnv cfg session tcg src lmap specs = RE
+makeEnv :: Config -> Ghc.Session -> Ghc.TcGblEnv -> LocalVars -> GhcSrc -> LogicMap -> [(ModName, BareSpec)] -> Env
+makeEnv cfg session tcg localVars src lmap specs = RE
   { reSession   = session
   , reTcGblEnv  = tcg
+  , reLocalVarsEnv = makeLocalVarsEnv localVars
   , reUsedExternals = usedExternals
   , reLMap      = lmap
   , reSyms      = syms
@@ -113,7 +116,7 @@ makeEnv cfg session tcg src lmap specs = RE
   , _reTyThings = makeTyThingMap src
   , reQualImps  = _gsQualImps     src
   , reAllImps   = _gsAllImps      src
-  , reLocalVars = makeLocalVars  src
+  , reLocalVars = localVars
   , reSrc       = src
   , reGlobSyms  = S.fromList     globalSyms
   , reCfg       = cfg
@@ -135,8 +138,12 @@ getGlobalSyms (_, spec)
   where
     mbName = F.val . msName
 
-makeLocalVars :: GhcSrc -> LocalVars
-makeLocalVars = localVarMap . localBinds . _giCbs
+makeLocalVars :: [Ghc.CoreBind] -> LocalVars
+makeLocalVars = localVarMap . localBinds
+
+makeLocalVarsEnv :: LocalVars -> Ghc.NameEnv Ghc.Var
+makeLocalVarsEnv m =
+    Ghc.mkNameEnv [ (Ghc.getName (lvdVar d), lvdVar d) | d <- concat (M.elems m) ]
 
 -- TODO: rewrite using CoreVisitor
 localBinds :: [Ghc.CoreBind] -> [LocalVarDetails]
@@ -566,9 +573,13 @@ lookupGhcDataConLHName env lname = do
 
 lookupGhcIdLHName :: HasCallStack => Env -> Located LHName -> Lookup Ghc.Id
 lookupGhcIdLHName env lname = do
-   case lookupTyThing env lname of
-     Ghc.AConLike (Ghc.RealDataCon d) -> Right (Ghc.dataConWorkId d)
-     Ghc.AnId x -> Right x
+   case lookupTyThingMaybe env lname of
+     Nothing
+       | LHNResolved (LHRGHC n) _ <- val lname
+       , Just x <- Ghc.lookupNameEnv (reLocalVarsEnv env) n ->
+         Right x
+     Just (Ghc.AConLike (Ghc.RealDataCon d)) -> Right (Ghc.dataConWorkId d)
+     Just (Ghc.AnId x) -> Right x
      _ -> panic
            (Just $ GM.fSrcSpan lname) $ "not a variable of data constructor: " ++ show (val lname)
 
@@ -953,19 +964,21 @@ matchTyCon env lc = do
 -- This should be benign because the result doesn't depend of when exactly this is
 -- called. Since this code is intended to be used inside a GHC plugin, there is no
 -- danger that GHC is finalized before the result is evaluated.
-lookupTyThing :: Env -> Located LHName -> Ghc.TyThing
-lookupTyThing env lc@(Loc _ _ c0) = unsafePerformIO $ do
+lookupTyThingMaybe :: Env -> Located LHName -> Maybe Ghc.TyThing
+lookupTyThingMaybe env lc@(Loc _ _ c0) = unsafePerformIO $ do
     case c0 of
       LHNUnresolved _ _ -> panic (Just $ GM.fSrcSpan lc) $ "unresolved name: " ++ show c0
       LHNResolved rn _ -> case rn of
         LHRLocal _ -> panic (Just $ GM.fSrcSpan lc) $ "cannot resolve a local name: " ++ show c0
         LHRIndex i -> panic (Just $ GM.fSrcSpan lc) $ "cannot resolve a LHRIndex " ++ show i
         LHRLogic (LogicName s _) -> panic (Just $ GM.fSrcSpan lc) $ "lookupTyThing: cannot resolve a LHRLogic name " ++ show s
-        LHRGHC n -> do
-          m <- Ghc.reflectGhc (Interface.lookupTyThing (reTcGblEnv env) n) (reSession env)
-          case m of
-            Just tt -> return tt
-            Nothing -> panic (Just $ GM.fSrcSpan lc) $ "not found: " ++ show c0
+        LHRGHC n ->
+          Ghc.reflectGhc (Interface.lookupTyThing (reTcGblEnv env) n) (reSession env)
+
+lookupTyThing :: Env -> Located LHName -> Ghc.TyThing
+lookupTyThing env lc =
+    Mb.fromMaybe (panic (Just $ GM.fSrcSpan lc) $ "not found: " ++ show (val lc)) $
+      lookupTyThingMaybe env lc
 
 bareTCApp :: (Expandable r)
           => r

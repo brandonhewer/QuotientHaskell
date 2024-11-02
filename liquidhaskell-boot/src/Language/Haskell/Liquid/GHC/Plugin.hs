@@ -73,6 +73,7 @@ import           Language.Haskell.Liquid.Types.Specs
 import           Language.Haskell.Liquid.Types.Types
 import           Language.Haskell.Liquid.Types.Visitors
 import           Language.Haskell.Liquid.Bare
+import           Language.Haskell.Liquid.Bare.Resolve (makeLocalVars)
 import           Language.Haskell.Liquid.UX.CmdLine
 import           Language.Haskell.Liquid.UX.Config
 
@@ -509,6 +510,9 @@ data ProcessModuleResult = ProcessModuleResult {
 
 processModule :: LiquidHaskellContext -> TcM (Either LiquidCheckException ProcessModuleResult)
 processModule LiquidHaskellContext{..} = do
+  let modGuts0   = lhModuleGuts
+      thisModule = mg_module modGuts0
+
   debugLog ("Module ==> " ++ renderModule thisModule)
   hscEnv              <- env_top <$> getEnv
 
@@ -527,10 +531,12 @@ processModule LiquidHaskellContext{..} = do
     when debugLogs $
       forM_ (HM.keys . getDependencies $ dependencies) $ debugLog . moduleStableString . unStableModule
 
-    debugLog $ "mg_exports => " ++ O.showSDocUnsafe (O.ppr $ mg_exports modGuts)
-    debugLog $ "mg_tcs => " ++ O.showSDocUnsafe (O.ppr $ mg_tcs modGuts)
+    debugLog $ "mg_exports => " ++ O.showSDocUnsafe (O.ppr $ mg_exports modGuts0)
+    debugLog $ "mg_tcs => " ++ O.showSDocUnsafe (O.ppr $ mg_tcs modGuts0)
 
     dynFlags <- getDynFlags
+    let preNormalizedCore = preNormalizeCore moduleCfg modGuts0
+        modGuts = modGuts0 { mg_binds = preNormalizedCore }
     targetSrc  <- liftIO $ makeTargetSrc moduleCfg dynFlags file lhModuleTcData modGuts hscEnv
     logger <- getLogger
 
@@ -540,13 +546,18 @@ processModule LiquidHaskellContext{..} = do
 
     tcg <- getGblEnv
     let rtAliases = collectTypeAliases thisModule bareSpec0 (HM.toList $ getDependencies dependencies)
-        eBareSpec = resolveLHNames rtAliases (tcg_rdr_env tcg) bareSpec0
+        localVars = makeLocalVars preNormalizedCore
+        eBareSpec = resolveLHNames
+          localVars
+          rtAliases
+          (tcg_rdr_env tcg)
+          bareSpec0
     result <-
       case eBareSpec of
         Left errors -> pure $ Left $ mkDiagnostics [] errors
         Right bareSpec ->
           fmap (,bareSpec) <$>
-            makeTargetSpec moduleCfg lhModuleLogicMap targetSrc bareSpec dependencies
+            makeTargetSpec moduleCfg localVars lhModuleLogicMap targetSrc bareSpec dependencies
 
     let continue = pure $ Left (ErrorsOccurred [])
         reportErrs :: (Show e, F.PPrint e) => [TError e] -> TcRn (Either LiquidCheckException ProcessModuleResult)
@@ -576,10 +587,6 @@ processModule LiquidHaskellContext{..} = do
       `Ex.catch` (\(e :: Error) -> reportErrs [e])
       `Ex.catch` (\(es :: [Error]) -> reportErrs es)
 
-  where
-    modGuts    = lhModuleGuts
-    thisModule = mg_module modGuts
-
 makeTargetSrc :: Config
               -> DynFlags
               -> FilePath
@@ -588,11 +595,10 @@ makeTargetSrc :: Config
               -> HscEnv
               -> IO TargetSrc
 makeTargetSrc cfg dynFlags file tcData modGuts hscEnv = do
-  let preNormCoreBinds = preNormalizeCore cfg modGuts
   when (dumpPreNormalizedCore cfg) $ do
     putStrLn "\n*************** Pre-normalized CoreBinds *****************\n"
-    putStrLn $ unlines $ L.intersperse "" $ map (GHC.showPpr dynFlags) preNormCoreBinds
-  coreBinds <- anormalize cfg hscEnv modGuts { mg_binds = preNormCoreBinds }
+    putStrLn $ unlines $ L.intersperse "" $ map (GHC.showPpr dynFlags) (mg_binds modGuts)
+  coreBinds <- anormalize cfg hscEnv modGuts
 
   -- The type constructors for a module are the (nubbed) union of the ones defined and
   -- the ones exported. This covers the case of \"wrapper modules\" that simply re-exports
