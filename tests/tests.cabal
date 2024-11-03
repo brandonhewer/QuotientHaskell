@@ -792,6 +792,7 @@ executable names-pos
                     , Local01
                     , Local02
                     , Local03
+                    , LocalAssume
                     , LocalSpec
                     , Ord
                     , Set00
