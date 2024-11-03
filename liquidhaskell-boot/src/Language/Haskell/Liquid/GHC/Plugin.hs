@@ -514,7 +514,6 @@ processModule LiquidHaskellContext{..} = do
       thisModule = mg_module modGuts0
 
   debugLog ("Module ==> " ++ renderModule thisModule)
-  hscEnv              <- env_top <$> getEnv
 
   let bareSpec0       = lhInputSpec
   -- /NOTE/: For the Plugin to work correctly, we shouldn't call 'canonicalizePath', because otherwise
@@ -534,10 +533,10 @@ processModule LiquidHaskellContext{..} = do
     debugLog $ "mg_exports => " ++ O.showSDocUnsafe (O.ppr $ mg_exports modGuts0)
     debugLog $ "mg_tcs => " ++ O.showSDocUnsafe (O.ppr $ mg_tcs modGuts0)
 
-    dynFlags <- getDynFlags
+    hscEnv <- getTopEnv
     let preNormalizedCore = preNormalizeCore moduleCfg modGuts0
         modGuts = modGuts0 { mg_binds = preNormalizedCore }
-    targetSrc  <- liftIO $ makeTargetSrc moduleCfg dynFlags file lhModuleTcData modGuts hscEnv
+    targetSrc  <- liftIO $ makeTargetSrc moduleCfg file lhModuleTcData modGuts hscEnv
     logger <- getLogger
 
     -- See https://github.com/ucsd-progsys/liquidhaskell/issues/1711
@@ -588,16 +587,15 @@ processModule LiquidHaskellContext{..} = do
       `Ex.catch` (\(es :: [Error]) -> reportErrs es)
 
 makeTargetSrc :: Config
-              -> DynFlags
               -> FilePath
               -> TcData
               -> ModGuts
               -> HscEnv
               -> IO TargetSrc
-makeTargetSrc cfg dynFlags file tcData modGuts hscEnv = do
+makeTargetSrc cfg file tcData modGuts hscEnv = do
   when (dumpPreNormalizedCore cfg) $ do
     putStrLn "\n*************** Pre-normalized CoreBinds *****************\n"
-    putStrLn $ unlines $ L.intersperse "" $ map (GHC.showPpr dynFlags) (mg_binds modGuts)
+    putStrLn $ unlines $ L.intersperse "" $ map (GHC.showPpr (GHC.hsc_dflags hscEnv)) (mg_binds modGuts)
   coreBinds <- anormalize cfg hscEnv modGuts
 
   -- The type constructors for a module are the (nubbed) union of the ones defined and
