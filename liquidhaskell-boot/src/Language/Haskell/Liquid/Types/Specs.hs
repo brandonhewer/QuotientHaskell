@@ -402,7 +402,6 @@ data Spec ty bndr  = Spec
   , sigs       :: ![(F.Located LHName, ty)]                           -- ^ Asserted spec signatures
   , invariants :: ![(Maybe F.LocSymbol, ty)]                          -- ^ Data type invariants; the Maybe is the generating measure
   , ialiases   :: ![(ty, ty)]                                         -- ^ Data type invariants to be checked
-  , imports    :: ![F.Symbol]                                         -- ^ Loaded spec module names
   , dataDecls  :: ![DataDecl]                                         -- ^ Predicated data definitions
   , newtyDecls :: ![DataDecl]                                         -- ^ Predicated new type definitions
   , includes   :: ![FilePath]                                         -- ^ Included qualifier files
@@ -462,7 +461,6 @@ instance Semigroup (Spec ty bndr) where
            , sigs       =           sigs       s1 ++ sigs       s2
            , invariants =           invariants s1 ++ invariants s2
            , ialiases   =           ialiases   s1 ++ ialiases   s2
-           , imports    = sortNub $ imports    s1 ++ imports    s2
            , dataDecls  =           dataDecls  s1 ++ dataDecls  s2
            , newtyDecls =           newtyDecls s1 ++ newtyDecls s2
            , includes   = sortNub $ includes   s1 ++ includes   s2
@@ -510,7 +508,6 @@ instance Monoid (Spec ty bndr) where
            , sigs       = []
            , invariants = []
            , ialiases   = []
-           , imports    = []
            , dataDecls  = []
            , newtyDecls = []
            , includes   = []
@@ -587,8 +584,6 @@ data LiftedSpec = LiftedSpec
     -- ^ Data type invariants; the Maybe is the generating measure
   , liftedIaliases   :: HashSet (LocBareType, LocBareType)
     -- ^ Data type invariants to be checked
-  , liftedImports    :: HashSet F.Symbol
-    -- ^ Loaded spec module names
   , liftedDataDecls  :: HashSet DataDecl
     -- ^ Predicated data definitions
   , liftedNewtyDecls :: HashSet DataDecl
@@ -640,7 +635,6 @@ emptyLiftedSpec = LiftedSpec
   , liftedSigs     = mempty
   , liftedInvariants = mempty
   , liftedIaliases   = mempty
-  , liftedImports    = mempty
   , liftedDataDecls  = mempty
   , liftedNewtyDecls = mempty
   , liftedAliases    = mempty
@@ -818,7 +812,6 @@ toLiftedSpec a = LiftedSpec
   , liftedSigs       = S.fromList . sigs     $ a
   , liftedInvariants = S.fromList . invariants $ a
   , liftedIaliases   = S.fromList . ialiases $ a
-  , liftedImports    = S.fromList . imports $ a
   , liftedDataDecls  = S.fromList . dataDecls $ a
   , liftedNewtyDecls = S.fromList . newtyDecls $ a
   , liftedAliases    = S.fromList . aliases $ a
@@ -854,7 +847,6 @@ unsafeFromLiftedSpec a = Spec
   , asmRel     = mempty
   , invariants = S.toList . liftedInvariants $ a
   , ialiases   = S.toList . liftedIaliases $ a
-  , imports    = S.toList . liftedImports $ a
   , dataDecls  = S.toList . liftedDataDecls $ a
   , newtyDecls = S.toList . liftedNewtyDecls $ a
   , includes   = mempty

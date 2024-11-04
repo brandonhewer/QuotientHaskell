@@ -1072,7 +1072,6 @@ mkSpec name xs         = (name,) $ qualifySpec (symbol name) Measure.Spec
   , Measure.expSigs    = []
   , Measure.invariants = [(Nothing, t) | Invt   t <- xs]
   , Measure.ialiases   = [t | Using t <- xs]
-  , Measure.imports    = [i | Impt   i <- xs]
   , Measure.dataDecls  = [d | DDecl  d <- xs] ++ [d | NTDecl d <- xs]
   , Measure.newtyDecls = [d | NTDecl d <- xs]
   , Measure.includes   = [q | Incl   q <- xs]
