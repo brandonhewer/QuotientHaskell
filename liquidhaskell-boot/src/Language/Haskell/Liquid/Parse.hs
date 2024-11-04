@@ -21,6 +21,7 @@ module Language.Haskell.Liquid.Parse
 import           Control.Arrow                          (second)
 import           Control.Monad
 import           Control.Monad.Identity
+import qualified Data.Char                              as Char
 import qualified Data.Foldable                          as F
 import           Data.String
 import           Data.Void
@@ -466,18 +467,21 @@ lowerIdTail l =
 
 bTyConP :: Parser BTyCon
 bTyConP
-  =  (reservedOp "'" >> (mkPromotedBTyCon . fmap (makeUnresolvedLHName LHDataConName) <$> locUpperIdP))
- <|> mkBTyCon . fmap (makeUnresolvedLHName LHTcName) <$> locUpperIdP
+  =  (reservedOp "'" >> mkPromotedBTyCon <$> locUpperIdLHNameP LHDataConName)
+ <|> mkBTyCon <$> locUpperIdLHNameP LHTcName
  <|> (reserved "*" >>
         return (mkBTyCon (dummyLoc $ makeUnresolvedLHName LHTcName $ symbol ("*" :: String)))
      )
  <?> "bTyConP"
 
+locUpperIdLHNameP :: LHNameSpace -> Parser (Located LHName)
+locUpperIdLHNameP ns = fmap (makeUnresolvedLHName ns) <$> locUpperIdP
+
 mkPromotedBTyCon :: Located LHName -> BTyCon
 mkPromotedBTyCon x = BTyCon x False True -- (consSym '\'' <$> x) False True
 
 classBTyConP :: Parser BTyCon
-classBTyConP = mkClassBTyCon . fmap (makeUnresolvedLHName LHTcName) <$> locUpperIdP
+classBTyConP = mkClassBTyCon <$> locUpperIdLHNameP LHTcName
 
 mkClassBTyCon :: Located LHName -> BTyCon
 mkClassBTyCon x = BTyCon x True False
@@ -893,11 +897,17 @@ ppAsserts k lxs t mles
     ppLes Nothing    = ""
     ppLes (Just les) = "/" <+> pprintTidy k (val <$> les)
 
+pprintSymbolWithParens :: LHName -> PJ.Doc
+pprintSymbolWithParens lhname =
+    case show lhname of
+      n@(c:_) | not (Char.isAlpha c) -> "(" <> PJ.text n <> ")"
+      n -> PJ.text n
+
 ppPspec :: (PPrint t, PPrint c) => Tidy -> Pspec t c -> PJ.Doc
 ppPspec k (Meas m)
   = "measure" <+> pprintTidy k m
 ppPspec k (Assm (lx, t))
-  = "assume"  <+> pprintTidy k (val lx) <+> "::" <+> pprintTidy k t
+  = "assume"  <+> pprintSymbolWithParens (val lx) <+> "::" <+> pprintTidy k t
 ppPspec k (AssmReflect (lx, ly))
   = "assume reflect"  <+> pprintTidy k (val lx) <+> "as" <+> pprintTidy k (val ly)
 ppPspec k (Asrt (lx, t))
@@ -1059,7 +1069,6 @@ mkSpec name xs         = (name,) $ qualifySpec (symbol name) Measure.Spec
   , Measure.asmReflectSigs = [(l, r) | AssmReflect (l, r) <- xs]
   , Measure.sigs       = [a | Asrt   a <- xs]
                       ++ [(y, t) | Asrts (ys, (t, _)) <- xs, y <- ys]
-  , Measure.localSigs  = []
   , Measure.reflSigs   = []
   , Measure.impSigs    = []
   , Measure.expSigs    = []
@@ -1108,7 +1117,7 @@ specP :: Parser BPspec
 specP
   = fallbackSpecP "assume" ((reserved "reflect" >> fmap AssmReflect assmReflectBindP)
         <|> (reserved "relational" >>  fmap AssmRel relationalP)
-        <|>                            fmap Assm   assumptionP  )
+        <|>                            fmap Assm   tyBindLHNameP  )
     <|> fallbackSpecP "assert"      (fmap Asrt    tyBindP  )
     <|> fallbackSpecP "autosize"    (fmap ASize   asizeP   )
     <|> (reserved "local"         >> fmap LAsrt   tyBindP  )
@@ -1227,7 +1236,7 @@ filePathP     = angles $ some pathCharP
     pathChars = ['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9'] ++ ['.', '/']
 
 datavarianceP :: Parser (Located LHName, [Variance])
-datavarianceP = liftM2 (,) (fmap (makeUnresolvedLHName LHTcName) <$> locUpperIdP) (many varianceP)
+datavarianceP = liftM2 (,) (locUpperIdLHNameP LHTcName) (many varianceP)
 
 dsizeP :: Parser ([Located BareType], Located Symbol)
 dsizeP = liftM2 (,) (parens $ sepBy (located genBareTypeP) comma) locBinderP
@@ -1252,8 +1261,12 @@ tyBindP :: Parser (LocSymbol, Located BareType)
 tyBindP =
   (,) <$> locBinderP <* reservedOp "::" <*> located genBareTypeP
 
-assumptionP :: Parser (Located LHName, Located BareType)
-assumptionP = do
+tyBindMethodP :: Parser (LocSymbol, Located BareType)
+tyBindMethodP =
+  (,) <$> located binderInfixParensP <* reservedOp "::" <*> located genBareTypeP
+
+tyBindLHNameP :: Parser (Located LHName, Located BareType)
+tyBindLHNameP = do
     x <- locBinderP
     _ <- reservedOp "::"
     t <- located genBareTypeP
@@ -1293,7 +1306,7 @@ genBareTypeP = bareTypeP
 
 embedP :: Parser (Located LHName, FTycon, TCArgs)
 embedP = do
-  x <- fmap (makeUnresolvedLHName LHTcName) <$> locUpperIdP
+  x <- locUpperIdLHNameP LHTcName
   a <- try (reserved "*" >> return WithArgs) <|> return NoArgs -- TODO: reserved "*" looks suspicious
   _ <- reserved "as"
   t <- fTyConP
@@ -1405,7 +1418,7 @@ riMethodSigP
   = try (do reserved "assume"
             (x, t) <- tyBindP
             return (x, RIAssumed t) )
- <|> do (x, t) <- tyBindP
+ <|> do (x, t) <- tyBindMethodP
         return (x, RISig t)
  <?> "riMethodSigP"
 
@@ -1462,13 +1475,20 @@ binderP    = pwr    <$> parens (idP bad)
 -}
 binderP :: Parser Symbol
 binderP =
-      symbol . (\ x -> "(" <> x <> ")") . symbolText <$> parens infixBinderIdP
+      parens infixBinderIdP
   <|> binderIdP
   -- Note: It is important that we do *not* use the LH/fixpoint reserved words here,
   -- because, for example, we must be able to use "assert" as an identifier.
-  --
-  -- TODO, Andres: I have no idea why we make the parens part of the symbol here.
-  -- But I'm reproducing this behaviour for now, as it is backed up via a few tests.
+
+-- | Like binderP, but surrounds infix operators with parenthesis.
+--
+-- This is only needed by `tests/parser/pos/T892.hs` and needs to be
+-- investigated why.
+binderInfixParensP :: Parser Symbol
+binderInfixParensP =
+      symbol . (\ x -> "(" <> x <> ")") . symbolText <$> parens infixBinderIdP
+  <|> binderIdP
+
 
 measureDefP :: Parser Body -> Parser (Def (Located BareType) LocSymbol)
 measureDefP bodyP
@@ -1571,7 +1591,7 @@ dataConNameP
   where
      idP p  = takeWhile1P Nothing (not . p)
      bad c  = isSpace c || c `elem` ("(,)" :: String)
-     pwr s  = symbol $ "(" <> s <> ")"
+     pwr s  = symbol s
 
 dataSizeP :: Parser (Maybe SizeFun)
 dataSizeP

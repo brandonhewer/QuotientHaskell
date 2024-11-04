@@ -72,6 +72,7 @@ plugSrc _        = Nothing
 data Env = RE 
   { reSession   :: Ghc.Session
   , reTcGblEnv  :: Ghc.TcGblEnv
+  , reLocalVarsEnv :: Ghc.NameEnv Ghc.Var   -- ^ an environment of local variables
   , reUsedExternals :: Ghc.NameSet
   , reLMap      :: LogicMap
   , reSyms      :: [(F.Symbol, Ghc.Var)]    -- ^ see "syms" in old makeGhcSpec'

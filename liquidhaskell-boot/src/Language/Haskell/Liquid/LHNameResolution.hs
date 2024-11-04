@@ -26,10 +26,13 @@ import           Data.Generics (extT)
 
 import qualified Data.HashSet                            as HS
 import qualified Data.HashMap.Strict                     as HM
+import           Data.Maybe (fromMaybe, listToMaybe)
 import qualified Data.Text                               as Text
 import qualified GHC.Types.Name.Occurrence
 
 import           Language.Fixpoint.Types hiding (Error, panic)
+import           Language.Haskell.Liquid.Bare.Resolve (lookupLocalVar)
+import           Language.Haskell.Liquid.Bare.Types (LocalVars)
 import           Language.Haskell.Liquid.Types.Errors (TError(ErrDupNames, ErrResolve), panic)
 import           Language.Haskell.Liquid.Types.Specs
 import           Language.Haskell.Liquid.Types.Types
@@ -61,11 +64,12 @@ collectTypeAliases m bs deps =
 -- | Converts occurrences of LHNUnresolved to LHNResolved using the provided
 -- type aliases and GlobalRdrEnv.
 resolveLHNames
-  :: HM.HashMap Symbol (Module, RTAlias Symbol BareType)
+  :: LocalVars
+  -> HM.HashMap Symbol (Module, RTAlias Symbol BareType)
   -> GlobalRdrEnv
   -> BareSpec
   -> Either [Error] BareSpec
-resolveLHNames taliases globalRdrEnv =
+resolveLHNames localVars taliases globalRdrEnv =
     (\(bs, es) -> if null es then Right bs else Left es) .
     runWriter .
     mapMLocLHNames (\l -> (<$ l) <$> resolveLHName l) .
@@ -82,30 +86,43 @@ resolveLHNames taliases globalRdrEnv =
         | otherwise ->
           case HM.lookup s taliases of
             Just (m, _) -> pure $ LHNResolved (LHRLogic $ LogicName s m) s
-            Nothing -> lookupGRELHName LHTcName lname s
+            Nothing -> lookupGRELHName LHTcName lname s listToMaybe
       LHNUnresolved LHVarName s
-        | isDataCon s -> lookupGRELHName LHDataConName lname s
-        | otherwise -> lookupGRELHName LHVarName lname s
-      LHNUnresolved ns s -> lookupGRELHName ns lname s
+        | isDataCon s -> lookupGRELHName LHDataConName lname s listToMaybe
+        | otherwise ->
+            lookupGRELHName LHVarName lname s
+              (fmap (either id GHC.getName) . lookupLocalVar localVars (atLoc lname s))
+      LHNUnresolved ns s -> lookupGRELHName ns lname s listToMaybe
       n@(LHNResolved (LHRLocal _) _) -> pure n
       n ->
         let sp = Just $ LH.sourcePosSrcSpan $ loc lname
          in panic sp $ "resolveLHNames: Unexpected resolved name: " ++ show n
 
-    lookupGRELHName ns lname s =
+    lookupGRELHName ns lname s localNameLookup =
       case GHC.lookupGRE globalRdrEnv (mkLookupGRE ns s) of
-        [e] ->
-          pure $ LHNResolved (LHRGHC $ GHC.greName e) s
+        [e] -> do
+          let n = GHC.greName e
+              n' = fromMaybe n $ localNameLookup [n]
+          pure $ LHNResolved (LHRGHC n') s
         es@(_:_) -> do
-          tell [ErrDupNames
-                  (LH.fSrcSpan lname)
-                  (pprint s)
-                  (map (PJ.text . showPprUnsafe) es)
-               ]
-          pure $ val lname
-        [] -> do
-          tell [errResolve (nameSpaceKind ns) "Cannot resolve name" (s <$ lname)]
-          pure $ val lname
+          let topLevelNames = map GHC.greName es
+          case localNameLookup topLevelNames of
+            Just n | notElem n topLevelNames ->
+              pure $ LHNResolved (LHRGHC n) s
+            _ -> do
+              tell [ErrDupNames
+                      (LH.fSrcSpan lname)
+                      (pprint s)
+                      (map (PJ.text . showPprUnsafe) es)
+                   ]
+              pure $ val lname
+        [] ->
+          case localNameLookup [] of
+            Just n' ->
+              pure $ LHNResolved (LHRGHC n') s
+            Nothing -> do
+              tell [errResolve (nameSpaceKind ns) "Cannot resolve name" (s <$ lname)]
+              pure $ val lname
 
     errResolve :: PJ.Doc -> String -> LocSymbol -> Error
     errResolve k msg lx = ErrResolve (LH.fSrcSpan lx) k (pprint (val lx)) (PJ.text msg)
@@ -120,12 +137,7 @@ resolveLHNames taliases globalRdrEnv =
       let m = LH.takeModuleNames s
           n = LH.dropModuleNames s
           nString = symbolString n
-          -- TODO: Maybe change the parser so dataConNameP doesn't include the
-          -- parentheses around infix operators.
-          maybeUnpar = case nString of
-            '(':rest -> init rest
-            _ -> nString
-          oname = GHC.mkOccName (mkGHCNameSpace ns) maybeUnpar
+          oname = GHC.mkOccName (mkGHCNameSpace ns) nString
           rdrn =
             if m == "" then
               GHC.mkRdrUnqual oname
