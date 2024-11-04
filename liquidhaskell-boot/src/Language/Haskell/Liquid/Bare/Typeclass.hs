@@ -81,7 +81,7 @@ compileClasses src env (name, spec) rest =
     Just (cls, sig) -> (M.alter (merge sig) cls refs, sigs')
    where
     clsOp = do
-      var <- Bare.maybeResolveSym env name "grabClassSig" $ getLHNameSymbol <$> lsym
+      var <- either (const Nothing) Just $ Bare.lookupGhcIdLHName env lsym
       cls <- Ghc.isClassOpId_maybe var
       pure (cls, (var, ref))
     merge sig v = case v of
