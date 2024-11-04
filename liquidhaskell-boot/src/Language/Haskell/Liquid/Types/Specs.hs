@@ -396,10 +396,10 @@ instance Monoid BareSpec where
 -- | A generic 'Spec' type, polymorphic over the inner choice of type and binder.
 data Spec ty bndr  = Spec
   { measures   :: ![Measure ty bndr]                                  -- ^ User-defined properties for ADTs
-  , expSigs    :: ![(F.Symbol, F.Sort)]                               -- ^ Exported variables types
-  , asmSigs    :: ![(F.Located LHName, ty)]                                -- ^ Assumed (unchecked) types; including reflected signatures
+  , expSigs    :: ![(F.Symbol, F.Sort)]                               -- ^ Exported logic symbols
+  , asmSigs    :: ![(F.Located LHName, ty)]                           -- ^ Assumed (unchecked) types; including reflected signatures
   , asmReflectSigs :: ![(F.LocSymbol, F.LocSymbol)]                   -- ^ Assume reflects : left is the actual function and right the pretended one
-  , sigs       :: ![(F.Located LHName, ty)]                           -- ^ Imported functions and types
+  , sigs       :: ![(F.Located LHName, ty)]                           -- ^ Asserted spec signatures
   , reflSigs   :: ![(F.LocSymbol, ty)]                                -- ^ Reflected type signatures
   , invariants :: ![(Maybe F.LocSymbol, ty)]                          -- ^ Data type invariants; the Maybe is the generating measure
   , ialiases   :: ![(ty, ty)]                                         -- ^ Data type invariants to be checked
@@ -579,13 +579,13 @@ data LiftedSpec = LiftedSpec
   { liftedMeasures   :: HashSet (Measure LocBareType F.LocSymbol)
     -- ^ User-defined properties for ADTs
   , liftedExpSigs    :: HashSet (F.Symbol, F.Sort)
-    -- ^ Exported variables types
+    -- ^ Exported logic symbols
   , liftedAsmSigs    :: HashSet (F.Located LHName, LocBareType)
     -- ^ Assumed (unchecked) types; including reflected signatures
   , liftedAsmReflectSigs    :: HashSet (F.LocSymbol, F.LocSymbol)
     -- ^ Reflected assumed signatures
   , liftedSigs       :: HashSet (F.Located LHName, LocBareType)
-    -- ^ Imported functions and types
+    -- ^ Asserted spec signatures
   , liftedInvariants :: HashSet (Maybe F.LocSymbol, LocBareType)
     -- ^ Data type invariants; the Maybe is the generating measure
   , liftedIaliases   :: HashSet (LocBareType, LocBareType)
