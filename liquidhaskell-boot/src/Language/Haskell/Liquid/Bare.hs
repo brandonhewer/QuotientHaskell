@@ -24,7 +24,6 @@ module Language.Haskell.Liquid.Bare (
 
 import           Prelude                                    hiding (error)
 import           Control.Monad                              (forM, mplus, when)
-import           Control.Applicative                        ((<|>))
 import qualified Control.Exception                          as Ex
 import qualified Data.Binary                                as B
 import           Data.IORef (newIORef)
@@ -994,10 +993,10 @@ allAsmSigs env myName specs = do
   let aSigs = [ (name, locallyDefined, x, t) | (name, spec) <- M.toList specs
                                    , (locallyDefined, x, t) <- getAsmSigs myName name spec ]
   vSigs    <- forM aSigs $ \(name, locallyDefined, x, t) -> do
-                vMb <- lookupSymbolOrLHName name locallyDefined x
-                return (vMb, (locallyDefined, name, t))
+                v <- Bare.lookupGhcIdLHName env x
+                return (v, (locallyDefined, name, t))
   return $ Misc.groupList
-    [ (v, z) | (Just v, z) <- vSigs
+    [ (v, z) | (v, z) <- vSigs
       -- TODO: we require signatures to be in scope because LH includes them in
       -- the environment of contraints sometimes. The criteria to add bindings to
       -- constraints should account instead for what logic functions are used in
@@ -1006,39 +1005,6 @@ allAsmSigs env myName specs = do
     , isUsedExternalVar v || isInScope v || isLocalVar v
     ]
   where
-    lookupSymbolOrLHName :: ModName -> Bool -> SymbolOrLHName -> Bare.Lookup (Maybe Ghc.Var)
-    lookupSymbolOrLHName _name _locallyDefined (SOLLHName x) =
-      Just <$> Bare.lookupGhcIdLHName env x
-    lookupSymbolOrLHName name locallyDefined (SOLSymbol x) = do
-                -- Qualified assumes that refer to module aliases import declarations
-                -- are resolved looking at import declarations
-                let (mm, s) = Bare.unQualifySymbol (val x)
-                if not (isAbsoluteQualifiedSym mm) then resolveAsmVar env name locallyDefined x
-                       else if locallyDefined then
-                         -- Fully qualified assumes that are locally defined produce an error if they aren't found
-                         lookupImportedSym x (mm, s)
-                       else
-                         -- Imported fully qualified assumes do not produce an error if they
-                         -- aren't found, and we looked them anyway without considering
-                         -- import declarations.
-                         -- LH seems to send here assumes for data constructors that
-                         -- yield Nothing, like for GHC.Types.W#
-                         return $ lookupImportedSymMaybe (mm, s)
-
-    lookupImportedSym x qp =
-      let errRes = Left [Bare.errResolve "variable" "Var" x]
-       in maybe errRes (Right . Just) $
-            lookupImportedSymMaybe qp
-    lookupImportedSymMaybe (mm, s) = do
-      mts <- M.lookup s (Bare._reTyThings env)
-      m <- mm
-      Mb.listToMaybe [ v | (k, Ghc.AnId v) <- mts, k == m ]
-
-    isAbsoluteQualifiedSym (Just m) =
-       not $ M.member m $ qiNames (Bare.reQualImps env)
-    isAbsoluteQualifiedSym Nothing =
-       False
-
     isUsedExternalVar :: Ghc.Var -> Bool
     isUsedExternalVar v = case Ghc.idDetails v of
       Ghc.DataConWrapId dc ->
@@ -1063,21 +1029,13 @@ allAsmSigs env myName specs = do
 
     isLocalVar = Mb.isNothing . Ghc.nameModule_maybe . Ghc.getName
 
-resolveAsmVar :: Bare.Env -> ModName -> Bool -> LocSymbol -> Bare.Lookup (Maybe Ghc.Var)
-resolveAsmVar env name True  lx = Just  <$> Bare.lookupGhcVar env name "resolveAsmVar-True"  lx
-resolveAsmVar env name False lx = return $  Bare.maybeResolveSym     env name "resolveAsmVar-False" lx  <|> GM.maybeAuxVar (F.val lx)
-
--- | Temporary data type to represent a symbol or an LHName while not all of the
--- code has been migrated to use LHName.
-data SymbolOrLHName = SOLSymbol LocSymbol | SOLLHName (Located LHName)
-
-getAsmSigs :: ModName -> ModName -> Ms.BareSpec -> [(Bool, SymbolOrLHName, LocBareType)]
+getAsmSigs :: ModName -> ModName -> Ms.BareSpec -> [(Bool, Located LHName, LocBareType)]
 getAsmSigs myName name spec
-  | myName == name = [ (True, SOLLHName x,  t) | (x, t) <- Ms.asmSigs spec ] -- MUST    resolve, or error
+  | myName == name = [ (True, x,  t) | (x, t) <- Ms.asmSigs spec ] -- MUST    resolve, or error
   | otherwise      =
       [ (False, x, t)
-      | (x, t) <- map (first SOLLHName) (Ms.asmSigs spec)
-                  ++ map (first (SOLLHName . fmap (updateLHNameSymbol qSym))) (Ms.sigs spec)
+      | (x, t) <- Ms.asmSigs spec
+                  ++ map (first (fmap (updateLHNameSymbol qSym))) (Ms.sigs spec)
       ]
   where
     qSym           = GM.qualifySymbol ns
