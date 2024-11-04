@@ -885,7 +885,7 @@ makeFromSet msg f env specs = concat [ mk n xs | (n, s) <- specs, let xs = S.toL
 makeTySigs :: Bare.Env -> Bare.SigEnv -> ModName -> Ms.BareSpec
            -> Bare.Lookup [(Ghc.Var, LocSpecType, Maybe [Located F.Expr])]
 makeTySigs env sigEnv name spec = do
-  bareSigs   <- bareTySigs env name                spec
+  bareSigs   <- bareTySigs env                     spec
   expSigs    <- makeTExpr  env name bareSigs rtEnv spec
   let rawSigs = Bare.resolveLocalBinds env expSigs
   return [ (x, cook x bt, z) | (x, bt, z) <- rawSigs ]
@@ -893,11 +893,11 @@ makeTySigs env sigEnv name spec = do
     rtEnv     = Bare.sigRTEnv sigEnv
     cook x bt = Bare.cookSpecType env sigEnv name (Bare.HsTV x) bt
 
-bareTySigs :: Bare.Env -> ModName -> Ms.BareSpec -> Bare.Lookup [(Ghc.Var, LocBareType)]
-bareTySigs env name spec = checkDuplicateSigs <$> vts
+bareTySigs :: Bare.Env -> Ms.BareSpec -> Bare.Lookup [(Ghc.Var, LocBareType)]
+bareTySigs env spec = checkDuplicateSigs <$> vts
   where
     vts = forM ( Ms.sigs spec ) $ \ (x, t) -> do
-            v <- F.notracepp "LOOKUP-GHC-VAR" $ Bare.lookupGhcVar env name "rawTySigs" (getLHNameSymbol <$> x)
+            v <- F.notracepp "LOOKUP-GHC-VAR" $ Bare.lookupGhcIdLHName env x
             return (v, t)
 
 -- checkDuplicateSigs :: [(Ghc.Var, LocSpecType)] -> [(Ghc.Var, LocSpecType)]
