@@ -936,7 +936,7 @@ myAsmSig v sigs = Mb.fromMaybe errImp (mbHome `mplus` mbImp)
 makeTExpr :: Bare.Env -> ModName -> [(Ghc.Var, LocBareType)] -> BareRTEnv -> Ms.BareSpec
           -> Bare.Lookup [(Ghc.Var, LocBareType, Maybe [Located F.Expr])]
 makeTExpr env name tySigs rtEnv spec = do
-  vExprs       <- M.fromList <$> makeVarTExprs env name spec
+  vExprs       <- M.fromList <$> makeVarTExprs env spec
   let vSigExprs = Misc.hashMapMapWithKey (\v t -> (t, M.lookup v vExprs)) vSigs
   return [ (v, t, qual t <$> es) | (v, (t, es)) <- M.toList vSigExprs ]
   where
@@ -952,10 +952,10 @@ qualifyTermExpr env name rtEnv t le
     e   = F.val le
     bs  = ty_binds . toRTypeRep . val $ t
 
-makeVarTExprs :: Bare.Env -> ModName -> Ms.BareSpec -> Bare.Lookup [(Ghc.Var, [Located F.Expr])]
-makeVarTExprs env name spec =
+makeVarTExprs :: Bare.Env -> Ms.BareSpec -> Bare.Lookup [(Ghc.Var, [Located F.Expr])]
+makeVarTExprs env spec =
   forM (Ms.termexprs spec) $ \(x, es) -> do
-    vx <- Bare.lookupGhcVar env name "Var" (getLHNameSymbol <$> x)
+    vx <- Bare.lookupGhcIdLHName env x
     return (vx, es)
 
 ----------------------------------------------------------------------------------------
