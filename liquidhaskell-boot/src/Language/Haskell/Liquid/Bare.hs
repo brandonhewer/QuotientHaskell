@@ -313,8 +313,7 @@ makeGhcSpec0 cfg session tcg localVars src lmap targetSpec dependencySpecs = do
     , _gsTerm   = spcTerm
 
     , _gsLSpec  = finalLiftedSpec
-                { impSigs   = makeImports mspecs
-                , expSigs   = [ (F.symbol v, F.sr_sort $ Bare.varSortedReft embs v) | v <- gsReflects refl ]
+                { expSigs   = [ (F.symbol v, F.sr_sort $ Bare.varSortedReft embs v) | v <- gsReflects refl ]
                 , dataDecls = Bare.dataDeclSize mySpec $ dataDecls mySpec
                 , measures  = Ms.measures mySpec
                   -- We want to export measures in a 'LiftedSpec', especially if they are

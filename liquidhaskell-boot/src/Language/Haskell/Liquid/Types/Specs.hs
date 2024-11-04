@@ -396,7 +396,6 @@ instance Monoid BareSpec where
 -- | A generic 'Spec' type, polymorphic over the inner choice of type and binder.
 data Spec ty bndr  = Spec
   { measures   :: ![Measure ty bndr]                                  -- ^ User-defined properties for ADTs
-  , impSigs    :: ![(F.Symbol, F.Sort)]                               -- ^ Imported variables types
   , expSigs    :: ![(F.Symbol, F.Sort)]                               -- ^ Exported variables types
   , asmSigs    :: ![(F.Located LHName, ty)]                                -- ^ Assumed (unchecked) types; including reflected signatures
   , asmReflectSigs :: ![(F.LocSymbol, F.LocSymbol)]                   -- ^ Assume reflects : left is the actual function and right the pretended one
@@ -458,7 +457,6 @@ instance (Show ty, Show bndr, F.PPrint ty, F.PPrint bndr) => F.PPrint (Spec ty b
 instance Semigroup (Spec ty bndr) where
   s1 <> s2
     = Spec { measures   =           measures   s1 ++ measures   s2
-           , impSigs    =           impSigs    s1 ++ impSigs    s2
            , expSigs    =           expSigs    s1 ++ expSigs    s2
            , asmSigs    =           asmSigs    s1 ++ asmSigs    s2
            , asmReflectSigs    =    asmReflectSigs s1 ++ asmReflectSigs s2
@@ -508,7 +506,6 @@ instance Monoid (Spec ty bndr) where
   mappend = (<>)
   mempty
     = Spec { measures   = []
-           , impSigs    = []
            , expSigs    = []
            , asmSigs    = []
            , asmReflectSigs = []
@@ -581,8 +578,6 @@ instance Monoid (Spec ty bndr) where
 data LiftedSpec = LiftedSpec
   { liftedMeasures   :: HashSet (Measure LocBareType F.LocSymbol)
     -- ^ User-defined properties for ADTs
-  , liftedImpSigs    :: HashSet (F.Symbol, F.Sort)
-    -- ^ Imported variables types
   , liftedExpSigs    :: HashSet (F.Symbol, F.Sort)
     -- ^ Exported variables types
   , liftedAsmSigs    :: HashSet (F.Located LHName, LocBareType)
@@ -642,7 +637,6 @@ instance Binary F.Equation
 emptyLiftedSpec :: LiftedSpec
 emptyLiftedSpec = LiftedSpec
   { liftedMeasures = mempty
-  , liftedImpSigs  = mempty
   , liftedExpSigs  = mempty
   , liftedAsmSigs  = mempty
   , liftedAsmReflectSigs  = mempty
@@ -821,7 +815,6 @@ fromBareSpec = getBareSpec
 toLiftedSpec :: Spec LocBareType F.LocSymbol -> LiftedSpec
 toLiftedSpec a = LiftedSpec
   { liftedMeasures   = S.fromList . measures $ a
-  , liftedImpSigs    = S.fromList . impSigs  $ a
   , liftedExpSigs    = S.fromList . expSigs  $ a
   , liftedAsmSigs    = S.fromList . asmSigs  $ a
   , liftedAsmReflectSigs = S.fromList . asmReflectSigs  $ a
@@ -856,7 +849,6 @@ toLiftedSpec a = LiftedSpec
 unsafeFromLiftedSpec :: LiftedSpec -> Spec LocBareType F.LocSymbol
 unsafeFromLiftedSpec a = Spec
   { measures   = S.toList . liftedMeasures $ a
-  , impSigs    = S.toList . liftedImpSigs $ a
   , expSigs    = S.toList . liftedExpSigs $ a
   , asmSigs    = S.toList . liftedAsmSigs $ a
   , asmReflectSigs = S.toList . liftedAsmReflectSigs $ a
