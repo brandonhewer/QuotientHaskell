@@ -581,7 +581,7 @@ lookupGhcIdLHName env lname = do
      Just (Ghc.AConLike (Ghc.RealDataCon d)) -> Right (Ghc.dataConWorkId d)
      Just (Ghc.AnId x) -> Right x
      _ -> panic
-           (Just $ GM.fSrcSpan lname) $ "not a variable of data constructor: " ++ show (val lname)
+           (Just $ GM.fSrcSpan lname) $ "not a variable or data constructor: " ++ show (val lname)
 
 -------------------------------------------------------------------------------
 -- | Checking existence of names
