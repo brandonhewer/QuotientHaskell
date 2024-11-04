@@ -108,7 +108,12 @@ makeEnv :: Config -> Ghc.Session -> Ghc.TcGblEnv -> LocalVars -> GhcSrc -> Logic
 makeEnv cfg session tcg localVars src lmap specs = RE
   { reSession   = session
   , reTcGblEnv  = tcg
-  , reLocalVarsEnv = makeLocalVarsEnv localVars
+  , reTypeEnv   =
+      -- Types differ in tcg_type_env vs the core bindings though they seem to
+      -- be alpha-equivalent. We prefer the type in the core bindings and we
+      -- also include the types of local variables.
+      let varsEnv = Ghc.mkTypeEnv $ map Ghc.AnId $ letVars $ _giCbs src
+       in Ghc.tcg_type_env tcg `Ghc.plusTypeEnv` varsEnv
   , reUsedExternals = usedExternals
   , reLMap      = lmap
   , reSyms      = syms
@@ -140,10 +145,6 @@ getGlobalSyms (_, spec)
 
 makeLocalVars :: [Ghc.CoreBind] -> LocalVars
 makeLocalVars = localVarMap . localBinds
-
-makeLocalVarsEnv :: LocalVars -> Ghc.NameEnv Ghc.Var
-makeLocalVarsEnv m =
-    Ghc.mkNameEnv [ (Ghc.getName (lvdVar d), lvdVar d) | d <- concat (M.elems m) ]
 
 -- TODO: rewrite using CoreVisitor
 localBinds :: [Ghc.CoreBind] -> [LocalVarDetails]
@@ -572,14 +573,10 @@ lookupGhcDataConLHName env lname = do
            (Just $ GM.fSrcSpan lname) $ "not a data constructor: " ++ show (val lname)
 
 lookupGhcIdLHName :: HasCallStack => Env -> Located LHName -> Lookup Ghc.Id
-lookupGhcIdLHName env lname = do
-   case lookupTyThingMaybe env lname of
-     Nothing
-       | LHNResolved (LHRGHC n) _ <- val lname
-       , Just x <- Ghc.lookupNameEnv (reLocalVarsEnv env) n ->
-         Right x
-     Just (Ghc.AConLike (Ghc.RealDataCon d)) -> Right (Ghc.dataConWorkId d)
-     Just (Ghc.AnId x) -> Right x
+lookupGhcIdLHName env lname =
+   case lookupTyThing env lname of
+     Ghc.AConLike (Ghc.RealDataCon d) -> Right (Ghc.dataConWorkId d)
+     Ghc.AnId x -> Right x
      _ -> panic
            (Just $ GM.fSrcSpan lname) $ "not a variable or data constructor: " ++ show (val lname)
 
@@ -973,7 +970,7 @@ lookupTyThingMaybe env lc@(Loc _ _ c0) = unsafePerformIO $ do
         LHRIndex i -> panic (Just $ GM.fSrcSpan lc) $ "cannot resolve a LHRIndex " ++ show i
         LHRLogic (LogicName s _) -> panic (Just $ GM.fSrcSpan lc) $ "lookupTyThing: cannot resolve a LHRLogic name " ++ show s
         LHRGHC n ->
-          Ghc.reflectGhc (Interface.lookupTyThing (reTcGblEnv env) n) (reSession env)
+          Ghc.reflectGhc (Interface.lookupTyThing (reTypeEnv env) n) (reSession env)
 
 lookupTyThing :: Env -> Located LHName -> Ghc.TyThing
 lookupTyThing env lc =
