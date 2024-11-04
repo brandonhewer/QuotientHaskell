@@ -858,7 +858,7 @@ data Pspec ty ctor
   | Qualif  Qualifier                                     -- ^ 'qualif' definition
   | LVars   LocSymbol                                     -- ^ 'lazyvar' annotation, defer checks to *use* sites
   | Lazy    LocSymbol                                     -- ^ 'lazy' annotation, skip termination check on binder
-  | Fail    LocSymbol                                     -- ^ 'fail' annotation, the binder should be unsafe
+  | Fail    (Located LHName)                              -- ^ 'fail' annotation, the binder should be unsafe
   | Rewrite LocSymbol                                     -- ^ 'rewrite' annotation, the binder generates a rewrite rule
   | Rewritewith (LocSymbol, [LocSymbol])                  -- ^ 'rewritewith' annotation, the first binder is using the rewrite rules of the second list,
   | Insts   (LocSymbol, Maybe Int)                        -- ^ 'auto-inst' or 'ple' annotation; use ple locally on binder
@@ -1162,7 +1162,7 @@ specP
     <|> (reserved "lazy"          >> fmap Lazy   lazyVarP  )
     <|> (reserved "rewrite"       >> fmap Rewrite   rewriteVarP )
     <|> (reserved "rewriteWith"   >> fmap Rewritewith   rewriteWithP )
-    <|> (reserved "fail"          >> fmap Fail   failVarP  )
+    <|> (reserved "fail"          >> fmap Fail locBinderLHNameP )
     <|> (reserved "ple"           >> fmap Insts autoinstP  )
     <|> (reserved "automatic-instances" >> fmap Insts autoinstP  )
     <|> (reserved "LIQUID"        >> fmap Pragma pragmaP   )
@@ -1202,9 +1202,6 @@ rewriteVarP = locBinderP
 
 rewriteWithP :: Parser (LocSymbol, [LocSymbol])
 rewriteWithP = (,) <$> locBinderP <*> brackets (sepBy1 locBinderP comma)
-
-failVarP :: Parser LocSymbol
-failVarP = locBinderP
 
 axiomP :: Parser LocSymbol
 axiomP = locBinderP
