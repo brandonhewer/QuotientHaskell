@@ -387,7 +387,7 @@ expandBareSpec :: BareRTEnv -> F.SourcePos -> Ms.BareSpec -> Ms.BareSpec
 expandBareSpec rtEnv l sp = sp
   { measures   = expand rtEnv l (measures   sp)
   , asmSigs    = map (second (expand rtEnv l)) (asmSigs sp)
-  , sigs       = expand rtEnv l (sigs       sp)
+  , sigs       = map (second (expand rtEnv l)) (sigs sp)
   , reflSigs   = expand rtEnv l (reflSigs   sp)
   , ialiases   = [ (f x, f y) | (x, y) <- ialiases sp ]
   , dataDecls  = expand rtEnv l (dataDecls  sp)

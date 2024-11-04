@@ -634,8 +634,6 @@ import GHC.Types.Name                 as Ghc
     , occNameString
     , stableNameCmp
     )
-import GHC.Types.Name.Env             as Ghc
-    ( NameEnv, lookupNameEnv, mkNameEnv )
 import GHC.Types.Name.Set             as Ghc
     ( NameSet
     , elemNameSet
@@ -701,6 +699,12 @@ import GHC.Types.SrcLoc               as Ghc
     , srcSpanToRealSrcSpan
     )
 import GHC.Types.Tickish              as Ghc (CoreTickish, GenTickish(..))
+import GHC.Types.TypeEnv              as Ghc
+    ( TypeEnv
+    , lookupTypeEnv
+    , mkTypeEnv
+    , plusTypeEnv
+    )
 import GHC.Types.Unique               as Ghc
     ( getKey, mkUnique )
 import GHC.Types.Unique.Set           as Ghc (mkUniqSet)

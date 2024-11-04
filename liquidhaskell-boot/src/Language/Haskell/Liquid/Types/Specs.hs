@@ -400,7 +400,7 @@ data Spec ty bndr  = Spec
   , expSigs    :: ![(F.Symbol, F.Sort)]                               -- ^ Exported variables types
   , asmSigs    :: ![(F.Located LHName, ty)]                                -- ^ Assumed (unchecked) types; including reflected signatures
   , asmReflectSigs :: ![(F.LocSymbol, F.LocSymbol)]                   -- ^ Assume reflects : left is the actual function and right the pretended one
-  , sigs       :: ![(F.LocSymbol, ty)]                                -- ^ Imported functions and types
+  , sigs       :: ![(F.Located LHName, ty)]                           -- ^ Imported functions and types
   , reflSigs   :: ![(F.LocSymbol, ty)]                                -- ^ Reflected type signatures
   , invariants :: ![(Maybe F.LocSymbol, ty)]                          -- ^ Data type invariants; the Maybe is the generating measure
   , ialiases   :: ![(ty, ty)]                                         -- ^ Data type invariants to be checked
@@ -435,7 +435,7 @@ data Spec ty bndr  = Spec
   , claws      :: ![RClass ty]                                        -- ^ Refined Type-Classe Laws
   , relational :: ![(LocSymbol, LocSymbol, ty, ty, RelExpr, RelExpr)] -- ^ Relational types
   , asmRel     :: ![(LocSymbol, LocSymbol, ty, ty, RelExpr, RelExpr)] -- ^ Assumed relational types
-  , termexprs  :: ![(F.LocSymbol, [F.Located F.Expr])]                -- ^ Terminating Conditions for functions
+  , termexprs  :: ![(F.Located LHName, [F.Located F.Expr])]                -- ^ Terminating Conditions for functions
   , rinstance  :: ![RInstance ty]
   , ilaws      :: ![RILaws ty]
   , dvariance  :: ![(F.Located LHName, [Variance])]                   -- ^ TODO ? Where do these come from ?!
@@ -589,7 +589,7 @@ data LiftedSpec = LiftedSpec
     -- ^ Assumed (unchecked) types; including reflected signatures
   , liftedAsmReflectSigs    :: HashSet (F.LocSymbol, F.LocSymbol)
     -- ^ Reflected assumed signatures
-  , liftedSigs       :: HashSet (F.LocSymbol, LocBareType)
+  , liftedSigs       :: HashSet (F.Located LHName, LocBareType)
     -- ^ Imported functions and types
   , liftedInvariants :: HashSet (Maybe F.LocSymbol, LocBareType)
     -- ^ Data type invariants; the Maybe is the generating measure

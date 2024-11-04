@@ -170,24 +170,24 @@ qImports qns  = QImports
 --   (see `Bare.Resolve`)
 ---------------------------------------------------------------------------------------
 lookupTyThings :: (GhcMonad m) => TcGblEnv -> m [(Name, Maybe TyThing)]
-lookupTyThings tcGblEnv = zip names <$> mapM (lookupTyThing tcGblEnv) names
+lookupTyThings tcGblEnv = zip names <$> mapM (lookupTyThing (Ghc.tcg_type_env tcGblEnv)) names
   where
     names = liftA2 (++)
         (fmap Ghc.greName . Ghc.globalRdrEnvElts . tcg_rdr_env)
         (fmap is_dfun_name . tcg_insts)
         tcGblEnv
 
-lookupTyThing :: (GhcMonad m) => TcGblEnv -> Name -> m (Maybe TyThing)
-lookupTyThing tcGblEnv name = do
+lookupTyThing :: (GhcMonad m) => Ghc.TypeEnv -> Name -> m (Maybe TyThing)
+lookupTyThing tyEnv name = do
     runMaybeT . msum . map MaybeT $
-        [ pure (lookupNameEnv (tcg_type_env tcGblEnv) name)
+        [ pure (lookupTypeEnv tyEnv name)
         , lookupName name
         ]
 
 availableTyThings :: (GhcMonad m) => TcGblEnv -> [AvailInfo] -> m [TyThing]
 availableTyThings tcGblEnv avails =
     fmap catMaybes $
-      mapM (lookupTyThing tcGblEnv) $
+      mapM (lookupTyThing (Ghc.tcg_type_env tcGblEnv)) $
       concatMap availNames avails
 
 _dumpTypeEnv :: TypecheckedModule -> IO ()

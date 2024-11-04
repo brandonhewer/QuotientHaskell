@@ -83,13 +83,13 @@ throwErrorInQ uerr =
 
 mkSpecDecs :: BPspec -> Either UserError [Dec]
 mkSpecDecs (Asrt (name, ty)) =
-  return . SigD (symbolName name)
+  return . SigD (lhNameToName name)
     <$> simplifyBareType name (quantifyFreeRTy $ val ty)
 mkSpecDecs (LAsrt (name, ty)) =
   return . SigD (symbolName name)
     <$> simplifyBareType name (quantifyFreeRTy $ val ty)
 mkSpecDecs (Asrts (names, (ty, _))) =
-  (\t -> (`SigD` t) . symbolName <$> names)
+  (\t -> (`SigD` t) . lhNameToName <$> names)
     <$> simplifyBareType (head names) (quantifyFreeRTy $ val ty)
 mkSpecDecs (Alias rta) =
   return . TySynD name tvs <$> simplifyBareType lsym (rtBody (val rta))
@@ -135,7 +135,7 @@ lhNameToName lname = case val lname of
 
 -- BareType to TH Type ---------------------------------------------------------
 
-simplifyBareType :: LocSymbol -> BareType -> Either UserError Type
+simplifyBareType :: PPrint a => Located a -> BareType -> Either UserError Type
 simplifyBareType s t = case simplifyBareType' t of
   Simplified t' ->
     Right t'
