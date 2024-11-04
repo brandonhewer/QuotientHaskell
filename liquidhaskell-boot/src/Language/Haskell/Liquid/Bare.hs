@@ -1077,10 +1077,10 @@ getAsmSigs myName name spec
   | otherwise      =
       [ (False, x, t)
       | (x, t) <- map (first SOLLHName) (Ms.asmSigs spec)
-                  ++ map (first (SOLSymbol . qSym . fmap getLHNameSymbol)) (Ms.sigs spec)
+                  ++ map (first (SOLLHName . fmap (updateLHNameSymbol qSym))) (Ms.sigs spec)
       ]
   where
-    qSym           = fmap (GM.qualifySymbol ns)
+    qSym           = GM.qualifySymbol ns
     ns             = F.symbol name
 
 -- TODO-REBARE: grepClassAssumes
