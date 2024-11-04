@@ -1365,7 +1365,6 @@ makeLiftedSpec :: ModName -> GhcSrc -> Bare.Env
 -----------------------------------------------------------------------------------------
 makeLiftedSpec name src env refl sData sig qual myRTE lSpec0 = lSpec0
   { Ms.asmSigs    = F.notracepp   ("makeLiftedSpec : ASSUMED-SIGS " ++ F.showpp name ) (xbs ++ myDCs)
-  , Ms.reflSigs   = F.notracepp "REFL-SIGS" $ map (first (fmap getLHNameSymbol)) xbs
   , Ms.sigs       = F.notracepp   ("makeLiftedSpec : LIFTED-SIGS " ++ F.showpp name ) $
                       mkSigs (gsTySigs sig)
   , Ms.invariants = [ (Bare.varLocSym <$> x, Bare.specToBare <$> t)

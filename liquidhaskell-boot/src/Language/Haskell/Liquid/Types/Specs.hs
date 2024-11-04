@@ -400,7 +400,6 @@ data Spec ty bndr  = Spec
   , asmSigs    :: ![(F.Located LHName, ty)]                           -- ^ Assumed (unchecked) types; including reflected signatures
   , asmReflectSigs :: ![(F.LocSymbol, F.LocSymbol)]                   -- ^ Assume reflects : left is the actual function and right the pretended one
   , sigs       :: ![(F.Located LHName, ty)]                           -- ^ Asserted spec signatures
-  , reflSigs   :: ![(F.LocSymbol, ty)]                                -- ^ Reflected type signatures
   , invariants :: ![(Maybe F.LocSymbol, ty)]                          -- ^ Data type invariants; the Maybe is the generating measure
   , ialiases   :: ![(ty, ty)]                                         -- ^ Data type invariants to be checked
   , imports    :: ![F.Symbol]                                         -- ^ Loaded spec module names
@@ -461,7 +460,6 @@ instance Semigroup (Spec ty bndr) where
            , asmSigs    =           asmSigs    s1 ++ asmSigs    s2
            , asmReflectSigs    =    asmReflectSigs s1 ++ asmReflectSigs s2
            , sigs       =           sigs       s1 ++ sigs       s2
-           , reflSigs   =           reflSigs   s1 ++ reflSigs   s2
            , invariants =           invariants s1 ++ invariants s2
            , ialiases   =           ialiases   s1 ++ ialiases   s2
            , imports    = sortNub $ imports    s1 ++ imports    s2
@@ -510,7 +508,6 @@ instance Monoid (Spec ty bndr) where
            , asmSigs    = []
            , asmReflectSigs = []
            , sigs       = []
-           , reflSigs   = []
            , invariants = []
            , ialiases   = []
            , imports    = []
@@ -853,7 +850,6 @@ unsafeFromLiftedSpec a = Spec
   , asmSigs    = S.toList . liftedAsmSigs $ a
   , asmReflectSigs = S.toList . liftedAsmReflectSigs $ a
   , sigs       = S.toList . liftedSigs $ a
-  , reflSigs   = mempty
   , relational = mempty
   , asmRel     = mempty
   , invariants = S.toList . liftedInvariants $ a
