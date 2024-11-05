@@ -841,7 +841,6 @@ data Pspec ty ctor
   | Asrt    (Located LHName, ty)                          -- ^ 'assert' signature (checked)
   | LAsrt   (LocSymbol, ty)                               -- ^ 'local' assertion -- TODO RJ: what is this
   | Asrts   ([Located LHName], (ty, Maybe [Located Expr]))     -- ^ sym0, ..., symn :: ty / [m0,..., mn]
-  | Impt    Symbol                                        -- ^ 'import' a specification module
   | DDecl   DataDecl                                      -- ^ refined 'data'    declaration
   | NTDecl  DataDecl                                      -- ^ refined 'newtype' declaration
   | Relational (LocSymbol, LocSymbol, ty, ty, RelExpr, RelExpr) -- ^ relational signature
@@ -916,8 +915,6 @@ ppPspec k (LAsrt (lx, t))
   = "local assert"  <+> pprintTidy k (val lx) <+> "::" <+> pprintTidy k t
 ppPspec k (Asrts (lxs, (t, les)))
   = ppAsserts k lxs t les
-ppPspec k (Impt  x)
-  = "import" <+> pprintTidy k x
 ppPspec k (DDecl d)
   = pprintTidy k d
 ppPspec k (NTDecl d)
@@ -1069,12 +1066,9 @@ mkSpec name xs         = (name,) $ qualifySpec (symbol name) Measure.Spec
   , Measure.asmReflectSigs = [(l, r) | AssmReflect (l, r) <- xs]
   , Measure.sigs       = [a | Asrt   a <- xs]
                       ++ [(y, t) | Asrts (ys, (t, _)) <- xs, y <- ys]
-  , Measure.reflSigs   = []
-  , Measure.impSigs    = []
   , Measure.expSigs    = []
   , Measure.invariants = [(Nothing, t) | Invt   t <- xs]
   , Measure.ialiases   = [t | Using t <- xs]
-  , Measure.imports    = [i | Impt   i <- xs]
   , Measure.dataDecls  = [d | DDecl  d <- xs] ++ [d | NTDecl d <- xs]
   , Measure.newtyDecls = [d | NTDecl d <- xs]
   , Measure.includes   = [q | Incl   q <- xs]
@@ -1145,8 +1139,6 @@ specP
          >> ((reserved "measure"  >> fmap IMeas  iMeasureP )
          <|> (reserved "laws"     >> fmap ILaws instanceLawP)
          <|> fmap RInst  instanceP ))
-
-    <|> (reserved "import"        >> fmap Impt   symbolP   )
 
     <|> (reserved "data"
         >> ((reserved "variance"  >> fmap Varia  datavarianceP)

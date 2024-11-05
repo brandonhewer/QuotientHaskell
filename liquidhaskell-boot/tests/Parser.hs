@@ -123,10 +123,6 @@ testSpecP =
        parseSingleSpec "class Sized s where\n  size :: forall a. x:s a -> {v:Nat | v = sz x}" @?==
             "class  (Sized s) where\n    size :: forall a . x:s a -> {v : Nat | v == sz x}"
 
-    , testCase "import" $
-       parseSingleSpec "import Foo" @?==
-          "import Foo"
-
     , testCase "data variance" $
        parseSingleSpec "data variance IO bivariant" @?==
           "data variance IO Bivariant"

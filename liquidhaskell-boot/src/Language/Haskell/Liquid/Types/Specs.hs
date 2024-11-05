@@ -396,15 +396,12 @@ instance Monoid BareSpec where
 -- | A generic 'Spec' type, polymorphic over the inner choice of type and binder.
 data Spec ty bndr  = Spec
   { measures   :: ![Measure ty bndr]                                  -- ^ User-defined properties for ADTs
-  , impSigs    :: ![(F.Symbol, F.Sort)]                               -- ^ Imported variables types
-  , expSigs    :: ![(F.Symbol, F.Sort)]                               -- ^ Exported variables types
-  , asmSigs    :: ![(F.Located LHName, ty)]                                -- ^ Assumed (unchecked) types; including reflected signatures
+  , expSigs    :: ![(F.Symbol, F.Sort)]                               -- ^ Exported logic symbols
+  , asmSigs    :: ![(F.Located LHName, ty)]                           -- ^ Assumed (unchecked) types; including reflected signatures
   , asmReflectSigs :: ![(F.LocSymbol, F.LocSymbol)]                   -- ^ Assume reflects : left is the actual function and right the pretended one
-  , sigs       :: ![(F.Located LHName, ty)]                           -- ^ Imported functions and types
-  , reflSigs   :: ![(F.LocSymbol, ty)]                                -- ^ Reflected type signatures
+  , sigs       :: ![(F.Located LHName, ty)]                           -- ^ Asserted spec signatures
   , invariants :: ![(Maybe F.LocSymbol, ty)]                          -- ^ Data type invariants; the Maybe is the generating measure
   , ialiases   :: ![(ty, ty)]                                         -- ^ Data type invariants to be checked
-  , imports    :: ![F.Symbol]                                         -- ^ Loaded spec module names
   , dataDecls  :: ![DataDecl]                                         -- ^ Predicated data definitions
   , newtyDecls :: ![DataDecl]                                         -- ^ Predicated new type definitions
   , includes   :: ![FilePath]                                         -- ^ Included qualifier files
@@ -458,15 +455,12 @@ instance (Show ty, Show bndr, F.PPrint ty, F.PPrint bndr) => F.PPrint (Spec ty b
 instance Semigroup (Spec ty bndr) where
   s1 <> s2
     = Spec { measures   =           measures   s1 ++ measures   s2
-           , impSigs    =           impSigs    s1 ++ impSigs    s2
            , expSigs    =           expSigs    s1 ++ expSigs    s2
            , asmSigs    =           asmSigs    s1 ++ asmSigs    s2
            , asmReflectSigs    =    asmReflectSigs s1 ++ asmReflectSigs s2
            , sigs       =           sigs       s1 ++ sigs       s2
-           , reflSigs   =           reflSigs   s1 ++ reflSigs   s2
            , invariants =           invariants s1 ++ invariants s2
            , ialiases   =           ialiases   s1 ++ ialiases   s2
-           , imports    = sortNub $ imports    s1 ++ imports    s2
            , dataDecls  =           dataDecls  s1 ++ dataDecls  s2
            , newtyDecls =           newtyDecls s1 ++ newtyDecls s2
            , includes   = sortNub $ includes   s1 ++ includes   s2
@@ -508,15 +502,12 @@ instance Monoid (Spec ty bndr) where
   mappend = (<>)
   mempty
     = Spec { measures   = []
-           , impSigs    = []
            , expSigs    = []
            , asmSigs    = []
            , asmReflectSigs = []
            , sigs       = []
-           , reflSigs   = []
            , invariants = []
            , ialiases   = []
-           , imports    = []
            , dataDecls  = []
            , newtyDecls = []
            , includes   = []
@@ -581,22 +572,18 @@ instance Monoid (Spec ty bndr) where
 data LiftedSpec = LiftedSpec
   { liftedMeasures   :: HashSet (Measure LocBareType F.LocSymbol)
     -- ^ User-defined properties for ADTs
-  , liftedImpSigs    :: HashSet (F.Symbol, F.Sort)
-    -- ^ Imported variables types
   , liftedExpSigs    :: HashSet (F.Symbol, F.Sort)
-    -- ^ Exported variables types
+    -- ^ Exported logic symbols
   , liftedAsmSigs    :: HashSet (F.Located LHName, LocBareType)
     -- ^ Assumed (unchecked) types; including reflected signatures
   , liftedAsmReflectSigs    :: HashSet (F.LocSymbol, F.LocSymbol)
     -- ^ Reflected assumed signatures
   , liftedSigs       :: HashSet (F.Located LHName, LocBareType)
-    -- ^ Imported functions and types
+    -- ^ Asserted spec signatures
   , liftedInvariants :: HashSet (Maybe F.LocSymbol, LocBareType)
     -- ^ Data type invariants; the Maybe is the generating measure
   , liftedIaliases   :: HashSet (LocBareType, LocBareType)
     -- ^ Data type invariants to be checked
-  , liftedImports    :: HashSet F.Symbol
-    -- ^ Loaded spec module names
   , liftedDataDecls  :: HashSet DataDecl
     -- ^ Predicated data definitions
   , liftedNewtyDecls :: HashSet DataDecl
@@ -642,14 +629,12 @@ instance Binary F.Equation
 emptyLiftedSpec :: LiftedSpec
 emptyLiftedSpec = LiftedSpec
   { liftedMeasures = mempty
-  , liftedImpSigs  = mempty
   , liftedExpSigs  = mempty
   , liftedAsmSigs  = mempty
   , liftedAsmReflectSigs  = mempty
   , liftedSigs     = mempty
   , liftedInvariants = mempty
   , liftedIaliases   = mempty
-  , liftedImports    = mempty
   , liftedDataDecls  = mempty
   , liftedNewtyDecls = mempty
   , liftedAliases    = mempty
@@ -821,14 +806,12 @@ fromBareSpec = getBareSpec
 toLiftedSpec :: Spec LocBareType F.LocSymbol -> LiftedSpec
 toLiftedSpec a = LiftedSpec
   { liftedMeasures   = S.fromList . measures $ a
-  , liftedImpSigs    = S.fromList . impSigs  $ a
   , liftedExpSigs    = S.fromList . expSigs  $ a
   , liftedAsmSigs    = S.fromList . asmSigs  $ a
   , liftedAsmReflectSigs = S.fromList . asmReflectSigs  $ a
   , liftedSigs       = S.fromList . sigs     $ a
   , liftedInvariants = S.fromList . invariants $ a
   , liftedIaliases   = S.fromList . ialiases $ a
-  , liftedImports    = S.fromList . imports $ a
   , liftedDataDecls  = S.fromList . dataDecls $ a
   , liftedNewtyDecls = S.fromList . newtyDecls $ a
   , liftedAliases    = S.fromList . aliases $ a
@@ -856,17 +839,14 @@ toLiftedSpec a = LiftedSpec
 unsafeFromLiftedSpec :: LiftedSpec -> Spec LocBareType F.LocSymbol
 unsafeFromLiftedSpec a = Spec
   { measures   = S.toList . liftedMeasures $ a
-  , impSigs    = S.toList . liftedImpSigs $ a
   , expSigs    = S.toList . liftedExpSigs $ a
   , asmSigs    = S.toList . liftedAsmSigs $ a
   , asmReflectSigs = S.toList . liftedAsmReflectSigs $ a
   , sigs       = S.toList . liftedSigs $ a
-  , reflSigs   = mempty
   , relational = mempty
   , asmRel     = mempty
   , invariants = S.toList . liftedInvariants $ a
   , ialiases   = S.toList . liftedIaliases $ a
-  , imports    = S.toList . liftedImports $ a
   , dataDecls  = S.toList . liftedDataDecls $ a
   , newtyDecls = S.toList . liftedNewtyDecls $ a
   , includes   = mempty

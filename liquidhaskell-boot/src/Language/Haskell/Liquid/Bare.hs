@@ -313,8 +313,7 @@ makeGhcSpec0 cfg session tcg localVars src lmap targetSpec dependencySpecs = do
     , _gsTerm   = spcTerm
 
     , _gsLSpec  = finalLiftedSpec
-                { impSigs   = makeImports mspecs
-                , expSigs   = [ (F.symbol v, F.sr_sort $ Bare.varSortedReft embs v) | v <- gsReflects refl ]
+                { expSigs   = [ (F.symbol v, F.sr_sort $ Bare.varSortedReft embs v) | v <- gsReflects refl ]
                 , dataDecls = Bare.dataDeclSize mySpec $ dataDecls mySpec
                 , measures  = Ms.measures mySpec
                   -- We want to export measures in a 'LiftedSpec', especially if they are
@@ -1366,7 +1365,6 @@ makeLiftedSpec :: ModName -> GhcSrc -> Bare.Env
 -----------------------------------------------------------------------------------------
 makeLiftedSpec name src env refl sData sig qual myRTE lSpec0 = lSpec0
   { Ms.asmSigs    = F.notracepp   ("makeLiftedSpec : ASSUMED-SIGS " ++ F.showpp name ) (xbs ++ myDCs)
-  , Ms.reflSigs   = F.notracepp "REFL-SIGS" $ map (first (fmap getLHNameSymbol)) xbs
   , Ms.sigs       = F.notracepp   ("makeLiftedSpec : LIFTED-SIGS " ++ F.showpp name ) $
                       mkSigs (gsTySigs sig)
   , Ms.invariants = [ (Bare.varLocSym <$> x, Bare.specToBare <$> t)
