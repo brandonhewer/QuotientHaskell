@@ -209,7 +209,7 @@ makeMethod :: Bare.Env -> Bare.SigEnv -> ModName -> (Located LHName, LocBareType
            -> Bare.Lookup (ModName, PlugTV Ghc.Var, LocSpecType)
 makeMethod env sigEnv name (lx, bt) = (name, mbV,) <$> Bare.cookSpecTypeE env sigEnv name mbV bt
   where
-    mbV = maybe Bare.GenTV Bare.LqTV (Bare.maybeResolveSym env name "makeMethod" (getLHNameSymbol <$> lx))
+    mbV = either (const Bare.GenTV) Bare.LqTV (Bare.lookupGhcIdLHName env lx)
 
 -------------------------------------------------------------------------------
 makeSpecDictionaries :: Bare.Env -> Bare.SigEnv -> ModSpecs -> DEnv Ghc.Var LocSpecType
