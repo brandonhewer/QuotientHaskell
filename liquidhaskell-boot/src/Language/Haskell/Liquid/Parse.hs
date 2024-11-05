@@ -849,7 +849,6 @@ data Pspec ty ctor
   | CLaws   (RClass ty)                                   -- ^ 'class laws' definition
   | ILaws   (RILaws ty)
   | RInst   (RInstance ty)                                -- ^ refined 'instance' definition
-  | Incl    FilePath                                      -- ^ 'include' a path -- TODO: deprecate
   | Invt    ty                                            -- ^ 'invariant' specification
   | Using  (ty, ty)                                       -- ^ 'using' declaration (for local invariants on a type)
   | Alias   (Located (RTAlias Symbol BareType))           -- ^ 'type' alias declaration
@@ -919,8 +918,6 @@ ppPspec k (DDecl d)
   = pprintTidy k d
 ppPspec k (NTDecl d)
   = "newtype" <+> pprintTidy k d
-ppPspec _ (Incl f)
-  = "include" <+> "<" PJ.<> PJ.text f PJ.<> ">"
 ppPspec k (Invt t)
   = "invariant" <+> pprintTidy k t
 ppPspec k (Using (t1, t2))
@@ -1009,7 +1006,6 @@ ppPspec k (AssmRel (lxl, lxr, tl, tr, q, p))
   show (Impt   _) = "Impt"
   shcl  _) = "DDecl"
   show (NTDecl _) = "NTDecl"
-  show (Incl   _) = "Incl"
   show (Invt   _) = "Invt"
   show (Using _) = "Using"
   show (Alias  _) = "Alias"
@@ -1071,7 +1067,6 @@ mkSpec name xs         = (name,) $ qualifySpec (symbol name) Measure.Spec
   , Measure.ialiases   = [t | Using t <- xs]
   , Measure.dataDecls  = [d | DDecl  d <- xs] ++ [d | NTDecl d <- xs]
   , Measure.newtyDecls = [d | NTDecl d <- xs]
-  , Measure.includes   = [q | Incl   q <- xs]
   , Measure.aliases    = [a | Alias  a <- xs]
   , Measure.ealiases   = [e | EAlias e <- xs]
   , Measure.embeds     = tceFromList [(c, (fTyconSort tc, a)) | Embed (c, tc, a) <- xs]
@@ -1146,7 +1141,6 @@ specP
         <|> fmap DDecl  dataDeclP ))
     <|> (reserved "newtype"       >> fmap NTDecl dataDeclP )
     <|> (reserved "relational"    >> fmap Relational relationalP )
-    <|> (reserved "include"       >> fmap Incl   filePathP )
     <|> fallbackSpecP "invariant"   (fmap Invt   invariantP)
     <|> (reserved "using"          >> fmap Using invaliasP )
     <|> (reserved "type"          >> fmap Alias  aliasP    )
@@ -1214,15 +1208,6 @@ inlineP = locBinderP
 
 asizeP :: Parser LocSymbol
 asizeP = locBinderP
-
-filePathP     :: Parser FilePath
-filePathP     = angles $ some pathCharP
-  where
-    pathCharP :: Parser Char
-    pathCharP = choice $ char <$> pathChars
-
-    pathChars :: [Char]
-    pathChars = ['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9'] ++ ['.', '/']
 
 datavarianceP :: Parser (Located LHName, [Variance])
 datavarianceP = liftM2 (,) (locUpperIdLHNameP LHTcName) (many varianceP)

@@ -71,7 +71,6 @@ module Language.Haskell.Liquid.Types.Specs (
 import           GHC.Generics            hiding (to, moduleName)
 import           Data.Binary
 import qualified Language.Fixpoint.Types as F
-import           Language.Fixpoint.Misc (sortNub)
 import           Data.Data (Data)
 import           Data.Hashable
 import qualified Data.HashSet            as S
@@ -404,7 +403,6 @@ data Spec ty bndr  = Spec
   , ialiases   :: ![(ty, ty)]                                         -- ^ Data type invariants to be checked
   , dataDecls  :: ![DataDecl]                                         -- ^ Predicated data definitions
   , newtyDecls :: ![DataDecl]                                         -- ^ Predicated new type definitions
-  , includes   :: ![FilePath]                                         -- ^ Included qualifier files
   , aliases    :: ![F.Located (RTAlias F.Symbol BareType)]            -- ^ RefType aliases
   , ealiases   :: ![F.Located (RTAlias F.Symbol F.Expr)]              -- ^ Expression aliases
   , embeds     :: !(F.TCEmb (F.Located LHName))                       -- ^ GHC-Tycon-to-fixpoint Tycon map
@@ -463,7 +461,6 @@ instance Semigroup (Spec ty bndr) where
            , ialiases   =           ialiases   s1 ++ ialiases   s2
            , dataDecls  =           dataDecls  s1 ++ dataDecls  s2
            , newtyDecls =           newtyDecls s1 ++ newtyDecls s2
-           , includes   = sortNub $ includes   s1 ++ includes   s2
            , aliases    =           aliases    s1 ++ aliases    s2
            , ealiases   =           ealiases   s1 ++ ealiases   s2
            , qualifiers =           qualifiers s1 ++ qualifiers s2
@@ -510,7 +507,6 @@ instance Monoid (Spec ty bndr) where
            , ialiases   = []
            , dataDecls  = []
            , newtyDecls = []
-           , includes   = []
            , aliases    = []
            , ealiases   = []
            , embeds     = mempty
@@ -555,8 +551,6 @@ instance Monoid (Spec ty bndr) where
 --
 -- What we /do not/ have compared to a 'BareSpec':
 --
--- * The 'localSigs', as it's not necessary/visible to clients;
--- * The 'includes', as they are probably not reachable for clients anyway;
 -- * The 'reflSigs', they are now just \"normal\" signatures;
 -- * The 'lazy', we don't do termination checking in lifted specs;
 -- * The 'reflects', the reflection has already happened at this point;
@@ -849,7 +843,6 @@ unsafeFromLiftedSpec a = Spec
   , ialiases   = S.toList . liftedIaliases $ a
   , dataDecls  = S.toList . liftedDataDecls $ a
   , newtyDecls = S.toList . liftedNewtyDecls $ a
-  , includes   = mempty
   , aliases    = S.toList . liftedAliases $ a
   , ealiases   = S.toList . liftedEaliases $ a
   , embeds     = liftedEmbeds a

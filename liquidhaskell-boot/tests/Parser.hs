@@ -135,10 +135,6 @@ testSpecP =
        parseSingleSpec "newtype Foo = Bar {x :: Nat}" @?==
           "newtype data Foo  [] =\n            | Bar :: forall . x : Nat -> *"
 
-    , testCase "include" $
-       parseSingleSpec "include <listSet.hquals>" @?==
-            "include <listSet.hquals>"
-
     , testCase "invariant" $
        parseSingleSpec "invariant {v:Tree a | 0 <= ht v}" @?==
             "invariant {v : (Tree a) | 0 <= ht v}"
