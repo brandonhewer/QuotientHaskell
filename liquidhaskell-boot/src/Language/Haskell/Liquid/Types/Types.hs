@@ -177,6 +177,7 @@ import           Language.Fixpoint.Types (Expr, Symbol)
 import           Language.Haskell.Liquid.GHC.Misc
 import           Language.Haskell.Liquid.GHC.Logging as GHC
 import           Language.Haskell.Liquid.Types.Errors
+import           Language.Haskell.Liquid.Types.Names
 import           Language.Haskell.Liquid.Types.RType
 import           Language.Haskell.Liquid.Misc
 
@@ -716,7 +717,7 @@ data RClass ty = RClass
   { rcName    :: BTyCon
   , rcSupers  :: [ty]
   , rcTyVars  :: [BTyVar]
-  , rcMethods :: [(F.LocSymbol, ty)]
+  , rcMethods :: [(F.Located LHName, ty)]
   } deriving (Eq, Show, Functor, Data, Typeable, Generic)
     deriving Hashable via Generically (RClass ty)
 

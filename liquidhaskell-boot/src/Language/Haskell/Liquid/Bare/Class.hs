@@ -29,6 +29,7 @@ import qualified Liquid.GHC.API            as Ghc
 import           Language.Haskell.Liquid.Misc
 import           Language.Haskell.Liquid.Types.DataDecl
 import           Language.Haskell.Liquid.Types.Errors
+import           Language.Haskell.Liquid.Types.Names
 import           Language.Haskell.Liquid.Types.RefType
 import           Language.Haskell.Liquid.Types.RType
 import           Language.Haskell.Liquid.Types.RTypeOp
@@ -182,7 +183,7 @@ mkClassE env sigEnv _myName name (RClass cc ss as ms) tc = do
     meths  <- mapM (makeMethod env sigEnv name) ms'
     let vts = [ (m, v, t) | (m, kv, t) <- meths, v <- Mb.maybeToList (plugSrc kv) ]
     let sts = [(val s, unClass $ val t) | (s, _) <- ms | (_, _, t) <- meths]
-    let dcp = DataConP l dc αs [] (val <$> ss') (reverse sts) rt False (F.symbol name) l'
+    let dcp = DataConP l dc αs [] (val <$> ss') (map (first getLHNameSymbol) (reverse sts)) rt False (F.symbol name) l'
     return  $ F.notracepp msg (dcp, vts)
   where
     c      = btc_tc cc
@@ -204,11 +205,11 @@ mkConstr env sigEnv name = fmap (fmap dropUniv) . Bare.cookSpecTypeE env sigEnv 
 unClass :: SpecType -> SpecType
 unClass = snd . bkClass . thrd3 . bkUniv
 
-makeMethod :: Bare.Env -> Bare.SigEnv -> ModName -> (LocSymbol, LocBareType)
+makeMethod :: Bare.Env -> Bare.SigEnv -> ModName -> (Located LHName, LocBareType)
            -> Bare.Lookup (ModName, PlugTV Ghc.Var, LocSpecType)
 makeMethod env sigEnv name (lx, bt) = (name, mbV,) <$> Bare.cookSpecTypeE env sigEnv name mbV bt
   where
-    mbV = maybe Bare.GenTV Bare.LqTV (Bare.maybeResolveSym env name "makeMethod" lx)
+    mbV = maybe Bare.GenTV Bare.LqTV (Bare.maybeResolveSym env name "makeMethod" (getLHNameSymbol <$> lx))
 
 -------------------------------------------------------------------------------
 makeSpecDictionaries :: Bare.Env -> Bare.SigEnv -> ModSpecs -> DEnv Ghc.Var LocSpecType

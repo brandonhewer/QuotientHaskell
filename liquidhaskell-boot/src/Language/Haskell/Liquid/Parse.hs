@@ -1395,7 +1395,7 @@ classP
   = do sups <- supersP
        c    <- classBTyConP
        tvs  <- manyTill (bTyVar <$> tyVarIdP) (try $ reserved "where")
-       ms   <- block tyBindP -- <|> sepBy tyBindP semi
+       ms   <- block tyBindLHNameP -- <|> sepBy tyBindP semi
        return $ RClass c sups tvs ms
   where
     supersP  = try ((parens (superP `sepBy1` comma) <|> fmap pure superP)
