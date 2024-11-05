@@ -1039,14 +1039,6 @@ getAsmSigs myName name spec
     qSym           = GM.qualifySymbol ns
     ns             = F.symbol name
 
--- TODO-REBARE: grepClassAssumes
-_grepClassAssumes :: [RInstance t] -> [(Located F.Symbol, t)]
-_grepClassAssumes  = concatMap go
-  where
-    go    xts              = Mb.mapMaybe goOne (risigs xts)
-    goOne (x, RIAssumed t) = Just (fmap (F.symbol . (".$c" ++ ) . F.symbolString) x, t)
-    goOne (_, RISig _)     = Nothing
-
 makeSigEnv :: F.TCEmb Ghc.TyCon -> Bare.TyConMap -> S.HashSet StableName -> BareRTEnv -> Bare.SigEnv
 makeSigEnv embs tyi exports rtEnv = Bare.SigEnv
   { sigEmbs     = embs

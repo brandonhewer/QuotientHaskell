@@ -284,7 +284,7 @@ isApp _                              = False
 data RInstance t = RI
   { riclass :: BTyCon
   , ritype  :: [t]
-  , risigs  :: [(F.LocSymbol, RISig t)]
+  , risigs  :: [(F.Located LHName, RISig t)]
   } deriving (Eq, Generic, Functor, Data, Typeable, Show)
     deriving Hashable via Generically (RInstance t)
 

@@ -30,7 +30,7 @@ import qualified Data.HashMap.Strict                       as M
 
 
 makeDictionary :: RInstance LocSpecType -> (F.Symbol, M.HashMap F.Symbol (RISig LocSpecType))
-makeDictionary (RI c ts xts) = (makeDictionaryName (getLHNameSymbol <$> btc_tc c) ts, M.fromList (first val <$> xts))
+makeDictionary (RI c ts xts) = (makeDictionaryName (getLHNameSymbol <$> btc_tc c) ts, M.fromList (first (getLHNameSymbol . val) <$> xts))
 
 makeDictionaryName :: LocSymbol -> [LocSpecType] -> F.Symbol
 makeDictionaryName t ts
