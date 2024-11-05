@@ -790,12 +790,11 @@ addReflSigs env name rtEnv measEnv refl sig =
     notReflected xt         = fst xt `notElem` reflected
 
 makeAutoInst :: Bare.Env -> ModName -> Ms.BareSpec ->
-                Bare.Lookup (M.HashMap Ghc.Var (Maybe Int))
-makeAutoInst env name spec = M.fromList <$> kvs
+                Bare.Lookup (S.HashSet Ghc.Var)
+makeAutoInst env name spec = S.fromList <$> kvs
   where
-    kvs = forM (M.toList (Ms.autois spec)) $ \(k, val) -> do
-            vk <- Bare.lookupGhcVar env name "Var" k
-            return (vk, val)
+    kvs = forM (S.toList (Ms.autois spec)) $
+            Bare.lookupGhcVar env name "Var"
 
 
 ----------------------------------------------------------------------------------------

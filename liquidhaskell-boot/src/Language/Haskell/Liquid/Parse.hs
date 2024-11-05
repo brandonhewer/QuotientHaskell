@@ -860,7 +860,7 @@ data Pspec ty ctor
   | Fail    (Located LHName)                              -- ^ 'fail' annotation, the binder should be unsafe
   | Rewrite LocSymbol                                     -- ^ 'rewrite' annotation, the binder generates a rewrite rule
   | Rewritewith (LocSymbol, [LocSymbol])                  -- ^ 'rewritewith' annotation, the first binder is using the rewrite rules of the second list,
-  | Insts   (LocSymbol, Maybe Int)                        -- ^ 'auto-inst' or 'ple' annotation; use ple locally on binder
+  | Insts   LocSymbol                                     -- ^ 'auto-inst' or 'ple' annotation; use ple locally on binder
   | HMeas   LocSymbol                                     -- ^ 'measure' annotation; lift Haskell binder as measure
   | Reflect LocSymbol                                     -- ^ 'reflect' annotation; reflect Haskell binder as function in logic
   | OpaqueReflect LocSymbol                               -- ^ 'opaque-reflect' annotation
@@ -944,8 +944,8 @@ ppPspec k (Rewritewith (lx, lxs))
     go s = pprintTidy k $ val s
 ppPspec k (Fail   lx)
   = "fail" <+> pprintTidy k (val lx)
-ppPspec k (Insts   (lx, mbN))
-  = "automatic-instances" <+> pprintTidy k (val lx) <+> maybe "" (("with" <+>) . pprintTidy k) mbN
+ppPspec k (Insts   lx)
+  = "automatic-instances" <+> pprintTidy k (val lx)
 ppPspec k (HMeas   lx)
   = "measure" <+> pprintTidy k (val lx)
 ppPspec k (Reflect lx)
@@ -1016,7 +1016,6 @@ ppPspec k (AssmRel (lxl, lxr, tl, tr, q, p))
   show (LVars  _) = "LVars"
   show (Lazy   _) = "Lazy"
   -- show (Axiom  _) = "Axiom"
-  show (Insts  _) = "Insts"
   show (Reflect _) = "Reflect"
   show (HMeas  _) = "HMeas"
   show (HBound _) = "HBound"
@@ -1072,7 +1071,7 @@ mkSpec name xs         = (name,) $ qualifySpec (symbol name) Measure.Spec
   , Measure.embeds     = tceFromList [(c, (fTyconSort tc, a)) | Embed (c, tc, a) <- xs]
   , Measure.qualifiers = [q | Qualif q <- xs]
   , Measure.lvars      = S.fromList [d | LVars d  <- xs]
-  , Measure.autois     = M.fromList [s | Insts s <- xs]
+  , Measure.autois     = S.fromList [s | Insts s <- xs]
   , Measure.pragmas    = [s | Pragma s <- xs]
   , Measure.cmeasures  = [m | CMeas  m <- xs]
   , Measure.imeasures  = [m | IMeas  m <- xs]
@@ -1157,8 +1156,8 @@ specP
     <|> (reserved "rewrite"       >> fmap Rewrite   rewriteVarP )
     <|> (reserved "rewriteWith"   >> fmap Rewritewith   rewriteWithP )
     <|> (reserved "fail"          >> fmap Fail locBinderLHNameP )
-    <|> (reserved "ple"           >> fmap Insts autoinstP  )
-    <|> (reserved "automatic-instances" >> fmap Insts autoinstP  )
+    <|> (reserved "ple"           >> fmap Insts locBinderP  )
+    <|> (reserved "automatic-instances" >> fmap Insts locBinderP  )
     <|> (reserved "LIQUID"        >> fmap Pragma pragmaP   )
     <|> (reserved "liquid"        >> fmap Pragma pragmaP   )
     <|> {- DEFAULT -}                fmap Asrts  tyBindsP
@@ -1181,11 +1180,6 @@ tyBindsRemP sy = do
 
 pragmaP :: Parser (Located String)
 pragmaP = locStringLiteral
-
-autoinstP :: Parser (LocSymbol, Maybe Int)
-autoinstP = do x <- locBinderP
-               i <- optional (reserved "with" >> natural)
-               return (x, fromIntegral <$> i)
 
 lazyVarP :: Parser LocSymbol
 lazyVarP = locBinderP

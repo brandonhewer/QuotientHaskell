@@ -317,7 +317,7 @@ instance Semigroup GhcSpecTerm where
 instance Monoid GhcSpecTerm where
   mempty = SpTerm mempty mempty mempty mempty mempty
 data GhcSpecRefl = SpRefl
-  { gsAutoInst     :: !(M.HashMap Var (Maybe Int))      -- ^ Binders to USE PLE
+  { gsAutoInst     :: !(S.HashSet Var)                  -- ^ Binders to USE PLE
   , gsHAxioms      :: ![(Var, LocSpecType, F.Equation)] -- ^ Lifted definitions
   , gsImpAxioms    :: ![F.Equation]                     -- ^ Axioms from imported reflected functions
   , gsMyAxioms     :: ![F.Equation]                     -- ^ Axioms from my reflected functions
@@ -414,7 +414,7 @@ data Spec ty bndr  = Spec
   , fails      :: !(S.HashSet (F.Located LHName))                     -- ^ These Functions should be unsafe
   , reflects   :: !(S.HashSet F.LocSymbol)                            -- ^ Binders to reflect
   , opaqueReflects :: !(S.HashSet F.LocSymbol)                        -- ^ Binders to opaque-reflect
-  , autois     :: !(M.HashMap F.LocSymbol (Maybe Int))                -- ^ Automatically instantiate axioms in these Functions with maybe specified fuel
+  , autois     :: !(S.HashSet F.LocSymbol)                            -- ^ Automatically instantiate axioms in these Functions
   , hmeas      :: !(S.HashSet F.LocSymbol)                            -- ^ Binders to turn into measures using haskell definitions
   , hbounds    :: !(S.HashSet F.LocSymbol)                            -- ^ Binders to turn into bounds using haskell definitions
   , inlines    :: !(S.HashSet F.LocSymbol)                            -- ^ Binders to turn into logic inline using haskell definitions
@@ -492,7 +492,7 @@ instance Semigroup (Spec ty bndr) where
            , ignores    = S.union   (ignores  s1)  (ignores  s2)
            , autosize   = S.union   (autosize s1)  (autosize s2)
            , bounds     = M.union   (bounds   s1)  (bounds   s2)
-           , autois     = M.union   (autois s1)      (autois s2)
+           , autois     = S.union   (autois s1)      (autois s2)
            }
 
 instance Monoid (Spec ty bndr) where
@@ -516,7 +516,7 @@ instance Monoid (Spec ty bndr) where
            , rewrites   = S.empty
            , rewriteWith = M.empty
            , fails      = S.empty
-           , autois     = M.empty
+           , autois     = S.empty
            , hmeas      = S.empty
            , reflects   = S.empty
            , opaqueReflects = S.empty
@@ -592,8 +592,8 @@ data LiftedSpec = LiftedSpec
     -- ^ Qualifiers in source/spec files
   , liftedLvars      :: HashSet F.LocSymbol
     -- ^ Variables that should be checked in the environment they are used
-  , liftedAutois     :: M.HashMap F.LocSymbol (Maybe Int)
-    -- ^ Automatically instantiate axioms in these Functions with maybe specified fuel
+  , liftedAutois     :: S.HashSet F.LocSymbol
+    -- ^ Automatically instantiate axioms in these Functions
   , liftedAutosize   :: HashSet F.LocSymbol
     -- ^ Type Constructors that get automatically sizing info
   , liftedCmeasures  :: HashSet (Measure LocBareType ())
@@ -678,7 +678,7 @@ dropDependency sm (TargetDependencies deps) = TargetDependencies (M.delete sm de
 
 -- | Returns 'True' if the input 'Var' is a /PLE/ one.
 isPLEVar :: TargetSpec -> Var -> Bool
-isPLEVar sp x = M.member x (gsAutoInst (gsRefl sp))
+isPLEVar sp x = S.member x (gsAutoInst (gsRefl sp))
 
 -- | Returns 'True' if the input 'Var' was exported in the module the input 'TargetSrc' represents.
 isExportedVar :: TargetSrc -> Var -> Bool
