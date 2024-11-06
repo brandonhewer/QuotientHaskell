@@ -1491,16 +1491,16 @@ bbindP   = lowerIdP <* reservedOp "::"
 
 dataConP :: [Symbol] -> Parser DataCtor
 dataConP as = do
-  x   <- dataConNameP
+  x   <- dataConLHNameP
   xts <- dataConFieldsP
-  return $ DataCtor (makeUnresolvedLHName LHDataConName <$> x) as [] xts Nothing
+  return $ DataCtor x as [] xts Nothing
 
 adtDataConP :: [Symbol] -> Parser DataCtor
 adtDataConP as = do
-  x     <- dataConNameP
+  x     <- dataConLHNameP
   reservedOp "::"
   tr    <- toRTypeRep <$> bareTypeP
-  return $ DataCtor (makeUnresolvedLHName LHDataConName <$> x) (tRepVars as tr) [] (tRepFields tr) (Just $ ty_res tr)
+  return $ DataCtor x (tRepVars as tr) [] (tRepFields tr) (Just $ ty_res tr)
 
 tRepVars :: Symbolic a => [Symbol] -> RTypeRep c a r -> [Symbol]
 tRepVars as tr = case fst <$> ty_vars tr of
@@ -1522,6 +1522,9 @@ dataConNameP
      idP p  = takeWhile1P Nothing (not . p)
      bad c  = isSpace c || c `elem` ("(,)" :: String)
      pwr s  = symbol s
+
+dataConLHNameP :: Parser (Located LHName)
+dataConLHNameP = fmap (makeUnresolvedLHName LHDataConName) <$> dataConNameP
 
 dataSizeP :: Parser (Maybe SizeFun)
 dataSizeP
