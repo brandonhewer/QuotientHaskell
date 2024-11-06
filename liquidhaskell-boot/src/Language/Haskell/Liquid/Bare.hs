@@ -275,7 +275,7 @@ makeGhcSpec0 cfg session tcg instEnvs localVars src lmap targetSpec dependencySp
   -- NB: we first compute a measure environment w/o the opaque reflections, so that we can bootstrap
   -- the signature `sig`. Then we'll add the opaque reflections before we compute `sData` and al.
   let (dg1, measEnv0) = withDiagnostics $ makeMeasEnv      env tycEnv sigEnv       specs
-  let (dg2, sig) = withDiagnostics $ makeSpecSig cfg name mySpec iSpecs2 env sigEnv tycEnv measEnv0 (_giCbs src)
+  let (dg2, (specInstances, sig)) = withDiagnostics $ makeSpecSig cfg name mySpec iSpecs2 env sigEnv tycEnv measEnv0 (_giCbs src)
   elaboratedSig <-
     if allowTC then Bare.makeClassAuxTypes (elaborateSpecType coreToLg simplifier) datacons instMethods
                               >>= elaborateSig sig
@@ -331,7 +331,7 @@ makeGhcSpec0 cfg session tcg instEnvs localVars src lmap targetSpec dependencySp
                   -- Preserve user-defined 'imeasures'.
                 , dvariance = Ms.dvariance finalLiftedSpec ++ Ms.dvariance mySpec
                   -- Preserve user-defined 'dvariance'.
-                , rinstance = Ms.rinstance finalLiftedSpec ++ Ms.rinstance mySpec
+                , rinstance = specInstances
                   -- Preserve rinstances.
                 , asmReflectSigs = Ms.asmReflectSigs mySpec
                 }
@@ -801,7 +801,7 @@ makeAutoInst env name spec = S.fromList <$> kvs
 
 ----------------------------------------------------------------------------------------
 makeSpecSig :: Config -> ModName -> Ms.BareSpec -> Bare.ModSpecs -> Bare.Env -> Bare.SigEnv -> Bare.TycEnv -> Bare.MeasEnv -> [Ghc.CoreBind]
-            -> Bare.Lookup (GhcSpecSig)
+            -> Bare.Lookup ([RInstance LocBareType], GhcSpecSig)
 ----------------------------------------------------------------------------------------
 makeSpecSig cfg name mySpec specs env sigEnv tycEnv measEnv cbs = do
   mySigs     <- makeTySigs  env sigEnv name mySpec
@@ -818,7 +818,7 @@ makeSpecSig cfg name mySpec specs env sigEnv tycEnv measEnv cbs = do
   newTys     <-  makeNewTypes env sigEnv allSpecs
   relation   <-  makeRelation env name sigEnv (Ms.relational mySpec)
   asmRel     <-  makeRelation env name sigEnv (Ms.asmRel mySpec)
-  return SpSig
+  return (instances, SpSig
     { gsTySigs   = tySigs
     , gsAsmSigs  = asmSigs
     , gsAsmReflects = bimap getVar getVar <$> concatMap (asmReflectSigs . snd) allSpecs
@@ -831,9 +831,9 @@ makeSpecSig cfg name mySpec specs env sigEnv tycEnv measEnv cbs = do
     , gsTexprs   = [ (v, t, es) | (v, t, Just es) <- mySigs ]
     , gsRelation = relation
     , gsAsmRel   = asmRel
-  }
+    })
   where
-    dicts = Bare.makeSpecDictionaries env sigEnv (name, mySpec) (M.toList specs)
+    (instances, dicts) = Bare.makeSpecDictionaries env sigEnv (name, mySpec) (M.toList specs)
     allSpecs   = (name, mySpec) : M.toList specs
     rtEnv      = Bare.sigRTEnv sigEnv
     getVar sym = case Bare.lookupGhcVar env name "assume-reflection specs" sym of

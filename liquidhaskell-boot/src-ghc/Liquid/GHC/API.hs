@@ -308,7 +308,7 @@ import GHC.Core.InstEnv               as Ghc
     , InstEnvs
     , instEnvElts
     , instanceSig
-    , lookupUniqueInstEnv
+    , lookupInstEnv
     )
 import GHC.Core.Make                  as Ghc
     ( mkCoreApps

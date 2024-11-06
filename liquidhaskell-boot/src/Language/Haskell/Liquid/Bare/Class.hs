@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns      #-}
 {-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ParallelListComp  #-}
@@ -209,27 +210,35 @@ makeMethod env sigEnv name (lx, bt) = (name, mbV,) <$> Bare.cookSpecTypeE env si
     mbV = either (const Bare.GenTV) Bare.LqTV (Bare.lookupGhcIdLHName env lx)
 
 -------------------------------------------------------------------------------
-makeSpecDictionaries :: Bare.Env -> Bare.SigEnv -> ModSpecs -> DEnv Ghc.Var LocSpecType
+makeSpecDictionaries
+  :: Bare.Env
+  -> Bare.SigEnv
+  -> (ModName, Ms.BareSpec)
+  -> [(ModName, Ms.BareSpec)]
+  -> ([RInstance LocBareType], DEnv Ghc.Var LocSpecType)
 -------------------------------------------------------------------------------
-makeSpecDictionaries env sigEnv specs
-  = dfromList
-  . concatMap (makeSpecDictionary env sigEnv)
-  $ M.toList specs
+makeSpecDictionaries env sigEnv spec0 specs
+  = let (instances, specDicts) = makeSpecDictionary env sigEnv spec0
+     in (instances, dfromList $ specDicts ++ concatMap (snd . makeSpecDictionary env sigEnv) specs)
 
 makeSpecDictionary :: Bare.Env -> Bare.SigEnv -> (ModName, Ms.BareSpec)
-                   -> [(Ghc.Var, M.HashMap F.Symbol (RISig LocSpecType))]
-makeSpecDictionary env sigEnv (name, spec)
-  = Mb.catMaybes
-  . resolveDictionaries env
-  . fmap (makeSpecDictionaryOne env sigEnv name)
-  . Ms.rinstance
-  $ spec
+                   -> ([RInstance LocBareType], [(Ghc.Var, M.HashMap F.Symbol (RISig LocSpecType))])
+makeSpecDictionary env sigEnv (name, spec) =
+    let instances = Ms.rinstance spec
+        resolved =
+          resolveDictionaries env $
+          map (makeSpecDictionaryOne env sigEnv name) instances
+        updatedInstances =
+          [ ri { riDictName = Just $ makeGHCLHNameLocatedFromId v }
+          | (ri, (v, _)) <- zip instances resolved
+          ]
+     in (updatedInstances, resolved)
 
 makeSpecDictionaryOne :: Bare.Env -> Bare.SigEnv -> ModName
                       -> RInstance LocBareType
                       -> RInstance LocSpecType
-makeSpecDictionaryOne env sigEnv name (RI bt lbt xts)
-         = F.notracepp "RI" $ RI bt ts [(x, mkLSpecIType t) | (x, t) <- xts ]
+makeSpecDictionaryOne env sigEnv name (RI bt mDictName lbt xts)
+         = F.notracepp "RI" $ RI bt mDictName ts [(x, mkLSpecIType t) | (x, t) <- xts ]
   where
     ts      = mkTy' <$> lbt
     rts     = concatMap (univs . val) ts
@@ -249,12 +258,18 @@ makeSpecDictionaryOne env sigEnv name (RI bt lbt xts)
     mkLSpecIType t = fmap mkTy t
 
 resolveDictionaries :: Bare.Env -> [RInstance LocSpecType]
-                    -> [Maybe (Ghc.Var, M.HashMap F.Symbol (RISig LocSpecType))]
-resolveDictionaries env = map $ \ri -> do
-    v <- lookupDFun ri
-    return (v, M.fromList $ first (getLHNameSymbol . val) <$> risigs ri)
+                    -> [(Ghc.Var, M.HashMap F.Symbol (RISig LocSpecType))]
+resolveDictionaries env = map $ \ri ->
+    let !v = lookupDFun ri
+     in (v, M.fromList $ first (getLHNameSymbol . val) <$> risigs ri)
   where
-    lookupDFun (RI c ts _) = do
+    lookupDFun (RI c (Just ldict) _ _) = do
+       case Bare.lookupGhcIdLHName env ldict of
+         Left e ->
+           panic (Just $ GM.fSrcSpan $ btc_tc c) $
+             "cannot find dictionary from name: " ++ show e
+         Right v -> v
+    lookupDFun (RI c _ ts _) = do
        let tys = map (toType False . dropUniv . val) ts
        case Bare.lookupGhcTyConLHName env (btc_tc c) of
          Left _ ->
@@ -263,11 +278,12 @@ resolveDictionaries env = map $ \ri -> do
            Nothing ->
              panic (Just $ GM.fSrcSpan $ btc_tc c) "type constructor does not refer to a type class"
            Just cls ->
-             case Ghc.lookupUniqueInstEnv (Bare.reInstEnvs env) cls tys of
-               Left _e ->
+             case Ghc.lookupInstEnv False (Bare.reInstEnvs env) cls tys of
+               -- Is it ok to pick the first match?
+               ((clsInst, _) : _, _, _) ->
+                 Ghc.is_dfun clsInst
+               ([], _, _) ->
                  panic (Just $ GM.fSrcSpan $ btc_tc c) "cannot find class instance"
-               Right (clsInst, _) ->
-                 Just (Ghc.is_dfun clsInst)
 
 dropUniv :: SpecType -> SpecType
 dropUniv t = t' where (_,_,t') = bkUniv t

@@ -1364,7 +1364,7 @@ instanceP
        c    <- classBTyConP
        tvs  <- try oneClassArg <|> manyTill iargsP (try $ reserved "where")
        ms   <- block riMethodSigP
-       return $ RI c tvs ms
+       return $ RI c Nothing tvs ms
   where
     supersP  = try ((parens (superP `sepBy1` comma) <|> fmap pure superP)
                        <* reservedOp "=>")
