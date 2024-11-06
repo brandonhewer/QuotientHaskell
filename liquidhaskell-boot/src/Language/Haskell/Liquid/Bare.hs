@@ -501,7 +501,7 @@ makeSpecVars :: Config -> GhcSrc -> Ms.BareSpec -> Bare.Env -> Bare.MeasEnv
 ------------------------------------------------------------------------------------------
 makeSpecVars cfg src mySpec env measEnv = do
   tgtVars     <-   mapM (resolveStringVar  env name)              (checks     cfg)
-  igVars      <-  sMapM (Bare.lookupGhcVar env name "gs-ignores") (Ms.ignores mySpec)
+  igVars      <-  sMapM (Bare.lookupGhcIdLHName env) (Ms.ignores mySpec)
   lVars       <-  sMapM (Bare.lookupGhcVar env name "gs-lvars"  ) (Ms.lvars   mySpec)
   return (SpVar tgtVars igVars lVars cMethods)
   where

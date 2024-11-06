@@ -863,7 +863,7 @@ data Pspec ty ctor
   | Reflect LocSymbol                                     -- ^ 'reflect' annotation; reflect Haskell binder as function in logic
   | OpaqueReflect LocSymbol                               -- ^ 'opaque-reflect' annotation
   | Inline  LocSymbol                                     -- ^ 'inline' annotation;  inline (non-recursive) binder as an alias
-  | Ignore  LocSymbol                                     -- ^ 'ignore' annotation; skip all checks inside this binder
+  | Ignore  (Located LHName)                              -- ^ 'ignore' annotation; skip all checks inside this binder
   | ASize   (Located LHName)                              -- ^ 'autosize' annotation; automatically generate size metric for this type
   | HBound  LocSymbol                                     -- ^ 'bound' annotation; lift Haskell binder as an abstract-refinement "bound"
   | PBound  (Bound ty Expr)                               -- ^ 'bound' definition
@@ -1113,7 +1113,7 @@ specP
     <|> (reserved "infixr"        >> fmap BFix    infixrP  )
     <|> (reserved "infix"         >> fmap BFix    infixP   )
     <|> fallbackSpecP "inline"      (fmap Inline  inlineP  )
-    <|> fallbackSpecP "ignore"      (fmap Ignore  inlineP  )
+    <|> fallbackSpecP "ignore"      (fmap Ignore  locBinderLHNameP)
 
     <|> fallbackSpecP "bound"       (fmap PBound  boundP
                                  <|> fmap HBound  hboundP  )
