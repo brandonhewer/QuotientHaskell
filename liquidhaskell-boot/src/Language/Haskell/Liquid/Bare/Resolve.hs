@@ -104,8 +104,8 @@ type Lookup a = Either [Error] a
 -------------------------------------------------------------------------------
 -- | Creating an environment
 -------------------------------------------------------------------------------
-makeEnv :: Config -> Ghc.Session -> Ghc.TcGblEnv -> LocalVars -> GhcSrc -> LogicMap -> [(ModName, BareSpec)] -> Env
-makeEnv cfg session tcg localVars src lmap specs = RE
+makeEnv :: Config -> Ghc.Session -> Ghc.TcGblEnv -> Ghc.InstEnvs -> LocalVars -> GhcSrc -> LogicMap -> [(ModName, BareSpec)] -> Env
+makeEnv cfg session tcg instEnv localVars src lmap specs = RE
   { reSession   = session
   , reTcGblEnv  = tcg
   , reTypeEnv   =
@@ -114,6 +114,7 @@ makeEnv cfg session tcg localVars src lmap specs = RE
       -- also include the types of local variables.
       let varsEnv = Ghc.mkTypeEnv $ map Ghc.AnId $ letVars $ _giCbs src
        in Ghc.tcg_type_env tcg `Ghc.plusTypeEnv` varsEnv
+  , reInstEnvs = instEnv
   , reUsedExternals = usedExternals
   , reLMap      = lmap
   , reSyms      = syms

@@ -213,7 +213,8 @@ makeGhcSpec cfg localVars src lmap targetSpec dependencySpecs = do
   hscEnv <- Ghc.getTopEnv
   session <- Ghc.Session <$> Ghc.liftIO (newIORef hscEnv)
   tcg <- Ghc.getGblEnv
-  (dg0, sp) <- makeGhcSpec0 cfg session tcg localVars src lmap targetSpec dependencySpecs
+  instEnvs <- Ghc.tcGetInstEnvs
+  (dg0, sp) <- makeGhcSpec0 cfg session tcg instEnvs localVars src lmap targetSpec dependencySpecs
   let diagnostics = Bare.checkTargetSpec (targetSpec : map snd dependencySpecs)
                                          (toTargetSrc src)
                                          (ghcSpecEnv sp)
@@ -255,13 +256,14 @@ makeGhcSpec0
   :: Config
   -> Ghc.Session
   -> Ghc.TcGblEnv
+  -> Ghc.InstEnvs
   -> Bare.LocalVars
   -> GhcSrc
   -> LogicMap
   -> Ms.BareSpec
   -> [(ModName, Ms.BareSpec)]
   -> Ghc.TcRn (Diagnostics, GhcSpec)
-makeGhcSpec0 cfg session tcg localVars src lmap targetSpec dependencySpecs = do
+makeGhcSpec0 cfg session tcg instEnvs localVars src lmap targetSpec dependencySpecs = do
   -- build up environments
   tycEnv <- makeTycEnv1 name env (tycEnv0, datacons) coreToLg simplifier
   let tyi      = Bare.tcTyConMap   tycEnv
@@ -383,7 +385,7 @@ makeGhcSpec0 cfg session tcg localVars src lmap targetSpec dependencySpecs = do
     embs     = makeEmbeds          src env (mySpec0 : map snd dependencySpecs)
     dm       = Bare.tcDataConMap tycEnv0
     (dg0, datacons, tycEnv0) = makeTycEnv0   cfg name env embs mySpec2 iSpecs2
-    env      = Bare.makeEnv cfg session tcg localVars src lmap ((name, targetSpec) : dependencySpecs)
+    env      = Bare.makeEnv cfg session tcg instEnvs localVars src lmap ((name, targetSpec) : dependencySpecs)
     -- check barespecs
     name     = F.notracepp ("ALL-SPECS" ++ zzz) $ _giTargetMod  src
     zzz      = F.showpp (fst <$> mspecs)

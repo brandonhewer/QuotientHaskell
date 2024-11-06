@@ -19,7 +19,6 @@ import qualified Data.Maybe                                 as Mb
 import qualified Data.List                                  as L
 import qualified Data.HashMap.Strict                        as M
 
-import qualified Language.Fixpoint.Misc                     as Misc
 import qualified Language.Fixpoint.Types                    as F
 import qualified Language.Fixpoint.Types.Visitor            as F
 
@@ -198,8 +197,6 @@ mkClassE env sigEnv _myName name (RClass cc ss as ms) tc = do
 
 mkConstr :: Bare.Env -> Bare.SigEnv -> ModName -> LocBareType -> Bare.Lookup LocSpecType
 mkConstr env sigEnv name = fmap (fmap dropUniv) . Bare.cookSpecTypeE env sigEnv name Bare.GenTV
-  where
-    dropUniv t           = t' where (_, _, t') = bkUniv t
 
    --FIXME: cleanup this code
 unClass :: SpecType -> SpecType
@@ -223,16 +220,16 @@ makeSpecDictionary :: Bare.Env -> Bare.SigEnv -> (ModName, Ms.BareSpec)
                    -> [(Ghc.Var, M.HashMap F.Symbol (RISig LocSpecType))]
 makeSpecDictionary env sigEnv (name, spec)
   = Mb.catMaybes
-  . resolveDictionaries env name
+  . resolveDictionaries env
   . fmap (makeSpecDictionaryOne env sigEnv name)
   . Ms.rinstance
   $ spec
 
 makeSpecDictionaryOne :: Bare.Env -> Bare.SigEnv -> ModName
                       -> RInstance LocBareType
-                      -> (F.Symbol, M.HashMap F.Symbol (RISig LocSpecType))
+                      -> RInstance LocSpecType
 makeSpecDictionaryOne env sigEnv name (RI bt lbt xts)
-         = makeDictionary $ F.notracepp "RI" $ RI bt ts [(x, mkLSpecIType t) | (x, t) <- xts ]
+         = F.notracepp "RI" $ RI bt ts [(x, mkLSpecIType t) | (x, t) <- xts ]
   where
     ts      = mkTy' <$> lbt
     rts     = concatMap (univs . val) ts
@@ -251,22 +248,30 @@ makeSpecDictionaryOne env sigEnv name (RI bt lbt xts)
     mkLSpecIType :: RISig LocBareType -> RISig LocSpecType
     mkLSpecIType t = fmap mkTy t
 
-resolveDictionaries :: Bare.Env -> ModName -> [(F.Symbol, M.HashMap F.Symbol (RISig LocSpecType))]
+resolveDictionaries :: Bare.Env -> [RInstance LocSpecType]
                     -> [Maybe (Ghc.Var, M.HashMap F.Symbol (RISig LocSpecType))]
-resolveDictionaries env name = fmap lookupVar
-                             . concatMap addInstIndex
-                             . Misc.groupList
+resolveDictionaries env = map $ \ri -> do
+    v <- lookupDFun ri
+    return (v, M.fromList $ first (getLHNameSymbol . val) <$> risigs ri)
   where
-    lookupVar (x, inst)      = (, inst) <$> Bare.maybeResolveSym env name "resolveDict" (F.dummyLoc x)
+    lookupDFun (RI c ts _) = do
+       let tys = map (toType False . dropUniv . val) ts
+       case Bare.lookupGhcTyConLHName env (btc_tc c) of
+         Left _ ->
+           panic (Just $ GM.fSrcSpan $ btc_tc c) "cannot find type class"
+         Right tc -> case Ghc.tyConClass_maybe tc of
+           Nothing ->
+             panic (Just $ GM.fSrcSpan $ btc_tc c) "type constructor does not refer to a type class"
+           Just cls ->
+             case Ghc.lookupUniqueInstEnv (Bare.reInstEnvs env) cls tys of
+               Left _e ->
+                 panic (Just $ GM.fSrcSpan $ btc_tc c) "cannot find class instance"
+               Right (clsInst, _) ->
+                 Just (Ghc.is_dfun clsInst)
 
--- formerly, addIndex
--- GHC internal postfixed same name dictionaries with ints
-addInstIndex            :: (F.Symbol, [a]) -> [(F.Symbol, a)]
-addInstIndex (x, ks) = go (0::Int) (reverse ks)
-  where
-    go _ []          = []
-    go _ [i]         = [(x, i)]
-    go j (i:is)      = (F.symbol (F.symbolString x ++ show j),i) : go (j+1) is
+dropUniv :: SpecType -> SpecType
+dropUniv t = t' where (_,_,t') = bkUniv t
+
 
 ----------------------------------------------------------------------------------
 makeDefaultMethods :: Bare.Env -> [(ModName, Ghc.Var, LocSpecType)]

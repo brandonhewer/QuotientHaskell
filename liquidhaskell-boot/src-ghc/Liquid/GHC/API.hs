@@ -305,8 +305,10 @@ import GHC.Core.FamInstEnv            as Ghc
 import GHC.Core.InstEnv               as Ghc
     ( ClsInst(is_cls, is_dfun, is_dfun_name, is_tys)
     , DFunId
+    , InstEnvs
     , instEnvElts
     , instanceSig
+    , lookupUniqueInstEnv
     )
 import GHC.Core.Make                  as Ghc
     ( mkCoreApps
@@ -514,6 +516,8 @@ import GHC.Tc.Types                   as Ghc
 import GHC.Tc.Types.Evidence          as Ghc
     ( TcEvBinds(EvBinds) )
 import GHC.Tc.Types.Origin            as Ghc (lexprCtOrigin)
+import GHC.Tc.Utils.Env               as Ghc
+    ( tcGetInstEnvs )
 import GHC.Tc.Utils.Monad             as Ghc
     ( captureConstraints
     , discardConstraints
