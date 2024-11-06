@@ -275,7 +275,7 @@ makeGhcSpec0 cfg session tcg instEnvs localVars src lmap targetSpec dependencySp
   -- NB: we first compute a measure environment w/o the opaque reflections, so that we can bootstrap
   -- the signature `sig`. Then we'll add the opaque reflections before we compute `sData` and al.
   let (dg1, measEnv0) = withDiagnostics $ makeMeasEnv      env tycEnv sigEnv       specs
-  let (dg2, sig) = withDiagnostics $ makeSpecSig cfg name specs env sigEnv   tycEnv measEnv0 (_giCbs src)
+  let (dg2, sig) = withDiagnostics $ makeSpecSig cfg name mySpec iSpecs2 env sigEnv tycEnv measEnv0 (_giCbs src)
   elaboratedSig <-
     if allowTC then Bare.makeClassAuxTypes (elaborateSpecType coreToLg simplifier) datacons instMethods
                               >>= elaborateSig sig
@@ -800,12 +800,12 @@ makeAutoInst env name spec = S.fromList <$> kvs
 
 
 ----------------------------------------------------------------------------------------
-makeSpecSig :: Config -> ModName -> Bare.ModSpecs -> Bare.Env -> Bare.SigEnv -> Bare.TycEnv -> Bare.MeasEnv -> [Ghc.CoreBind]
-            -> Bare.Lookup GhcSpecSig
+makeSpecSig :: Config -> ModName -> Ms.BareSpec -> Bare.ModSpecs -> Bare.Env -> Bare.SigEnv -> Bare.TycEnv -> Bare.MeasEnv -> [Ghc.CoreBind]
+            -> Bare.Lookup (GhcSpecSig)
 ----------------------------------------------------------------------------------------
-makeSpecSig cfg name specs env sigEnv tycEnv measEnv cbs = do
+makeSpecSig cfg name mySpec specs env sigEnv tycEnv measEnv cbs = do
   mySigs     <- makeTySigs  env sigEnv name mySpec
-  aSigs      <- F.notracepp ("makeSpecSig aSigs " ++ F.showpp name) $ makeAsmSigs env sigEnv name specs
+  aSigs      <- F.notracepp ("makeSpecSig aSigs " ++ F.showpp name) $ makeAsmSigs env sigEnv name allSpecs
   let asmSigs =  Bare.tcSelVars tycEnv
               ++ aSigs
               ++ [ (x,t) | (_, x, t) <- concatMap snd (Bare.meCLaws measEnv) ]
@@ -821,7 +821,7 @@ makeSpecSig cfg name specs env sigEnv tycEnv measEnv cbs = do
   return SpSig
     { gsTySigs   = tySigs
     , gsAsmSigs  = asmSigs
-    , gsAsmReflects = bimap getVar getVar <$> concatMap (asmReflectSigs . snd) (M.toList specs)
+    , gsAsmReflects = bimap getVar getVar <$> concatMap (asmReflectSigs . snd) allSpecs
     , gsRefSigs  = []
     , gsDicts    = dicts
     -- , gsMethods  = if noclasscheck cfg then [] else Bare.makeMethodTypes dicts (Bare.meClasses  measEnv) cbs
@@ -833,9 +833,8 @@ makeSpecSig cfg name specs env sigEnv tycEnv measEnv cbs = do
     , gsAsmRel   = asmRel
   }
   where
-    dicts      = Bare.makeSpecDictionaries env sigEnv specs
-    mySpec     = M.lookupDefault mempty name specs
-    allSpecs   = M.toList specs
+    dicts = Bare.makeSpecDictionaries env sigEnv (name, mySpec) (M.toList specs)
+    allSpecs   = (name, mySpec) : M.toList specs
     rtEnv      = Bare.sigRTEnv sigEnv
     getVar sym = case Bare.lookupGhcVar env name "assume-reflection specs" sym of
       Right x -> x
@@ -908,12 +907,12 @@ checkDuplicateSigs xts = case Misc.uniqueByKey symXs  of
     symXs = [ (F.symbol x, F.loc t) | (x, t) <- xts ]
 
 
-makeAsmSigs :: Bare.Env -> Bare.SigEnv -> ModName -> Bare.ModSpecs -> Bare.Lookup [(Ghc.Var, LocSpecType)]
+makeAsmSigs :: Bare.Env -> Bare.SigEnv -> ModName -> [(ModName, Ms.BareSpec)] -> Bare.Lookup [(Ghc.Var, LocSpecType)]
 makeAsmSigs env sigEnv myName specs = do
   raSigs <- rawAsmSigs env myName specs
   return [ (x, t) | (name, x, bt) <- raSigs, let t = Bare.cookSpecType env sigEnv name (Bare.LqTV x) bt ]
 
-rawAsmSigs :: Bare.Env -> ModName -> Bare.ModSpecs -> Bare.Lookup [(ModName, Ghc.Var, LocBareType)]
+rawAsmSigs :: Bare.Env -> ModName -> [(ModName, Ms.BareSpec)] -> Bare.Lookup [(ModName, Ghc.Var, LocBareType)]
 rawAsmSigs env myName specs = do
   aSigs <- allAsmSigs env myName specs
   return [ (m, v, t) | (v, sigs) <- aSigs, let (m, t) = myAsmSig v sigs ]
@@ -987,10 +986,10 @@ takeBiggest :: (Ord b) => (a -> b) -> [a] -> Maybe a
 takeBiggest _ []  = Nothing
 takeBiggest f xs  = Just $ L.maximumBy (compare `on` f) xs
 
-allAsmSigs :: Bare.Env -> ModName -> Bare.ModSpecs ->
+allAsmSigs :: Bare.Env -> ModName -> [(ModName, Ms.BareSpec)] ->
               Bare.Lookup [(Ghc.Var, [(Bool, ModName, LocBareType)])]
 allAsmSigs env myName specs = do
-  let aSigs = [ (name, locallyDefined, x, t) | (name, spec) <- M.toList specs
+  let aSigs = [ (name, locallyDefined, x, t) | (name, spec) <- specs
                                    , (locallyDefined, x, t) <- getAsmSigs myName name spec ]
   vSigs    <- forM aSigs $ \(name, locallyDefined, x, t) -> do
                 v <- Bare.lookupGhcIdLHName env x
