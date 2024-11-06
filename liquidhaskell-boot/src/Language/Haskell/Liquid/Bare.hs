@@ -596,7 +596,7 @@ makeSpecTerm :: Config -> Ms.BareSpec -> Bare.Env -> ModName ->
 makeSpecTerm cfg mySpec env name = do
   sizes  <- if structuralTerm cfg then pure mempty else makeSize env name mySpec
   lazies <- makeLazy     env name mySpec
-  autos  <- makeAutoSize env name mySpec
+  autos  <- makeAutoSize env mySpec
   gfail  <- makeFail env mySpec
   return  $ SpTerm
     { gsLazy       = S.insert dictionaryVar (lazies `mappend` sizes)
@@ -649,10 +649,10 @@ makeRewriteWith' env name spec =
     xvs <- mapM (Bare.lookupGhcVar env name "Var2") xs
     return (xv, xvs)
 
-makeAutoSize :: Bare.Env -> ModName -> Ms.BareSpec -> Bare.Lookup (S.HashSet Ghc.TyCon)
-makeAutoSize env name
+makeAutoSize :: Bare.Env -> Ms.BareSpec -> Bare.Lookup (S.HashSet Ghc.TyCon)
+makeAutoSize env
   = fmap S.fromList
-  . mapM (Bare.lookupGhcTyCon env name "TyCon")
+  . mapM (Bare.lookupGhcTyConLHName env)
   . S.toList
   . Ms.autosize
 

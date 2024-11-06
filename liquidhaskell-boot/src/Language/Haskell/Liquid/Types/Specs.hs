@@ -402,7 +402,7 @@ data Spec ty bndr  = Spec
   , hbounds    :: !(S.HashSet F.LocSymbol)                            -- ^ Binders to turn into bounds using haskell definitions
   , inlines    :: !(S.HashSet F.LocSymbol)                            -- ^ Binders to turn into logic inline using haskell definitions
   , ignores    :: !(S.HashSet F.LocSymbol)                            -- ^ Binders to ignore during checking; that is DON't check the corebind.
-  , autosize   :: !(S.HashSet F.LocSymbol)                            -- ^ Type Constructors that get automatically sizing info
+  , autosize   :: !(S.HashSet (F.Located LHName))                     -- ^ Type Constructors that get automatically sizing info
   , pragmas    :: ![F.Located String]                                 -- ^ Command-line configurations passed in through source
   , cmeasures  :: ![Measure ty ()]                                    -- ^ Measures attached to a type-class
   , imeasures  :: ![Measure ty bndr]                                  -- ^ Mappings from (measure,type) -> measure
@@ -571,7 +571,7 @@ data LiftedSpec = LiftedSpec
     -- ^ Variables that should be checked in the environment they are used
   , liftedAutois     :: S.HashSet F.LocSymbol
     -- ^ Automatically instantiate axioms in these Functions
-  , liftedAutosize   :: HashSet F.LocSymbol
+  , liftedAutosize   :: HashSet (F.Located LHName)
     -- ^ Type Constructors that get automatically sizing info
   , liftedCmeasures  :: HashSet (Measure LocBareType ())
     -- ^ Measures attached to a type-class

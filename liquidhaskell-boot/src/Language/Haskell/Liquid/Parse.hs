@@ -864,7 +864,7 @@ data Pspec ty ctor
   | OpaqueReflect LocSymbol                               -- ^ 'opaque-reflect' annotation
   | Inline  LocSymbol                                     -- ^ 'inline' annotation;  inline (non-recursive) binder as an alias
   | Ignore  LocSymbol                                     -- ^ 'ignore' annotation; skip all checks inside this binder
-  | ASize   LocSymbol                                     -- ^ 'autosize' annotation; automatically generate size metric for this type
+  | ASize   (Located LHName)                              -- ^ 'autosize' annotation; automatically generate size metric for this type
   | HBound  LocSymbol                                     -- ^ 'bound' annotation; lift Haskell binder as an abstract-refinement "bound"
   | PBound  (Bound ty Expr)                               -- ^ 'bound' definition
   | Pragma  (Located String)                              -- ^ 'LIQUID' pragma, used to save configuration options in source files
@@ -1099,7 +1099,7 @@ specP
         <|> (reserved "relational" >>  fmap AssmRel relationalP)
         <|>                            fmap Assm   tyBindLHNameP  )
     <|> fallbackSpecP "assert"      (fmap Asrt    tyBindLHNameP)
-    <|> fallbackSpecP "autosize"    (fmap ASize   asizeP   )
+    <|> fallbackSpecP "autosize"    (fmap ASize   tyConBindLHNameP)
     <|> (reserved "local"         >> fmap LAsrt   tyBindP  )
 
     -- TODO: These next two are synonyms, kill one
@@ -1189,9 +1189,6 @@ hboundP = locBinderP
 
 inlineP :: Parser LocSymbol
 inlineP = locBinderP
-
-asizeP :: Parser LocSymbol
-asizeP = locBinderP
 
 datavarianceP :: Parser (Located LHName, [Variance])
 datavarianceP = liftM2 (,) (locUpperIdLHNameP LHTcName) (many varianceP)
@@ -1488,6 +1485,9 @@ predTypeDDP = (,) <$> bbindP <*> bareTypeP
 
 bbindP   :: Parser Symbol
 bbindP   = lowerIdP <* reservedOp "::"
+
+tyConBindLHNameP :: Parser (Located LHName)
+tyConBindLHNameP = locUpperIdLHNameP LHTcName
 
 dataConP :: [Symbol] -> Parser DataCtor
 dataConP as = do
