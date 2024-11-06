@@ -32,7 +32,7 @@ module Language.Haskell.Liquid.Bare.Resolve
   , lookupGhcIdLHName
   , lookupGhcNamedVar
   , lookupLocalVar
-  , matchTyCon
+  , lookupGhcTyConLHName
 
   -- * Checking if names exist
   , knownGhcVar
@@ -943,11 +943,11 @@ ofBRType env name f l = go []
     goSyms (x, t)                 = (x,) <$> ofBSortE env name l t
     goRApp bs tc ts rs r          = bareTCApp <$> goReft bs r <*> lc' <*> mapM (goRef bs) rs <*> mapM (go bs) ts
       where
-        lc'                    = F.atLoc lc <$> matchTyCon env lc
+        lc'                    = F.atLoc lc <$> lookupGhcTyConLHName env lc
         lc                     = btc_tc tc
 
-matchTyCon :: Env -> Located LHName -> Lookup Ghc.TyCon
-matchTyCon env lc = do
+lookupGhcTyConLHName :: Env -> Located LHName -> Lookup Ghc.TyCon
+lookupGhcTyConLHName env lc = do
     case lookupTyThing env lc of
       Ghc.ATyCon tc -> Right tc
       Ghc.AConLike (Ghc.RealDataCon dc) -> Right $ Ghc.promoteDataCon dc

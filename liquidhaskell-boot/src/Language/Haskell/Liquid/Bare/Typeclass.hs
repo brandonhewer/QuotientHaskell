@@ -121,7 +121,7 @@ compileClasses src env (name, spec) rest =
       ++ concatMap (Mb.mapMaybe resolveClassMaybe . dataDecls . snd) rest
   resolveClassMaybe :: DataDecl -> Maybe Ghc.Class
   resolveClassMaybe d =
-    either (const Nothing) Just (Bare.matchTyCon env $ dataNameSymbol $ tycName d)
+    either (const Nothing) Just (Bare.lookupGhcTyConLHName env $ dataNameSymbol $ tycName d)
       >>= Ghc.tyConClass_maybe
 
 

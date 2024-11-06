@@ -403,7 +403,7 @@ makeTyConEmbeds :: Bare.Env -> Ms.BareSpec -> F.TCEmb Ghc.TyCon
 makeTyConEmbeds env spec
   = F.tceFromList [ (tc, t) | (c,t) <- F.tceToList (Ms.embeds spec), tc <- symTc c ]
     where
-      symTc = Mb.maybeToList . either (const Nothing) Just . Bare.matchTyCon env
+      symTc = Mb.maybeToList . either (const Nothing) Just . Bare.lookupGhcTyConLHName env
 
 --------------------------------------------------------------------------------
 -- | [NOTE]: REFLECT-IMPORTS
