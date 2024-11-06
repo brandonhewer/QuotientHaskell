@@ -71,7 +71,6 @@ module Language.Haskell.Liquid.Types.Specs (
 import           GHC.Generics            hiding (to, moduleName)
 import           Data.Binary
 import qualified Language.Fixpoint.Types as F
-import           Language.Fixpoint.Misc (sortNub)
 import           Data.Data (Data)
 import           Data.Hashable
 import qualified Data.HashSet            as S
@@ -318,7 +317,7 @@ instance Semigroup GhcSpecTerm where
 instance Monoid GhcSpecTerm where
   mempty = SpTerm mempty mempty mempty mempty mempty
 data GhcSpecRefl = SpRefl
-  { gsAutoInst     :: !(M.HashMap Var (Maybe Int))      -- ^ Binders to USE PLE
+  { gsAutoInst     :: !(S.HashSet Var)                  -- ^ Binders to USE PLE
   , gsHAxioms      :: ![(Var, LocSpecType, F.Equation)] -- ^ Lifted definitions
   , gsImpAxioms    :: ![F.Equation]                     -- ^ Axioms from imported reflected functions
   , gsMyAxioms     :: ![F.Equation]                     -- ^ Axioms from my reflected functions
@@ -404,7 +403,6 @@ data Spec ty bndr  = Spec
   , ialiases   :: ![(ty, ty)]                                         -- ^ Data type invariants to be checked
   , dataDecls  :: ![DataDecl]                                         -- ^ Predicated data definitions
   , newtyDecls :: ![DataDecl]                                         -- ^ Predicated new type definitions
-  , includes   :: ![FilePath]                                         -- ^ Included qualifier files
   , aliases    :: ![F.Located (RTAlias F.Symbol BareType)]            -- ^ RefType aliases
   , ealiases   :: ![F.Located (RTAlias F.Symbol F.Expr)]              -- ^ Expression aliases
   , embeds     :: !(F.TCEmb (F.Located LHName))                       -- ^ GHC-Tycon-to-fixpoint Tycon map
@@ -413,10 +411,10 @@ data Spec ty bndr  = Spec
   , lazy       :: !(S.HashSet F.LocSymbol)                            -- ^ Ignore Termination Check in these Functions
   , rewrites    :: !(S.HashSet F.LocSymbol)                           -- ^ Theorems turned into rewrite rules
   , rewriteWith :: !(M.HashMap F.LocSymbol [F.LocSymbol])             -- ^ Definitions using rewrite rules
-  , fails      :: !(S.HashSet F.LocSymbol)                            -- ^ These Functions should be unsafe
+  , fails      :: !(S.HashSet (F.Located LHName))                     -- ^ These Functions should be unsafe
   , reflects   :: !(S.HashSet F.LocSymbol)                            -- ^ Binders to reflect
   , opaqueReflects :: !(S.HashSet F.LocSymbol)                        -- ^ Binders to opaque-reflect
-  , autois     :: !(M.HashMap F.LocSymbol (Maybe Int))                -- ^ Automatically instantiate axioms in these Functions with maybe specified fuel
+  , autois     :: !(S.HashSet F.LocSymbol)                            -- ^ Automatically instantiate axioms in these Functions
   , hmeas      :: !(S.HashSet F.LocSymbol)                            -- ^ Binders to turn into measures using haskell definitions
   , hbounds    :: !(S.HashSet F.LocSymbol)                            -- ^ Binders to turn into bounds using haskell definitions
   , inlines    :: !(S.HashSet F.LocSymbol)                            -- ^ Binders to turn into logic inline using haskell definitions
@@ -463,7 +461,6 @@ instance Semigroup (Spec ty bndr) where
            , ialiases   =           ialiases   s1 ++ ialiases   s2
            , dataDecls  =           dataDecls  s1 ++ dataDecls  s2
            , newtyDecls =           newtyDecls s1 ++ newtyDecls s2
-           , includes   = sortNub $ includes   s1 ++ includes   s2
            , aliases    =           aliases    s1 ++ aliases    s2
            , ealiases   =           ealiases   s1 ++ ealiases   s2
            , qualifiers =           qualifiers s1 ++ qualifiers s2
@@ -495,7 +492,7 @@ instance Semigroup (Spec ty bndr) where
            , ignores    = S.union   (ignores  s1)  (ignores  s2)
            , autosize   = S.union   (autosize s1)  (autosize s2)
            , bounds     = M.union   (bounds   s1)  (bounds   s2)
-           , autois     = M.union   (autois s1)      (autois s2)
+           , autois     = S.union   (autois s1)      (autois s2)
            }
 
 instance Monoid (Spec ty bndr) where
@@ -510,7 +507,6 @@ instance Monoid (Spec ty bndr) where
            , ialiases   = []
            , dataDecls  = []
            , newtyDecls = []
-           , includes   = []
            , aliases    = []
            , ealiases   = []
            , embeds     = mempty
@@ -520,7 +516,7 @@ instance Monoid (Spec ty bndr) where
            , rewrites   = S.empty
            , rewriteWith = M.empty
            , fails      = S.empty
-           , autois     = M.empty
+           , autois     = S.empty
            , hmeas      = S.empty
            , reflects   = S.empty
            , opaqueReflects = S.empty
@@ -555,8 +551,6 @@ instance Monoid (Spec ty bndr) where
 --
 -- What we /do not/ have compared to a 'BareSpec':
 --
--- * The 'localSigs', as it's not necessary/visible to clients;
--- * The 'includes', as they are probably not reachable for clients anyway;
 -- * The 'reflSigs', they are now just \"normal\" signatures;
 -- * The 'lazy', we don't do termination checking in lifted specs;
 -- * The 'reflects', the reflection has already happened at this point;
@@ -598,8 +592,8 @@ data LiftedSpec = LiftedSpec
     -- ^ Qualifiers in source/spec files
   , liftedLvars      :: HashSet F.LocSymbol
     -- ^ Variables that should be checked in the environment they are used
-  , liftedAutois     :: M.HashMap F.LocSymbol (Maybe Int)
-    -- ^ Automatically instantiate axioms in these Functions with maybe specified fuel
+  , liftedAutois     :: S.HashSet F.LocSymbol
+    -- ^ Automatically instantiate axioms in these Functions
   , liftedAutosize   :: HashSet F.LocSymbol
     -- ^ Type Constructors that get automatically sizing info
   , liftedCmeasures  :: HashSet (Measure LocBareType ())
@@ -684,7 +678,7 @@ dropDependency sm (TargetDependencies deps) = TargetDependencies (M.delete sm de
 
 -- | Returns 'True' if the input 'Var' is a /PLE/ one.
 isPLEVar :: TargetSpec -> Var -> Bool
-isPLEVar sp x = M.member x (gsAutoInst (gsRefl sp))
+isPLEVar sp x = S.member x (gsAutoInst (gsRefl sp))
 
 -- | Returns 'True' if the input 'Var' was exported in the module the input 'TargetSrc' represents.
 isExportedVar :: TargetSrc -> Var -> Bool
@@ -849,7 +843,6 @@ unsafeFromLiftedSpec a = Spec
   , ialiases   = S.toList . liftedIaliases $ a
   , dataDecls  = S.toList . liftedDataDecls $ a
   , newtyDecls = S.toList . liftedNewtyDecls $ a
-  , includes   = mempty
   , aliases    = S.toList . liftedAliases $ a
   , ealiases   = S.toList . liftedEaliases $ a
   , embeds     = liftedEmbeds a

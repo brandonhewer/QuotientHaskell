@@ -849,7 +849,6 @@ data Pspec ty ctor
   | CLaws   (RClass ty)                                   -- ^ 'class laws' definition
   | ILaws   (RILaws ty)
   | RInst   (RInstance ty)                                -- ^ refined 'instance' definition
-  | Incl    FilePath                                      -- ^ 'include' a path -- TODO: deprecate
   | Invt    ty                                            -- ^ 'invariant' specification
   | Using  (ty, ty)                                       -- ^ 'using' declaration (for local invariants on a type)
   | Alias   (Located (RTAlias Symbol BareType))           -- ^ 'type' alias declaration
@@ -858,10 +857,10 @@ data Pspec ty ctor
   | Qualif  Qualifier                                     -- ^ 'qualif' definition
   | LVars   LocSymbol                                     -- ^ 'lazyvar' annotation, defer checks to *use* sites
   | Lazy    LocSymbol                                     -- ^ 'lazy' annotation, skip termination check on binder
-  | Fail    LocSymbol                                     -- ^ 'fail' annotation, the binder should be unsafe
+  | Fail    (Located LHName)                              -- ^ 'fail' annotation, the binder should be unsafe
   | Rewrite LocSymbol                                     -- ^ 'rewrite' annotation, the binder generates a rewrite rule
   | Rewritewith (LocSymbol, [LocSymbol])                  -- ^ 'rewritewith' annotation, the first binder is using the rewrite rules of the second list,
-  | Insts   (LocSymbol, Maybe Int)                        -- ^ 'auto-inst' or 'ple' annotation; use ple locally on binder
+  | Insts   LocSymbol                                     -- ^ 'auto-inst' or 'ple' annotation; use ple locally on binder
   | HMeas   LocSymbol                                     -- ^ 'measure' annotation; lift Haskell binder as measure
   | Reflect LocSymbol                                     -- ^ 'reflect' annotation; reflect Haskell binder as function in logic
   | OpaqueReflect LocSymbol                               -- ^ 'opaque-reflect' annotation
@@ -919,8 +918,6 @@ ppPspec k (DDecl d)
   = pprintTidy k d
 ppPspec k (NTDecl d)
   = "newtype" <+> pprintTidy k d
-ppPspec _ (Incl f)
-  = "include" <+> "<" PJ.<> PJ.text f PJ.<> ">"
 ppPspec k (Invt t)
   = "invariant" <+> pprintTidy k t
 ppPspec k (Using (t1, t2))
@@ -947,8 +944,8 @@ ppPspec k (Rewritewith (lx, lxs))
     go s = pprintTidy k $ val s
 ppPspec k (Fail   lx)
   = "fail" <+> pprintTidy k (val lx)
-ppPspec k (Insts   (lx, mbN))
-  = "automatic-instances" <+> pprintTidy k (val lx) <+> maybe "" (("with" <+>) . pprintTidy k) mbN
+ppPspec k (Insts   lx)
+  = "automatic-instances" <+> pprintTidy k (val lx)
 ppPspec k (HMeas   lx)
   = "measure" <+> pprintTidy k (val lx)
 ppPspec k (Reflect lx)
@@ -1009,7 +1006,6 @@ ppPspec k (AssmRel (lxl, lxr, tl, tr, q, p))
   show (Impt   _) = "Impt"
   shcl  _) = "DDecl"
   show (NTDecl _) = "NTDecl"
-  show (Incl   _) = "Incl"
   show (Invt   _) = "Invt"
   show (Using _) = "Using"
   show (Alias  _) = "Alias"
@@ -1020,7 +1016,6 @@ ppPspec k (AssmRel (lxl, lxr, tl, tr, q, p))
   show (LVars  _) = "LVars"
   show (Lazy   _) = "Lazy"
   -- show (Axiom  _) = "Axiom"
-  show (Insts  _) = "Insts"
   show (Reflect _) = "Reflect"
   show (HMeas  _) = "HMeas"
   show (HBound _) = "HBound"
@@ -1071,13 +1066,12 @@ mkSpec name xs         = (name,) $ qualifySpec (symbol name) Measure.Spec
   , Measure.ialiases   = [t | Using t <- xs]
   , Measure.dataDecls  = [d | DDecl  d <- xs] ++ [d | NTDecl d <- xs]
   , Measure.newtyDecls = [d | NTDecl d <- xs]
-  , Measure.includes   = [q | Incl   q <- xs]
   , Measure.aliases    = [a | Alias  a <- xs]
   , Measure.ealiases   = [e | EAlias e <- xs]
   , Measure.embeds     = tceFromList [(c, (fTyconSort tc, a)) | Embed (c, tc, a) <- xs]
   , Measure.qualifiers = [q | Qualif q <- xs]
   , Measure.lvars      = S.fromList [d | LVars d  <- xs]
-  , Measure.autois     = M.fromList [s | Insts s <- xs]
+  , Measure.autois     = S.fromList [s | Insts s <- xs]
   , Measure.pragmas    = [s | Pragma s <- xs]
   , Measure.cmeasures  = [m | CMeas  m <- xs]
   , Measure.imeasures  = [m | IMeas  m <- xs]
@@ -1146,7 +1140,6 @@ specP
         <|> fmap DDecl  dataDeclP ))
     <|> (reserved "newtype"       >> fmap NTDecl dataDeclP )
     <|> (reserved "relational"    >> fmap Relational relationalP )
-    <|> (reserved "include"       >> fmap Incl   filePathP )
     <|> fallbackSpecP "invariant"   (fmap Invt   invariantP)
     <|> (reserved "using"          >> fmap Using invaliasP )
     <|> (reserved "type"          >> fmap Alias  aliasP    )
@@ -1162,9 +1155,9 @@ specP
     <|> (reserved "lazy"          >> fmap Lazy   lazyVarP  )
     <|> (reserved "rewrite"       >> fmap Rewrite   rewriteVarP )
     <|> (reserved "rewriteWith"   >> fmap Rewritewith   rewriteWithP )
-    <|> (reserved "fail"          >> fmap Fail   failVarP  )
-    <|> (reserved "ple"           >> fmap Insts autoinstP  )
-    <|> (reserved "automatic-instances" >> fmap Insts autoinstP  )
+    <|> (reserved "fail"          >> fmap Fail locBinderLHNameP )
+    <|> (reserved "ple"           >> fmap Insts locBinderP  )
+    <|> (reserved "automatic-instances" >> fmap Insts locBinderP  )
     <|> (reserved "LIQUID"        >> fmap Pragma pragmaP   )
     <|> (reserved "liquid"        >> fmap Pragma pragmaP   )
     <|> {- DEFAULT -}                fmap Asrts  tyBindsP
@@ -1188,11 +1181,6 @@ tyBindsRemP sy = do
 pragmaP :: Parser (Located String)
 pragmaP = locStringLiteral
 
-autoinstP :: Parser (LocSymbol, Maybe Int)
-autoinstP = do x <- locBinderP
-               i <- optional (reserved "with" >> natural)
-               return (x, fromIntegral <$> i)
-
 lazyVarP :: Parser LocSymbol
 lazyVarP = locBinderP
 
@@ -1202,9 +1190,6 @@ rewriteVarP = locBinderP
 
 rewriteWithP :: Parser (LocSymbol, [LocSymbol])
 rewriteWithP = (,) <$> locBinderP <*> brackets (sepBy1 locBinderP comma)
-
-failVarP :: Parser LocSymbol
-failVarP = locBinderP
 
 axiomP :: Parser LocSymbol
 axiomP = locBinderP
@@ -1217,15 +1202,6 @@ inlineP = locBinderP
 
 asizeP :: Parser LocSymbol
 asizeP = locBinderP
-
-filePathP     :: Parser FilePath
-filePathP     = angles $ some pathCharP
-  where
-    pathCharP :: Parser Char
-    pathCharP = choice $ char <$> pathChars
-
-    pathChars :: [Char]
-    pathChars = ['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9'] ++ ['.', '/']
 
 datavarianceP :: Parser (Located LHName, [Variance])
 datavarianceP = liftM2 (,) (locUpperIdLHNameP LHTcName) (many varianceP)
@@ -1419,7 +1395,7 @@ classP
   = do sups <- supersP
        c    <- classBTyConP
        tvs  <- manyTill (bTyVar <$> tyVarIdP) (try $ reserved "where")
-       ms   <- block tyBindP -- <|> sepBy tyBindP semi
+       ms   <- block tyBindLHNameP -- <|> sepBy tyBindP semi
        return $ RClass c sups tvs ms
   where
     supersP  = try ((parens (superP `sepBy1` comma) <|> fmap pure superP)
