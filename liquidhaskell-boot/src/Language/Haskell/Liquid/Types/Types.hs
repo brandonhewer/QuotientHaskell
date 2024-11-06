@@ -283,8 +283,11 @@ isApp _                              = False
 
 data RInstance t = RI
   { riclass :: BTyCon
+    -- | The name of the dictionary
+    -- Provided when resolving names
+  , riDictName :: Maybe (F.Located LHName)
   , ritype  :: [t]
-  , risigs  :: [(F.LocSymbol, RISig t)]
+  , risigs  :: [(F.Located LHName, RISig t)]
   } deriving (Eq, Generic, Functor, Data, Typeable, Show)
     deriving Hashable via Generically (RInstance t)
 
@@ -309,7 +312,7 @@ ppRISig k x (RIAssumed t) = "assume" <+> F.pprintTidy k x <+> "::" <+> F.pprintT
 ppRISig k x (RISig t)     =              F.pprintTidy k x <+> "::" <+> F.pprintTidy k t
 
 instance F.PPrint t => F.PPrint (RInstance t) where
-  pprintTidy k (RI n ts mts) = ppMethods k "instance" n ts mts
+  pprintTidy k (RI n _ ts mts) = ppMethods k "instance" n ts mts
 
 
 instance (B.Binary t) => B.Binary (RInstance t)

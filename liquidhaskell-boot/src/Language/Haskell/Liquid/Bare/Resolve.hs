@@ -32,7 +32,7 @@ module Language.Haskell.Liquid.Bare.Resolve
   , lookupGhcIdLHName
   , lookupGhcNamedVar
   , lookupLocalVar
-  , matchTyCon
+  , lookupGhcTyConLHName
 
   -- * Checking if names exist
   , knownGhcVar
@@ -104,8 +104,8 @@ type Lookup a = Either [Error] a
 -------------------------------------------------------------------------------
 -- | Creating an environment
 -------------------------------------------------------------------------------
-makeEnv :: Config -> Ghc.Session -> Ghc.TcGblEnv -> LocalVars -> GhcSrc -> LogicMap -> [(ModName, BareSpec)] -> Env
-makeEnv cfg session tcg localVars src lmap specs = RE
+makeEnv :: Config -> Ghc.Session -> Ghc.TcGblEnv -> Ghc.InstEnvs -> LocalVars -> GhcSrc -> LogicMap -> [(ModName, BareSpec)] -> Env
+makeEnv cfg session tcg instEnv localVars src lmap specs = RE
   { reSession   = session
   , reTcGblEnv  = tcg
   , reTypeEnv   =
@@ -114,6 +114,7 @@ makeEnv cfg session tcg localVars src lmap specs = RE
       -- also include the types of local variables.
       let varsEnv = Ghc.mkTypeEnv $ map Ghc.AnId $ letVars $ _giCbs src
        in Ghc.tcg_type_env tcg `Ghc.plusTypeEnv` varsEnv
+  , reInstEnvs = instEnv
   , reUsedExternals = usedExternals
   , reLMap      = lmap
   , reSyms      = syms
@@ -943,11 +944,11 @@ ofBRType env name f l = go []
     goSyms (x, t)                 = (x,) <$> ofBSortE env name l t
     goRApp bs tc ts rs r          = bareTCApp <$> goReft bs r <*> lc' <*> mapM (goRef bs) rs <*> mapM (go bs) ts
       where
-        lc'                    = F.atLoc lc <$> matchTyCon env lc
+        lc'                    = F.atLoc lc <$> lookupGhcTyConLHName env lc
         lc                     = btc_tc tc
 
-matchTyCon :: Env -> Located LHName -> Lookup Ghc.TyCon
-matchTyCon env lc = do
+lookupGhcTyConLHName :: Env -> Located LHName -> Lookup Ghc.TyCon
+lookupGhcTyConLHName env lc = do
     case lookupTyThing env lc of
       Ghc.ATyCon tc -> Right tc
       Ghc.AConLike (Ghc.RealDataCon dc) -> Right $ Ghc.promoteDataCon dc

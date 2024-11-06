@@ -42,7 +42,7 @@ makeInstanceLaw env sigEnv sigs name rilaw = LawInstance
     errmsg = error ("Not a type class: " ++ F.showpp tc)
 
     classTc = tyConClass_maybe <=<
-              either (const Nothing) Just . Bare.matchTyCon env . btc_tc
+              either (const Nothing) Just . Bare.lookupGhcTyConLHName env . btc_tc
 
     mkTy :: LocBareType -> LocSpecType
     mkTy = Bare.cookSpecType env sigEnv name Bare.GenTV

@@ -1,8 +1,7 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleContexts     #-}
 module Language.Haskell.Liquid.Types.Dictionaries (
-    makeDictionary
-  , dfromList
+    dfromList
   , dmapty
   , dmap
   , dinsert
@@ -11,7 +10,6 @@ module Language.Haskell.Liquid.Types.Dictionaries (
   , fromRISig
   ) where
 
-import           Data.Bifunctor (first)
 import           Data.Hashable
 
 import           Prelude                                   hiding (error)
@@ -19,39 +17,11 @@ import qualified Language.Fixpoint.Types as F
 import           Language.Haskell.Liquid.Types.PrettyPrint ()
 import qualified Language.Haskell.Liquid.GHC.Misc       as GM
 import qualified Liquid.GHC.API        as Ghc
-import           Language.Haskell.Liquid.Types.Errors
-import           Language.Haskell.Liquid.Types.Names
-import           Language.Haskell.Liquid.Types.RType
-import           Language.Haskell.Liquid.Types.RTypeOp
 -- import           Language.Haskell.Liquid.Types.Visitors (freeVars)
 import           Language.Haskell.Liquid.Types.RefType ()
 import           Language.Haskell.Liquid.Types.Types
 import qualified Data.HashMap.Strict                       as M
 
-
-makeDictionary :: RInstance LocSpecType -> (F.Symbol, M.HashMap F.Symbol (RISig LocSpecType))
-makeDictionary (RI c ts xts) = (makeDictionaryName (getLHNameSymbol <$> btc_tc c) ts, M.fromList (first val <$> xts))
-
-makeDictionaryName :: LocSymbol -> [LocSpecType] -> F.Symbol
-makeDictionaryName t ts
-  = F.notracepp _msg $ F.symbol ("$f" ++ F.symbolString (val t) ++ concatMap mkName ts)
-  where
-    mkName = makeDicTypeName sp . dropUniv . val
-    sp     = GM.fSrcSpan t
-    _msg   = "MAKE-DICTIONARY " ++ F.showpp (val t, ts)
-
--- | @makeDicTypeName@ DOES NOT use show/symbol in the @RVar@ case 
---   as those functions add the unique-suffix which then breaks the 
---   class resolution.
-
-makeDicTypeName :: Ghc.SrcSpan -> SpecType -> String
-makeDicTypeName _ RFun{}           = "(->)"
-makeDicTypeName _ (RApp c _ _ _)   = F.symbolString . GM.dropModuleNamesCorrect . F.symbol . rtc_tc $ c
-makeDicTypeName _ (RVar (RTV a) _) = show (Ghc.getName a)
-makeDicTypeName sp t               = panic (Just sp) ("makeDicTypeName: called with invalid type " ++ show t)
-
-dropUniv :: SpecType -> SpecType
-dropUniv t = t' where (_,_,t') = bkUniv t
 
 --------------------------------------------------------------------------------
 -- | Dictionary Environment ----------------------------------------------------

@@ -1229,16 +1229,12 @@ tyBindP :: Parser (LocSymbol, Located BareType)
 tyBindP =
   (,) <$> locBinderP <* reservedOp "::" <*> located genBareTypeP
 
-tyBindMethodP :: Parser (LocSymbol, Located BareType)
-tyBindMethodP =
-  (,) <$> located binderInfixParensP <* reservedOp "::" <*> located genBareTypeP
-
 tyBindLHNameP :: Parser (Located LHName, Located BareType)
 tyBindLHNameP = do
-    x <- locBinderP
+    x <- locBinderLHNameP
     _ <- reservedOp "::"
     t <- located genBareTypeP
-    return (makeUnresolvedLHName LHVarName <$> x, t)
+    return (x, t)
 
 -- | Parses a loc symbol.
 assmReflectBindP :: Parser (LocSymbol, LocSymbol)
@@ -1368,7 +1364,7 @@ instanceP
        c    <- classBTyConP
        tvs  <- try oneClassArg <|> manyTill iargsP (try $ reserved "where")
        ms   <- block riMethodSigP
-       return $ RI c tvs ms
+       return $ RI c Nothing tvs ms
   where
     supersP  = try ((parens (superP `sepBy1` comma) <|> fmap pure superP)
                        <* reservedOp "=>")
@@ -1381,12 +1377,12 @@ instanceP
     mkVar v  = dummyLoc $ RVar v mempty
 
 
-riMethodSigP :: Parser (LocSymbol, RISig (Located BareType))
+riMethodSigP :: Parser (Located LHName, RISig (Located BareType))
 riMethodSigP
   = try (do reserved "assume"
-            (x, t) <- tyBindP
+            (x, t) <- tyBindLHNameP
             return (x, RIAssumed t) )
- <|> do (x, t) <- tyBindMethodP
+ <|> do (x, t) <- tyBindLHNameP
         return (x, RISig t)
  <?> "riMethodSigP"
 
@@ -1451,16 +1447,6 @@ binderP =
   <|> binderIdP
   -- Note: It is important that we do *not* use the LH/fixpoint reserved words here,
   -- because, for example, we must be able to use "assert" as an identifier.
-
--- | Like binderP, but surrounds infix operators with parenthesis.
---
--- This is only needed by `tests/parser/pos/T892.hs` and needs to be
--- investigated why.
-binderInfixParensP :: Parser Symbol
-binderInfixParensP =
-      symbol . (\ x -> "(" <> x <> ")") . symbolText <$> parens infixBinderIdP
-  <|> binderIdP
-
 
 measureDefP :: Parser Body -> Parser (Def (Located BareType) LocSymbol)
 measureDefP bodyP
