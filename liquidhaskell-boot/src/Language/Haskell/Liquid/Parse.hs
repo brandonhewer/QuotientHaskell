@@ -846,8 +846,6 @@ data Pspec ty ctor
   | Relational (LocSymbol, LocSymbol, ty, ty, RelExpr, RelExpr) -- ^ relational signature
   | AssmRel (LocSymbol, LocSymbol, ty, ty, RelExpr, RelExpr) -- ^ 'assume' relational signature
   | Class   (RClass ty)                                   -- ^ refined 'class' definition
-  | CLaws   (RClass ty)                                   -- ^ 'class laws' definition
-  | ILaws   (RILaws ty)
   | RInst   (RInstance ty)                                -- ^ refined 'instance' definition
   | Invt    ty                                            -- ^ 'invariant' specification
   | Using  (ty, ty)                                       -- ^ 'using' declaration (for local invariants on a type)
@@ -970,8 +968,6 @@ ppPspec k (IMeas   m)
   = "instance  measure" <+> pprintTidy k m
 ppPspec k (Class   cls)
   = pprintTidy k cls
-ppPspec k (CLaws  cls)
-  = pprintTidy k cls
 ppPspec k (RInst   inst)
   = pprintTidy k inst
 ppPspec k (Varia   (lx, vs))
@@ -982,8 +978,6 @@ ppPspec _ (BFix    _)           --
   = "fixity"
 ppPspec k (Define  (lx, y))
   = "define" <+> pprintTidy k (val lx) <+> "=" <+> pprintTidy k y
-ppPspec _ ILaws{}
-  = "TBD-INSTANCE-LAWS"
 ppPspec k (Relational (lxl, lxr, tl, tr, q, p))
   = "relational"
         <+> pprintTidy k (val lxl) <+> "::" <+> pprintTidy k tl <+> "~"
@@ -1079,11 +1073,9 @@ mkSpec name xs         = (name,) $ qualifySpec (symbol name) Measure.Spec
   , Measure.classes    = [c | Class  c <- xs]
   , Measure.relational = [r | Relational r <- xs]
   , Measure.asmRel     = [r | AssmRel r <- xs]
-  , Measure.claws      = [c | CLaws  c <- xs]
   , Measure.dvariance  = [v | Varia  v <- xs]
   , Measure.dsize      = [v | DSize  v <- xs]
   , Measure.rinstance  = [i | RInst  i <- xs]
-  , Measure.ilaws      = [i | ILaws  i <- xs]
   , Measure.termexprs  = [(y, es) | Asrts (ys, (_, Just es)) <- xs, y <- ys]
   , Measure.lazy       = S.fromList [s | Lazy   s <- xs]
   , Measure.fails      = S.fromList [s | Fail   s <- xs]
@@ -1127,11 +1119,9 @@ specP
                                  <|> fmap HBound  hboundP  )
     <|> (reserved "class"
          >> ((reserved "measure"  >> fmap CMeas  cMeasureP )
-         <|> (reserved "laws"     >> fmap CLaws  classP)
          <|> fmap Class  classP                            ))
     <|> (reserved "instance"
          >> ((reserved "measure"  >> fmap IMeas  iMeasureP )
-         <|> (reserved "laws"     >> fmap ILaws instanceLawP)
          <|> fmap RInst  instanceP ))
 
     <|> (reserved "data"
@@ -1339,24 +1329,6 @@ oneClassArg
 superP :: Parser (Located BareType)
 superP = located (toRCls <$> bareAtomBindP)
   where toRCls x = x
-
-instanceLawP :: Parser (RILaws (Located BareType))
-instanceLawP
-  = do l1   <- getSourcePos
-       sups <- supersP
-       c    <- classBTyConP
-       tvs  <- manyTill (located bareTypeP) (try $ reserved "where")
-       ms   <- block eqBinderP
-       l2   <- getSourcePos
-       return $ RIL c sups tvs ms (Loc l1 l2 ())
-  where
-    supersP  = try ((parens (superP `sepBy1` comma) <|> fmap pure superP)
-                       <* reservedOp "=>")
-               <|> return []
-
-    eqBinderP = xyP xP (reservedOp "=") xP
-
-    xP = locBinderP
 
 instanceP :: Parser (RInstance (Located BareType))
 instanceP

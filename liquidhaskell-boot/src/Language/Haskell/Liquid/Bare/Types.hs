@@ -144,7 +144,6 @@ data MeasEnv = MeasEnv
   , meDataCons    :: ![(Ghc.Var,  LocSpecType)]           
   , meClasses     :: ![DataConP]                           
   , meMethods     :: ![(ModName, Ghc.Var, LocSpecType)]  
-  , meCLaws       :: ![(Ghc.Class, [(ModName, Ghc.Var, LocSpecType)])]  
   , meOpaqueRefl  :: ![(Ghc.Var, Measure (Located BareType) LocSymbol)] -- the opaque-reflected symbols and the corresponding measures
   }
 
@@ -156,7 +155,6 @@ instance Semigroup MeasEnv where
     , meDataCons    = meDataCons a <> meDataCons b  
     , meClasses     = meClasses a <> meClasses b                       
     , meMethods     = meMethods a <> meMethods b
-    , meCLaws       = meCLaws a <> meCLaws b
     , meOpaqueRefl  = meOpaqueRefl a <> meOpaqueRefl b
     }
 instance Monoid MeasEnv where
@@ -168,7 +166,6 @@ instance Monoid MeasEnv where
     , meDataCons    = mempty
     , meClasses     = mempty
     , meMethods     = mempty
-    , meCLaws       = mempty
     , meOpaqueRefl  = mempty
     }
 
