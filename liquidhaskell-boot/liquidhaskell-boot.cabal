@@ -34,7 +34,6 @@ library
                       Language.Haskell.Liquid.Bare.Class
                       Language.Haskell.Liquid.Bare.DataType
                       Language.Haskell.Liquid.Bare.Expand
-                      Language.Haskell.Liquid.Bare.Laws
                       Language.Haskell.Liquid.Bare.Measure
                       Language.Haskell.Liquid.Bare.Misc
                       Language.Haskell.Liquid.Bare.Plugged
@@ -73,7 +72,6 @@ library
                       Language.Haskell.Liquid.GHC.TypeRep
                       Language.Haskell.Liquid.GHC.Plugin
                       Language.Haskell.Liquid.GHC.Plugin.Tutorial
-                      Language.Haskell.Liquid.LawInstances
                       Language.Haskell.Liquid.LHNameResolution
                       Language.Haskell.Liquid.Liquid
                       Language.Haskell.Liquid.Measure

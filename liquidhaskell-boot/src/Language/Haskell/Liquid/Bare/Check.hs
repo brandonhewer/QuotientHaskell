@@ -48,7 +48,6 @@ import           Language.Haskell.Liquid.Types.Specs
 import           Language.Haskell.Liquid.Types.Types
 import           Language.Haskell.Liquid.Types.Visitors
 import           Language.Haskell.Liquid.WiredIn
-import           Language.Haskell.Liquid.LawInstances      (checkLawInstances)
 
 import qualified Language.Haskell.Liquid.Measure           as Ms
 import qualified Language.Haskell.Liquid.Bare.Types        as Bare
@@ -174,7 +173,6 @@ checkTargetSpec specs src env cbs tsp
                      -- ++ checkRefinedClasses                        rClasses rInsts
                      <> checkSizeFun emb env                                      (gsTconsP (gsName tsp))
                      <> checkPlugged (catMaybes [ fmap (F.dropSym 2 $ GM.simplesymbol x,) (getMethodType t) | (x, t) <- gsMethods (gsSig tsp) ])
-                     <> checkLawInstances (gsLaws tsp)
                      <> checkRewrites tsp
 
     _rClasses         = concatMap Ms.classes specs

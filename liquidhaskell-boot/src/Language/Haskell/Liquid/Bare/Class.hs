@@ -8,7 +8,6 @@
 
 module Language.Haskell.Liquid.Bare.Class
   ( makeClasses
-  , makeCLaws
   , makeSpecDictionaries
   , makeDefaultMethods
   , makeMethodTypes
@@ -133,28 +132,6 @@ splitDictionary = go [] []
     go ts xs (Ghc.Var x) = Just (x, reverse ts, reverse xs)
     go _ _ _ = Nothing
 
-
--------------------------------------------------------------------------------
-makeCLaws :: Bare.Env -> Bare.SigEnv -> ModName -> Bare.ModSpecs
-          -> Bare.Lookup [(Ghc.Class, [(ModName, Ghc.Var, LocSpecType)])]
--------------------------------------------------------------------------------
-makeCLaws env sigEnv myName specs = do
-  zMbs <- forM classTcs $ \(name, clss, tc) -> do
-            clsMb <- mkClass env sigEnv myName name clss tc
-            case clsMb of
-              Nothing ->
-                return Nothing
-              Just cls -> do
-                gcls <- Mb.maybe (err tc) Right (Ghc.tyConClass_maybe tc)
-                return $ Just (gcls, snd cls)
-  return (Mb.catMaybes zMbs)
-  where
-    err tc   = error ("Not a type class: " ++ F.showpp tc)
-    classTc  = either (const Nothing) Just . Bare.lookupGhcTyConLHName env . btc_tc . rcName
-    classTcs = [ (name, cls, tc) | (name, spec) <- M.toList specs
-                                 , cls          <- Ms.claws spec
-                                 , tc           <- Mb.maybeToList (classTc cls)
-               ]
 
 -------------------------------------------------------------------------------
 makeClasses :: Bare.Env -> Bare.SigEnv -> ModName -> Bare.ModSpecs

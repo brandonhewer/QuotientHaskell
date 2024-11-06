@@ -44,14 +44,12 @@ module Language.Haskell.Liquid.Types.Specs (
   , GhcSpecNames(..)
   , GhcSpecTerm(..)
   , GhcSpecRefl(..)
-  , GhcSpecLaws(..)
   , GhcSpecData(..)
   , GhcSpecQual(..)
   , BareDef
   , BareMeasure
   , SpecMeasure
   , VarOrLocSymbol
-  , LawInstance(..)
   -- * Legacy data structures
   -- $legacyDataStructures
   , GhcSrc(..)
@@ -199,7 +197,6 @@ data TargetSpec = TargetSpec
   , gsVars   :: !GhcSpecVars
   , gsTerm   :: !GhcSpecTerm
   , gsRefl   :: !GhcSpecRefl
-  , gsLaws   :: !GhcSpecLaws
   , gsImps   :: ![(F.Symbol, F.Sort)]  -- ^ Imported Environment
   , gsConfig :: !Config
   }
@@ -346,20 +343,6 @@ instance Monoid GhcSpecRefl where
   mempty = SpRefl mempty mempty mempty
                   mempty mempty mempty
                   mempty mempty mempty
-data GhcSpecLaws = SpLaws
-  { gsLawDefs :: ![(Class, [(Var, LocSpecType)])]
-  , gsLawInst :: ![LawInstance]
-  }
-  deriving Show
-
-data LawInstance = LawInstance
-  { lilName   :: Class
-  , liSupers  :: [LocSpecType]
-  , lilTyArgs :: [LocSpecType]
-  , lilEqus   :: [(VarOrLocSymbol, (VarOrLocSymbol, Maybe LocSpecType))]
-  , lilPos    :: SrcSpan
-  }
-  deriving Show
 
 type VarOrLocSymbol = Either Var LocSymbol
 type BareMeasure   = Measure LocBareType F.LocSymbol
@@ -427,12 +410,10 @@ data Spec ty bndr  = Spec
   -- Separate field bc measures are checked for duplicates, and we want to allow for opaque-reflected measures to be duplicated.
   -- See Note [Duplicate measures and opaque reflection] in "Language.Haskell.Liquid.Measure".
   , classes    :: ![RClass ty]                                        -- ^ Refined Type-Classes
-  , claws      :: ![RClass ty]                                        -- ^ Refined Type-Classe Laws
   , relational :: ![(LocSymbol, LocSymbol, ty, ty, RelExpr, RelExpr)] -- ^ Relational types
   , asmRel     :: ![(LocSymbol, LocSymbol, ty, ty, RelExpr, RelExpr)] -- ^ Assumed relational types
   , termexprs  :: ![(F.Located LHName, [F.Located F.Expr])]                -- ^ Terminating Conditions for functions
   , rinstance  :: ![RInstance ty]
-  , ilaws      :: ![RILaws ty]
   , dvariance  :: ![(F.Located LHName, [Variance])]                   -- ^ TODO ? Where do these come from ?!
   , dsize      :: ![([ty], F.LocSymbol)]                              -- ^ Size measure to enforce fancy termination
   , bounds     :: !(RRBEnv ty)
@@ -469,12 +450,10 @@ instance Semigroup (Spec ty bndr) where
            , imeasures  =           imeasures  s1 ++ imeasures  s2
            , omeasures  =           omeasures  s1 ++ omeasures  s2
            , classes    =           classes    s1 ++ classes    s2
-           , claws      =           claws      s1 ++ claws      s2
            , relational =           relational s1 ++ relational s2
            , asmRel     =           asmRel     s1 ++ asmRel     s2
            , termexprs  =           termexprs  s1 ++ termexprs  s2
            , rinstance  =           rinstance  s1 ++ rinstance  s2
-           , ilaws      =               ilaws  s1 ++ ilaws      s2
            , dvariance  =           dvariance  s1 ++ dvariance  s2
            , dsize      =               dsize  s1 ++ dsize      s2
            , axeqs      =           axeqs s1      ++ axeqs s2
@@ -529,12 +508,10 @@ instance Monoid (Spec ty bndr) where
            , imeasures  = []
            , omeasures  = []
            , classes    = []
-           , claws      = []
            , relational = []
            , asmRel     = []
            , termexprs  = []
            , rinstance  = []
-           , ilaws      = []
            , dvariance  = []
            , dsize      = []
            , axeqs      = []
@@ -604,10 +581,7 @@ data LiftedSpec = LiftedSpec
     -- ^ Mappings from (measure,type) -> measure
   , liftedClasses    :: HashSet (RClass LocBareType)
     -- ^ Refined Type-Classes
-  , liftedClaws      :: HashSet (RClass LocBareType)
-    -- ^ Refined Type-Classe Laws
   , liftedRinstance  :: HashSet (RInstance LocBareType)
-  , liftedIlaws      :: HashSet (RILaws LocBareType)
   , liftedDsize      :: [([LocBareType], F.LocSymbol)]
   , liftedDvariance  :: HashSet (F.Located LHName, [Variance])
     -- ^ ? Where do these come from ?!
@@ -642,9 +616,7 @@ emptyLiftedSpec = LiftedSpec
   , liftedImeasures  = mempty
   , liftedOmeasures  = mempty
   , liftedClasses    = mempty
-  , liftedClaws      = mempty
   , liftedRinstance  = mempty
-  , liftedIlaws      = mempty
   , liftedDvariance  = mempty
   , liftedDsize      = mempty
   , liftedBounds     = mempty
@@ -724,7 +696,6 @@ data GhcSpec = SP
   , _gsVars   :: !GhcSpecVars
   , _gsTerm   :: !GhcSpecTerm
   , _gsRefl   :: !GhcSpecRefl
-  , _gsLaws   :: !GhcSpecLaws
   , _gsImps   :: ![(F.Symbol, F.Sort)]  -- ^ Imported Environment
   , _gsConfig :: !Config
   , _gsLSpec  :: !(Spec LocBareType F.LocSymbol) -- ^ Lifted specification for the target module
@@ -786,7 +757,6 @@ toTargetSpec ghcSpec =
       , gsVars   = _gsVars ghcSpec
       , gsTerm   = _gsTerm ghcSpec
       , gsRefl   = _gsRefl ghcSpec
-      , gsLaws   = _gsLaws ghcSpec
       , gsImps   = _gsImps ghcSpec
       , gsConfig = _gsConfig ghcSpec
       }
@@ -819,9 +789,7 @@ toLiftedSpec a = LiftedSpec
   , liftedImeasures  = S.fromList . imeasures $ a
   , liftedOmeasures  = S.fromList . omeasures $ a
   , liftedClasses    = S.fromList . classes $ a
-  , liftedClaws      = S.fromList . claws $ a
   , liftedRinstance  = S.fromList . rinstance $ a
-  , liftedIlaws      = S.fromList . ilaws $ a
   , liftedDvariance  = S.fromList . dvariance $ a
   , liftedDsize      = dsize a
   , liftedBounds     = bounds a
@@ -865,10 +833,8 @@ unsafeFromLiftedSpec a = Spec
   , imeasures  = S.toList . liftedImeasures $ a
   , omeasures  = S.toList . liftedOmeasures $ a
   , classes    = S.toList . liftedClasses $ a
-  , claws      = S.toList . liftedClaws $ a
   , termexprs  = mempty
   , rinstance  = S.toList . liftedRinstance $ a
-  , ilaws      = S.toList . liftedIlaws $ a
   , dvariance  = S.toList . liftedDvariance $ a
   , dsize      = liftedDsize  a
   , bounds     = liftedBounds a
