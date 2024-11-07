@@ -128,14 +128,15 @@ makeHaskellInlines :: Bool -> GhcSrc -> F.TCEmb Ghc.TyCon -> LogicMap -> Ms.Bare
 makeHaskellInlines allowTC src embs lmap spec
          = makeMeasureInline allowTC embs lmap cbs <$> inls
   where
-    cbs  = nonRecCoreBinds (_giCbs src)
+    cbs  = Ghc.flattenBinds (_giCbs src)
     inls = S.toList        (Ms.inlines spec)
 
-makeMeasureInline :: Bool -> F.TCEmb Ghc.TyCon -> LogicMap -> [Ghc.CoreBind] -> LocSymbol
-                  -> (LocSymbol, LMap)
+makeMeasureInline
+  :: Bool -> F.TCEmb Ghc.TyCon -> LogicMap -> [(Ghc.Id, Ghc.CoreExpr)] -> Located LHName
+  -> (LocSymbol, LMap)
 makeMeasureInline allowTC embs lmap cbs x =
-  case GM.findVarDef (val x) cbs of
-    Nothing        -> Ex.throw $ errHMeas x "Cannot inline haskell function"
+  case L.find ((val x ==) . makeGHCLHNameFromId . fst) cbs of
+    Nothing        -> Ex.throw $ errHMeas (fmap getLHNameSymbol x) "Cannot inline haskell function"
     Just (v, defn) -> (vx, coreToFun' allowTC embs Nothing lmap vx v defn ok)
                      where
                        vx         = F.atLoc x (F.symbol v)
@@ -155,12 +156,6 @@ coreToFun' allowTC embs dmMb lmap x v defn ok = either Ex.throw ok act
     err  = errHMeas x
     dm   = Mb.fromMaybe mempty dmMb
 
-
-nonRecCoreBinds :: [Ghc.CoreBind] -> [Ghc.CoreBind]
-nonRecCoreBinds            = concatMap go
-  where
-    go cb@(Ghc.NonRec _ _) = [cb]
-    go    (Ghc.Rec xes)    = [Ghc.NonRec x e | (x, e) <- xes]
 
 -------------------------------------------------------------------------------
 makeHaskellDataDecls :: Config -> ModName -> Ms.BareSpec -> [Ghc.TyCon]
@@ -385,7 +380,7 @@ getLocReflects mbEnv = S.unions . fmap (uncurry $ names mbEnv) . M.toList
       , Ms.privateReflects modSpec
       , S.fromList (fmap getLHNameSymbol . snd <$> Ms.asmReflectSigs modSpec)
       , S.fromList (fmap getLHNameSymbol . fst <$> Ms.asmReflectSigs modSpec)
-      , Ms.inlines modSpec
+      , S.map (fmap getLHNameSymbol) (Ms.inlines modSpec)
       , S.map (fmap getLHNameSymbol) (Ms.hmeas modSpec)
       ]
 

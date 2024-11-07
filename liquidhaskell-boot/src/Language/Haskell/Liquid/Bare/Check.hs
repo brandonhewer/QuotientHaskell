@@ -93,7 +93,7 @@ checkBareSpec sp
                                                      , S.fromList fields
                                                      ]
                         ]
-    inlines   = Ms.inlines    sp
+    inlines   = S.map (fmap getLHNameSymbol) (Ms.inlines sp)
     hmeasures = S.map (fmap getLHNameSymbol) (Ms.hmeas sp)
     reflects  = S.map (fmap getLHNameSymbol) (Ms.reflects sp)
     measures  = msName    <$> Ms.measures sp

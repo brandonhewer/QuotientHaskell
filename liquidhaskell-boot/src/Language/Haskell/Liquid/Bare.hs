@@ -869,12 +869,6 @@ makeLiftedSigs rtEnv f xs
   where
     expand   = Bare.specExpandType rtEnv
 
-makeFromSet :: String -> (Ms.BareSpec -> S.HashSet LocSymbol) -> Bare.Env -> [(ModName, Ms.BareSpec)]
-            -> [Ghc.Var]
-makeFromSet msg f env specs = concat [ mk n xs | (n, s) <- specs, let xs = S.toList (f s)]
-  where
-    mk name                 = Mb.mapMaybe (Bare.maybeResolveSym env name msg)
-
 makeTySigs :: Bare.Env -> Bare.SigEnv -> ModName -> Ms.BareSpec
            -> Bare.Lookup [(Ghc.Var, LocSpecType, Maybe [Located F.Expr])]
 makeTySigs env sigEnv name spec = do
