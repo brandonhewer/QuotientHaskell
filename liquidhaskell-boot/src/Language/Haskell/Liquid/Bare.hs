@@ -633,10 +633,10 @@ makeFail env spec =
     vx <- Bare.lookupGhcIdLHName env x
     return x { val = vx }
 
-makeRewrite :: Bare.Env -> ModName -> Ms.BareSpec -> Bare.Lookup (S.HashSet (Located Ghc.Var))
-makeRewrite env name spec =
+makeRewrite :: Bare.Env -> Ms.BareSpec -> Bare.Lookup (S.HashSet (Located Ghc.Var))
+makeRewrite env spec =
   sForM (Ms.rewrites spec) $ \x -> do
-    vx <-  Bare.lookupGhcVar env name "Var" x
+    vx <-  Bare.lookupGhcIdLHName env x
     return x { val = vx }
 
 makeRewriteWith :: Bare.Env -> ModName -> Ms.BareSpec -> Bare.Lookup (M.HashMap Ghc.Var [Ghc.Var])
@@ -678,7 +678,7 @@ makeSpecRefl :: Config -> GhcSrc -> Bare.ModSpecs -> Bare.Env -> ModName -> GhcS
 ------------------------------------------------------------------------------------------
 makeSpecRefl cfg src specs env name sig tycEnv = do
   autoInst <- makeAutoInst env name mySpec
-  rwr      <- makeRewrite env name mySpec
+  rwr      <- makeRewrite env mySpec
   rwrWith  <- makeRewriteWith env name mySpec
   wRefls   <- Bare.wiredReflects cfg env name sig
   xtes     <- Bare.makeHaskellAxioms cfg src env tycEnv name lmap sig mySpec

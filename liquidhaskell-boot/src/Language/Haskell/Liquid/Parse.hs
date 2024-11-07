@@ -856,7 +856,7 @@ data Pspec ty ctor
   | LVars   (Located LHName)                              -- ^ 'lazyvar' annotation, defer checks to *use* sites
   | Lazy    (Located LHName)                              -- ^ 'lazy' annotation, skip termination check on binder
   | Fail    (Located LHName)                              -- ^ 'fail' annotation, the binder should be unsafe
-  | Rewrite LocSymbol                                     -- ^ 'rewrite' annotation, the binder generates a rewrite rule
+  | Rewrite (Located LHName)                              -- ^ 'rewrite' annotation, the binder generates a rewrite rule
   | Rewritewith (LocSymbol, [LocSymbol])                  -- ^ 'rewritewith' annotation, the first binder is using the rewrite rules of the second list,
   | Insts   LocSymbol                                     -- ^ 'auto-inst' or 'ple' annotation; use ple locally on binder
   | HMeas   LocSymbol                                     -- ^ 'measure' annotation; lift Haskell binder as measure
@@ -1143,7 +1143,7 @@ specP
     <|> (reserved "lazyvar"       >> fmap LVars  locBinderLHNameP)
 
     <|> (reserved "lazy"          >> fmap Lazy   locBinderLHNameP)
-    <|> (reserved "rewrite"       >> fmap Rewrite   rewriteVarP )
+    <|> (reserved "rewrite"       >> fmap Rewrite locBinderLHNameP)
     <|> (reserved "rewriteWith"   >> fmap Rewritewith   rewriteWithP )
     <|> (reserved "fail"          >> fmap Fail locBinderLHNameP )
     <|> (reserved "ple"           >> fmap Insts locBinderP  )
@@ -1170,9 +1170,6 @@ tyBindsRemP sy = do
 
 pragmaP :: Parser (Located String)
 pragmaP = locStringLiteral
-
-rewriteVarP :: Parser LocSymbol
-rewriteVarP = locBinderP
 
 rewriteWithP :: Parser (LocSymbol, [LocSymbol])
 rewriteWithP = (,) <$> locBinderP <*> brackets (sepBy1 locBinderP comma)
