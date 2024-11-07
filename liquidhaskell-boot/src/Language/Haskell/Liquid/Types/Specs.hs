@@ -397,7 +397,7 @@ data Spec ty bndr  = Spec
   , fails      :: !(S.HashSet (F.Located LHName))                     -- ^ These Functions should be unsafe
   , reflects   :: !(S.HashSet F.LocSymbol)                            -- ^ Binders to reflect
   , opaqueReflects :: !(S.HashSet F.LocSymbol)                        -- ^ Binders to opaque-reflect
-  , autois     :: !(S.HashSet F.LocSymbol)                            -- ^ Automatically instantiate axioms in these Functions
+  , autois     :: !(S.HashSet (F.Located LHName))                     -- ^ Automatically instantiate axioms in these Functions
   , hmeas      :: !(S.HashSet F.LocSymbol)                            -- ^ Binders to turn into measures using haskell definitions
   , hbounds    :: !(S.HashSet F.LocSymbol)                            -- ^ Binders to turn into bounds using haskell definitions
   , inlines    :: !(S.HashSet F.LocSymbol)                            -- ^ Binders to turn into logic inline using haskell definitions
@@ -569,7 +569,7 @@ data LiftedSpec = LiftedSpec
     -- ^ Qualifiers in source/spec files
   , liftedLvars      :: HashSet (F.Located LHName)
     -- ^ Variables that should be checked in the environment they are used
-  , liftedAutois     :: S.HashSet F.LocSymbol
+  , liftedAutois     :: S.HashSet (F.Located LHName)
     -- ^ Automatically instantiate axioms in these Functions
   , liftedAutosize   :: HashSet (F.Located LHName)
     -- ^ Type Constructors that get automatically sizing info

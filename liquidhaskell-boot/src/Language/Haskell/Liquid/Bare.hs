@@ -677,7 +677,7 @@ makeSpecRefl :: Config -> GhcSrc -> Bare.ModSpecs -> Bare.Env -> ModName -> GhcS
              -> Bare.Lookup GhcSpecRefl
 ------------------------------------------------------------------------------------------
 makeSpecRefl cfg src specs env name sig tycEnv = do
-  autoInst <- makeAutoInst env name mySpec
+  autoInst <- makeAutoInst env mySpec
   rwr      <- makeRewrite env mySpec
   rwrWith  <- makeRewriteWith env name mySpec
   wRefls   <- Bare.wiredReflects cfg env name sig
@@ -777,12 +777,12 @@ addReflSigs env name rtEnv measEnv refl sig =
     reflected               = S.fromList $ fst <$> (wreflSigs ++ notReflActualTySigs)
     notReflected xt         = fst xt `notElem` reflected
 
-makeAutoInst :: Bare.Env -> ModName -> Ms.BareSpec ->
+makeAutoInst :: Bare.Env -> Ms.BareSpec ->
                 Bare.Lookup (S.HashSet Ghc.Var)
-makeAutoInst env name spec = S.fromList <$> kvs
+makeAutoInst env spec = S.fromList <$> kvs
   where
     kvs = forM (S.toList (Ms.autois spec)) $
-            Bare.lookupGhcVar env name "Var"
+            Bare.lookupGhcIdLHName env
 
 
 ----------------------------------------------------------------------------------------

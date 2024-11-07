@@ -858,7 +858,7 @@ data Pspec ty ctor
   | Fail    (Located LHName)                              -- ^ 'fail' annotation, the binder should be unsafe
   | Rewrite (Located LHName)                              -- ^ 'rewrite' annotation, the binder generates a rewrite rule
   | Rewritewith (LocSymbol, [LocSymbol])                  -- ^ 'rewritewith' annotation, the first binder is using the rewrite rules of the second list,
-  | Insts   LocSymbol                                     -- ^ 'auto-inst' or 'ple' annotation; use ple locally on binder
+  | Insts   (Located LHName)                              -- ^ 'auto-inst' or 'ple' annotation; use ple locally on binder
   | HMeas   LocSymbol                                     -- ^ 'measure' annotation; lift Haskell binder as measure
   | Reflect LocSymbol                                     -- ^ 'reflect' annotation; reflect Haskell binder as function in logic
   | OpaqueReflect LocSymbol                               -- ^ 'opaque-reflect' annotation
@@ -1146,8 +1146,8 @@ specP
     <|> (reserved "rewrite"       >> fmap Rewrite locBinderLHNameP)
     <|> (reserved "rewriteWith"   >> fmap Rewritewith   rewriteWithP )
     <|> (reserved "fail"          >> fmap Fail locBinderLHNameP )
-    <|> (reserved "ple"           >> fmap Insts locBinderP  )
-    <|> (reserved "automatic-instances" >> fmap Insts locBinderP  )
+    <|> (reserved "ple"           >> fmap Insts locBinderLHNameP  )
+    <|> (reserved "automatic-instances" >> fmap Insts locBinderLHNameP  )
     <|> (reserved "LIQUID"        >> fmap Pragma pragmaP   )
     <|> (reserved "liquid"        >> fmap Pragma pragmaP   )
     <|> {- DEFAULT -}                fmap Asrts  tyBindsP
