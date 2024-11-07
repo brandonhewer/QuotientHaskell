@@ -390,7 +390,7 @@ data Spec ty bndr  = Spec
   , ealiases   :: ![F.Located (RTAlias F.Symbol F.Expr)]              -- ^ Expression aliases
   , embeds     :: !(F.TCEmb (F.Located LHName))                       -- ^ GHC-Tycon-to-fixpoint Tycon map
   , qualifiers :: ![F.Qualifier]                                      -- ^ Qualifiers in source files
-  , lvars      :: !(S.HashSet F.LocSymbol)                            -- ^ Variables that should be checked in the environment they are used
+  , lvars      :: !(S.HashSet (F.Located LHName))                     -- ^ Variables that should be checked in the environment they are used
   , lazy       :: !(S.HashSet (F.Located LHName))                     -- ^ Ignore Termination Check in these Functions
   , rewrites    :: !(S.HashSet F.LocSymbol)                           -- ^ Theorems turned into rewrite rules
   , rewriteWith :: !(M.HashMap F.LocSymbol [F.LocSymbol])             -- ^ Definitions using rewrite rules
@@ -567,7 +567,7 @@ data LiftedSpec = LiftedSpec
     -- ^ GHC-Tycon-to-fixpoint Tycon map
   , liftedQualifiers :: HashSet F.Qualifier
     -- ^ Qualifiers in source/spec files
-  , liftedLvars      :: HashSet F.LocSymbol
+  , liftedLvars      :: HashSet (F.Located LHName)
     -- ^ Variables that should be checked in the environment they are used
   , liftedAutois     :: S.HashSet F.LocSymbol
     -- ^ Automatically instantiate axioms in these Functions

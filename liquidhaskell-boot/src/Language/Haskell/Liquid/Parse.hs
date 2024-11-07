@@ -853,7 +853,7 @@ data Pspec ty ctor
   | EAlias  (Located (RTAlias Symbol Expr))               -- ^ 'predicate' alias declaration
   | Embed   (Located LHName, FTycon, TCArgs)              -- ^ 'embed' declaration
   | Qualif  Qualifier                                     -- ^ 'qualif' definition
-  | LVars   LocSymbol                                     -- ^ 'lazyvar' annotation, defer checks to *use* sites
+  | LVars   (Located LHName)                              -- ^ 'lazyvar' annotation, defer checks to *use* sites
   | Lazy    (Located LHName)                              -- ^ 'lazy' annotation, skip termination check on binder
   | Fail    (Located LHName)                              -- ^ 'fail' annotation, the binder should be unsafe
   | Rewrite LocSymbol                                     -- ^ 'rewrite' annotation, the binder generates a rewrite rule
@@ -1140,7 +1140,7 @@ specP
 
     <|> fallbackSpecP "embed"       (fmap Embed  embedP    )
     <|> fallbackSpecP "qualif"      (fmap Qualif (qualifierP sortP))
-    <|> (reserved "lazyvar"       >> fmap LVars  lazyVarP  )
+    <|> (reserved "lazyvar"       >> fmap LVars  locBinderLHNameP)
 
     <|> (reserved "lazy"          >> fmap Lazy   locBinderLHNameP)
     <|> (reserved "rewrite"       >> fmap Rewrite   rewriteVarP )
@@ -1170,10 +1170,6 @@ tyBindsRemP sy = do
 
 pragmaP :: Parser (Located String)
 pragmaP = locStringLiteral
-
-lazyVarP :: Parser LocSymbol
-lazyVarP = locBinderP
-
 
 rewriteVarP :: Parser LocSymbol
 rewriteVarP = locBinderP
