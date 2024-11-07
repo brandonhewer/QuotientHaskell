@@ -179,7 +179,8 @@ getReflectDefs src sig spec env modName =
   searchInTransitiveClosure symsToResolve initialDefinedMap []
   where
     sigs                    = gsTySigs sig
-    symsToResolve           = S.toList (Ms.reflects spec)
+    symsToResolve =
+      S.toList (Ms.reflects spec) ++ S.toList (Ms.privateReflects spec)
     cbs                     = _giCbs src
     initialDefinedMap          = M.empty
 

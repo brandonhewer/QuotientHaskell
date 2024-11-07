@@ -396,6 +396,7 @@ data Spec ty bndr  = Spec
   , rewriteWith :: !(M.HashMap (F.Located LHName) [F.Located LHName]) -- ^ Definitions using rewrite rules
   , fails      :: !(S.HashSet (F.Located LHName))                     -- ^ These Functions should be unsafe
   , reflects   :: !(S.HashSet F.LocSymbol)                            -- ^ Binders to reflect
+  , privateReflects :: !(S.HashSet F.LocSymbol)                       -- ^ Private binders to reflect
   , opaqueReflects :: !(S.HashSet F.LocSymbol)                        -- ^ Binders to opaque-reflect
   , autois     :: !(S.HashSet (F.Located LHName))                     -- ^ Automatically instantiate axioms in these Functions
   , hmeas      :: !(S.HashSet F.LocSymbol)                            -- ^ Binders to turn into measures using haskell definitions
@@ -464,6 +465,7 @@ instance Semigroup (Spec ty bndr) where
            , rewriteWith = M.union  (rewriteWith s1)  (rewriteWith s2)
            , fails      = S.union   (fails    s1)  (fails    s2)
            , reflects   = S.union   (reflects s1)  (reflects s2)
+           , privateReflects = S.union (privateReflects s1) (privateReflects s2)
            , opaqueReflects   = S.union   (opaqueReflects s1)  (opaqueReflects s2)
            , hmeas      = S.union   (hmeas    s1)  (hmeas    s2)
            , hbounds    = S.union   (hbounds  s1)  (hbounds  s2)
@@ -498,6 +500,7 @@ instance Monoid (Spec ty bndr) where
            , autois     = S.empty
            , hmeas      = S.empty
            , reflects   = S.empty
+           , privateReflects = S.empty
            , opaqueReflects = S.empty
            , hbounds    = S.empty
            , inlines    = S.empty
@@ -821,6 +824,7 @@ unsafeFromLiftedSpec a = Spec
   , rewrites   = mempty
   , rewriteWith = mempty
   , reflects   = mempty
+  , privateReflects = mempty
   , opaqueReflects   = mempty
   , autois     = liftedAutois a
   , hmeas      = mempty

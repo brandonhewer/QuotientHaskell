@@ -379,6 +379,7 @@ getLocReflects mbEnv = S.unions . fmap (uncurry $ names mbEnv) . M.toList
     names Nothing _ modSpec = unqualified modSpec
     unqualified modSpec = S.unions
       [ Ms.reflects modSpec
+      , Ms.privateReflects modSpec
       , S.fromList (snd <$> Ms.asmReflectSigs modSpec)
       , S.fromList (fst <$> Ms.asmReflectSigs modSpec)
       , Ms.inlines modSpec, Ms.hmeas modSpec
