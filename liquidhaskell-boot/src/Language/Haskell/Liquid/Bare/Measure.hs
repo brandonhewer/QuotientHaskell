@@ -438,11 +438,11 @@ makeOpaqueReflMeasures env measEnv specs eqs =
   where
     -- Get the set of variables for the requested opaque reflections
     requestedOpaqueRefl = S.unions
-      . fmap (uncurry (S.map . getVar) . second Ms.opaqueReflects)
+      . map (S.map getVar . Ms.opaqueReflects . snd)
       . M.toList $ specs
-    getVar name sym = case Bare.lookupGhcVar env name "opaque-reflection" sym of
+    getVar sym = case Bare.lookupGhcIdLHName env sym of
       Right x -> x
-      Left _ -> Ex.throw $ mkError sym $ "Not in scope: " ++ show (val sym)
+      Left _ -> panic (Just $ GM.fSrcSpan sym) "function to reflect not in scope"
     definedSymbols = getDefinedSymbolsInLogic env measEnv specs
     undefinedInLogic v = not (S.member (varLocSym v) definedSymbols)
     -- Variables to consider
@@ -459,9 +459,6 @@ makeOpaqueReflMeasures env measEnv specs eqs =
         bareType = varBareType var
         bmeas = M locSym bareType [] MsReflect []
         smeas = M locSym (val specType) [] MsReflect []
-
-mkError :: LocSymbol -> String -> Error
-mkError x str = ErrHMeas (GM.sourcePosSrcSpan $ loc x) (pprint $ val x) (text str)
 
 getUnfoldingOfVar :: Ghc.Var -> Maybe Ghc.CoreExpr
 getUnfoldingOfVar = getExpr . Ghc.realUnfoldingInfo . Ghc.idInfo

@@ -397,7 +397,7 @@ data Spec ty bndr  = Spec
   , fails      :: !(S.HashSet (F.Located LHName))                     -- ^ These Functions should be unsafe
   , reflects   :: !(S.HashSet (F.Located LHName))                     -- ^ Binders to reflect
   , privateReflects :: !(S.HashSet F.LocSymbol)                       -- ^ Private binders to reflect
-  , opaqueReflects :: !(S.HashSet F.LocSymbol)                        -- ^ Binders to opaque-reflect
+  , opaqueReflects :: !(S.HashSet (F.Located LHName))                 -- ^ Binders to opaque-reflect
   , autois     :: !(S.HashSet (F.Located LHName))                     -- ^ Automatically instantiate axioms in these Functions
   , hmeas      :: !(S.HashSet F.LocSymbol)                            -- ^ Binders to turn into measures using haskell definitions
   , hbounds    :: !(S.HashSet F.LocSymbol)                            -- ^ Binders to turn into bounds using haskell definitions

@@ -862,7 +862,7 @@ data Pspec ty ctor
   | HMeas   LocSymbol                                     -- ^ 'measure' annotation; lift Haskell binder as measure
   | Reflect (Located LHName)                              -- ^ 'reflect' annotation; reflect Haskell binder as function in logic
   | PrivateReflect LocSymbol                              -- ^ 'private-reflect' annotation
-  | OpaqueReflect LocSymbol                               -- ^ 'opaque-reflect' annotation
+  | OpaqueReflect (Located LHName)                        -- ^ 'opaque-reflect' annotation
   | Inline  LocSymbol                                     -- ^ 'inline' annotation;  inline (non-recursive) binder as an alias
   | Ignore  (Located LHName)                              -- ^ 'ignore' annotation; skip all checks inside this binder
   | ASize   (Located LHName)                              -- ^ 'autosize' annotation; automatically generate size metric for this type
@@ -1110,7 +1110,7 @@ specP
     <|> fallbackSpecP "axiomatize"  (fmap Reflect locBinderLHNameP)
     <|> fallbackSpecP "reflect"     (fmap Reflect locBinderLHNameP)
     <|> (reserved "private-reflect" >> fmap PrivateReflect axiomP  )
-    <|> (reserved "opaque-reflect" >> fmap OpaqueReflect axiomP  )
+    <|> (reserved "opaque-reflect" >> fmap OpaqueReflect locBinderLHNameP  )
 
     <|> fallbackSpecP "measure"    hmeasureP
 
