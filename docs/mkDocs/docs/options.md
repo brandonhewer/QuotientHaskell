@@ -243,6 +243,18 @@ Opaque reflections:
 - GHC.Internal.Real.even
 ```
 
+If not reflecting `keepEvens`, the other functions can still be opaquely-reflected with the `opaque-reflect`
+annotation.
+
+```Haskell
+{-@ LIQUID "--reflection"      @-}
+{-@ LIQUID "--dump-opaque-reflections"      @-}
+
+module OpaqueRefl06 where
+
+{-@ opaque-reflect even @-}
+{-@ opaque-reflect filter @-}
+```
 
 Note: you can also reflect functions *away* from their definition, using interface files. For instance, you may do:
 
