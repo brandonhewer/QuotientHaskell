@@ -857,7 +857,7 @@ data Pspec ty ctor
   | Lazy    (Located LHName)                              -- ^ 'lazy' annotation, skip termination check on binder
   | Fail    (Located LHName)                              -- ^ 'fail' annotation, the binder should be unsafe
   | Rewrite (Located LHName)                              -- ^ 'rewrite' annotation, the binder generates a rewrite rule
-  | Rewritewith (LocSymbol, [LocSymbol])                  -- ^ 'rewritewith' annotation, the first binder is using the rewrite rules of the second list,
+  | Rewritewith (Located LHName, [Located LHName])        -- ^ 'rewritewith' annotation, the first binder is using the rewrite rules of the second list,
   | Insts   (Located LHName)                              -- ^ 'auto-inst' or 'ple' annotation; use ple locally on binder
   | HMeas   LocSymbol                                     -- ^ 'measure' annotation; lift Haskell binder as measure
   | Reflect LocSymbol                                     -- ^ 'reflect' annotation; reflect Haskell binder as function in logic
@@ -1171,8 +1171,8 @@ tyBindsRemP sy = do
 pragmaP :: Parser (Located String)
 pragmaP = locStringLiteral
 
-rewriteWithP :: Parser (LocSymbol, [LocSymbol])
-rewriteWithP = (,) <$> locBinderP <*> brackets (sepBy1 locBinderP comma)
+rewriteWithP :: Parser (Located LHName, [Located LHName])
+rewriteWithP = (,) <$> locBinderLHNameP <*> brackets (sepBy1 locBinderLHNameP comma)
 
 axiomP :: Parser LocSymbol
 axiomP = locBinderP

@@ -639,14 +639,14 @@ makeRewrite env spec =
     vx <-  Bare.lookupGhcIdLHName env x
     return x { val = vx }
 
-makeRewriteWith :: Bare.Env -> ModName -> Ms.BareSpec -> Bare.Lookup (M.HashMap Ghc.Var [Ghc.Var])
-makeRewriteWith env name spec = M.fromList <$> makeRewriteWith' env name spec
+makeRewriteWith :: Bare.Env -> Ms.BareSpec -> Bare.Lookup (M.HashMap Ghc.Var [Ghc.Var])
+makeRewriteWith env spec = M.fromList <$> makeRewriteWith' env spec
 
-makeRewriteWith' :: Bare.Env -> ModName -> Spec ty bndr -> Bare.Lookup [(Ghc.Var, [Ghc.Var])]
-makeRewriteWith' env name spec =
+makeRewriteWith' :: Bare.Env -> Spec ty bndr -> Bare.Lookup [(Ghc.Var, [Ghc.Var])]
+makeRewriteWith' env spec =
   forM (M.toList $ Ms.rewriteWith spec) $ \(x, xs) -> do
-    xv  <- Bare.lookupGhcVar env name "Var1" x
-    xvs <- mapM (Bare.lookupGhcVar env name "Var2") xs
+    xv  <- Bare.lookupGhcIdLHName env x
+    xvs <- mapM (Bare.lookupGhcIdLHName env) xs
     return (xv, xvs)
 
 makeAutoSize :: Bare.Env -> Ms.BareSpec -> Bare.Lookup (S.HashSet Ghc.TyCon)
@@ -679,7 +679,7 @@ makeSpecRefl :: Config -> GhcSrc -> Bare.ModSpecs -> Bare.Env -> ModName -> GhcS
 makeSpecRefl cfg src specs env name sig tycEnv = do
   autoInst <- makeAutoInst env mySpec
   rwr      <- makeRewrite env mySpec
-  rwrWith  <- makeRewriteWith env name mySpec
+  rwrWith  <- makeRewriteWith env mySpec
   wRefls   <- Bare.wiredReflects cfg env name sig
   xtes     <- Bare.makeHaskellAxioms cfg src env tycEnv name lmap sig mySpec
   asmReflAxioms <- Bare.makeAssumeReflectAxioms src env tycEnv name sig mySpec
