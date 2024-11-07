@@ -863,7 +863,7 @@ data Pspec ty ctor
   | Reflect (Located LHName)                              -- ^ 'reflect' annotation; reflect Haskell binder as function in logic
   | PrivateReflect LocSymbol                              -- ^ 'private-reflect' annotation
   | OpaqueReflect (Located LHName)                        -- ^ 'opaque-reflect' annotation
-  | Inline  LocSymbol                                     -- ^ 'inline' annotation;  inline (non-recursive) binder as an alias
+  | Inline  (Located LHName)                              -- ^ 'inline' annotation;  inline (non-recursive) binder as an alias
   | Ignore  (Located LHName)                              -- ^ 'ignore' annotation; skip all checks inside this binder
   | ASize   (Located LHName)                              -- ^ 'autosize' annotation; automatically generate size metric for this type
   | HBound  LocSymbol                                     -- ^ 'bound' annotation; lift Haskell binder as an abstract-refinement "bound"
@@ -1117,7 +1117,7 @@ specP
     <|> (reserved "infixl"        >> fmap BFix    infixlP  )
     <|> (reserved "infixr"        >> fmap BFix    infixrP  )
     <|> (reserved "infix"         >> fmap BFix    infixP   )
-    <|> fallbackSpecP "inline"      (fmap Inline  inlineP  )
+    <|> fallbackSpecP "inline"      (fmap Inline locBinderLHNameP)
     <|> fallbackSpecP "ignore"      (fmap Ignore  locBinderLHNameP)
 
     <|> fallbackSpecP "bound"       (fmap PBound  boundP
@@ -1184,9 +1184,6 @@ axiomP = locBinderP
 
 hboundP :: Parser LocSymbol
 hboundP = locBinderP
-
-inlineP :: Parser LocSymbol
-inlineP = locBinderP
 
 datavarianceP :: Parser (Located LHName, [Variance])
 datavarianceP = liftM2 (,) (locUpperIdLHNameP LHTcName) (many varianceP)

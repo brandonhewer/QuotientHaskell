@@ -848,7 +848,7 @@ makeMthSigs measEnv = [ (v, t) | (_, v, t) <- Bare.meMethods measEnv ]
 makeInlSigs :: Bare.Env -> BareRTEnv -> [(ModName, Ms.BareSpec)] -> [(Ghc.Var, LocSpecType)]
 makeInlSigs env rtEnv
   = makeLiftedSigs rtEnv (CoreToLogic.inlineSpecType (typeclass (getConfig env)))
-  . makeFromSet "hinlines" Ms.inlines env
+  . concatMap (map (lookupFunctionId env) . S.toList . Ms.inlines . snd)
 
 makeMsrSigs :: Bare.Env -> BareRTEnv -> [(ModName, Ms.BareSpec)] -> [(Ghc.Var, LocSpecType)]
 makeMsrSigs env rtEnv
