@@ -725,8 +725,8 @@ makeSpecRefl cfg src specs env name sig tycEnv = do
     rflSyms      = S.map val rflLocSyms
     lmap         = Bare.reLMap env
     notInReflOnes (_, a) = not $
-      a `S.member` (S.map (fmap getLHNameSymbol) (Ms.reflects mySpec)) ||
-      a `S.member` Ms.privateReflects mySpec
+      a `S.member` Ms.reflects mySpec ||
+      fmap getLHNameSymbol a `S.member` Ms.privateReflects mySpec
     anyNonReflFn = L.find notInReflOnes (Ms.asmReflectSigs mySpec)
 
 isReflectVar :: S.HashSet F.Symbol -> Ghc.Var -> Bool
@@ -825,13 +825,9 @@ makeSpecSig cfg name mySpec specs env sigEnv tycEnv measEnv cbs = do
     (instances, dicts) = Bare.makeSpecDictionaries env sigEnv (name, mySpec) (M.toList specs)
     allSpecs   = (name, mySpec) : M.toList specs
     rtEnv      = Bare.sigRTEnv sigEnv
-    getVar sym = case Bare.lookupGhcVar env name "assume-reflection specs" sym of
+    getVar sym = case Bare.lookupGhcIdLHName env sym of
       Right x -> x
-      Left _ -> Ex.throw $ mkError sym $ "Not in scope: " ++ show (val sym)
-
-    mkError :: LocSymbol -> String -> Error
-    mkError x str = ErrHMeas (GM.sourcePosSrcSpan $ loc x) (pprint $ val x) (text str)
-    -- hmeas      = makeHMeas    env allSpecs
+      Left _ -> panic (Just $ GM.fSrcSpan sym) "function to reflect not in scope"
 
 strengthenSigs :: [(Ghc.Var, (Int, LocSpecType))] ->[(Ghc.Var, LocSpecType)]
 strengthenSigs sigs = go <$> Misc.groupList sigs
@@ -1322,10 +1318,13 @@ addOpaqueReflMeas cfg tycEnv env spec measEnv specs eqs = do
     -- could have duplicates
     -- We skip the variables from the axiom equations that correspond to the actual functions
     -- of opaque reflections, since we never need to look at the unfoldings of those
-    qualifySym l = Bare.qualifyTop env name (loc l) (val l)
-    actualFns = S.fromList $ qualifySym . fst <$> Ms.asmReflectSigs spec
+    actualFns = S.fromList $ val . fst <$> Ms.asmReflectSigs spec
     shouldBeUsedForScanning sym = not (sym `S.member` actualFns)
-    varsUsedForTcScanning = L.filter (shouldBeUsedForScanning . symbol) $ fst3 <$> eqs
+    varsUsedForTcScanning =
+      [ v
+      | (v, _, _) <- eqs
+      , shouldBeUsedForScanning $ makeGHCLHName (Ghc.getName v) (symbol v)
+      ]
     tcs           = S.toList $ Ghc.dataConTyCon `S.map` Bare.getReflDCs measEnv varsUsedForTcScanning
     dataDecls     = Bare.makeHaskellDataDecls cfg name spec tcs
     tyi           = Bare.tcTyConMap    tycEnv

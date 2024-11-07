@@ -837,7 +837,7 @@ type BPspec = Pspec LocBareType LocSymbol
 data Pspec ty ctor
   = Meas    (Measure ty ctor)                             -- ^ 'measure' definition
   | Assm    (Located LHName, ty)                          -- ^ 'assume' signature (unchecked)
-  | AssmReflect (LocSymbol, LocSymbol)                    -- ^ 'assume reflects' signature (unchecked)
+  | AssmReflect (Located LHName, Located LHName)          -- ^ 'assume reflects' signature (unchecked)
   | Asrt    (Located LHName, ty)                          -- ^ 'assert' signature (checked)
   | LAsrt   (LocSymbol, ty)                               -- ^ 'local' assertion -- TODO RJ: what is this
   | Asrts   ([Located LHName], (ty, Maybe [Located Expr]))     -- ^ sym0, ..., symn :: ty / [m0,..., mn]
@@ -1222,9 +1222,9 @@ tyBindLHNameP = do
     return (x, t)
 
 -- | Parses a loc symbol.
-assmReflectBindP :: Parser (LocSymbol, LocSymbol)
+assmReflectBindP :: Parser (Located LHName, Located LHName)
 assmReflectBindP =
-  (,) <$> locBinderP <* reservedOp "as" <*> locBinderP
+  (,) <$> locBinderLHNameP <* reservedOp "as" <*> locBinderLHNameP
 
 termBareTypeP :: Parser (Located BareType, Maybe [Located Expr])
 termBareTypeP = do

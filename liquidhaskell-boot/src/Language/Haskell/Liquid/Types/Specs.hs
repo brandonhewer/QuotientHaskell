@@ -380,7 +380,7 @@ data Spec ty bndr  = Spec
   { measures   :: ![Measure ty bndr]                                  -- ^ User-defined properties for ADTs
   , expSigs    :: ![(F.Symbol, F.Sort)]                               -- ^ Exported logic symbols
   , asmSigs    :: ![(F.Located LHName, ty)]                           -- ^ Assumed (unchecked) types; including reflected signatures
-  , asmReflectSigs :: ![(F.LocSymbol, F.LocSymbol)]                   -- ^ Assume reflects : left is the actual function and right the pretended one
+  , asmReflectSigs :: ![(F.Located LHName, F.Located LHName)]         -- ^ Assume reflects : left is the actual function and right the pretended one
   , sigs       :: ![(F.Located LHName, ty)]                           -- ^ Asserted spec signatures
   , invariants :: ![(Maybe F.LocSymbol, ty)]                          -- ^ Data type invariants; the Maybe is the generating measure
   , ialiases   :: ![(ty, ty)]                                         -- ^ Data type invariants to be checked

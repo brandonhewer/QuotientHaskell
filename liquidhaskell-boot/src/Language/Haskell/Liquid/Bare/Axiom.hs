@@ -40,7 +40,6 @@ import           Language.Haskell.Liquid.Bare.Types   as Bare
 import           Language.Haskell.Liquid.Bare.Measure as Bare
 import           Language.Haskell.Liquid.UX.Config
 import qualified Data.List as L
-import Language.Haskell.Liquid.Misc (fst4)
 import Control.Applicative
 import Data.Function (on)
 import qualified Data.Map as Map
@@ -85,13 +84,15 @@ makeAssumeReflectAxioms :: GhcSrc -> Bare.Env -> Bare.TycEnv -> ModName -> GhcSp
 makeAssumeReflectAxioms src env tycEnv name spSig spec = do
   -- Send an error message if we're redefining a reflection
   case findDuplicatePair val reflActSymbols <|> findDuplicateBetweenLists val refSymbols reflActSymbols of
-    Just (x , y) -> Ex.throw $ mkError y $ "Duplicate reflection of " ++ show x ++ " and " ++ show y
+    Just (x , y) -> Ex.throw $ mkError (fmap getLHNameSymbol y) $
+                      "Duplicate reflection of " ++ show x ++ " and " ++ show y
     Nothing -> return $ turnIntoAxiom <$> Ms.asmReflectSigs spec
   where
     turnIntoAxiom (actual, pretended) = makeAssumeReflectAxiom spSig env embs name (actual, pretended)
     refDefs                 = getReflectDefs src spSig spec env name
     embs                    = Bare.tcEmbs       tycEnv
-    refSymbols              = fst4 <$> refDefs
+    refSymbols              =
+      (\(x, _, v, _) -> F.atLoc x $ makeGHCLHName (Ghc.getName v) (F.symbol v)) <$> refDefs
     reflActSymbols          = fst <$> Ms.asmReflectSigs spec
 
 -----------------------------------------------------------------------------------------------
@@ -99,7 +100,7 @@ makeAssumeReflectAxioms src env tycEnv name spSig spec = do
 -- `makeAssumeReflectAxioms`. Can also be used to compute the updated SpecType of            --
 -- a type where we add the post-condition that actual and pretended are the same             --
 makeAssumeReflectAxiom :: GhcSpecSig -> Bare.Env -> F.TCEmb Ghc.TyCon -> ModName
-                       -> (LocSymbol, LocSymbol) -- actual function and pretended function
+                       -> (Located LHName, Located LHName) -- actual function and pretended function
                        -> (Ghc.Var, LocSpecType, F.Equation)
 -----------------------------------------------------------------------------------------------
 makeAssumeReflectAxiom sig env tce name (actual, pretended) =
@@ -107,22 +108,22 @@ makeAssumeReflectAxiom sig env tce name (actual, pretended) =
   if pretendedTy == actualTy then
     (actualV, actual{val = aty at}, actualEq)
   else
-    Ex.throw $ mkError actual $
+    Ex.throw $ mkError (fmap getLHNameSymbol actual) $
       show qPretended ++ " and " ++ show qActual ++ " should have the same type. But " ++
       "types " ++ F.showpp pretendedTy ++ " and " ++ F.showpp actualTy  ++ " do not match."
   where
     at = val $ strengthenSpecWithMeasure sig env actualV pretended{val=qPretended}
 
     -- Get the Ghc.Var's of the actual and pretended function names
-    actualV = case Bare.lookupGhcVar env name "assume-reflection" actual of
+    actualV = case Bare.lookupGhcIdLHName env actual of
       Right x -> x
-      Left _ -> Ex.throw $ mkError actual $ "Not in scope: " ++ show (val actual)
-    pretendedV = case Bare.lookupGhcVar env name "assume-reflection" pretended of
+      Left _ -> panic (Just $ GM.fSrcSpan actual) "function to reflect not in scope"
+    pretendedV = case Bare.lookupGhcIdLHName env pretended of
       Right x -> x
-      Left _ -> Ex.throw $ mkError pretended $ "Not in scope: " ++ show (val pretended)
+      Left _ -> panic (Just $ GM.fSrcSpan pretended) "function to reflect not in scope"
     -- Get the qualified name symbols for the actual and pretended functions
-    qActual = Bare.qualifyTop env name (F.loc actual) (val actual)
-    qPretended = Bare.qualifyTop env name (F.loc pretended) (val pretended)
+    qActual = Bare.qualifyTop env name (F.loc actual) (getLHNameSymbol $ val actual)
+    qPretended = Bare.qualifyTop env name (F.loc pretended) (getLHNameSymbol $ val pretended)
     -- Get the GHC type of the actual and pretended functions
     actualTy = Ghc.varType actualV
     pretendedTy = Ghc.varType pretendedV
