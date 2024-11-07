@@ -607,12 +607,12 @@ makeSpecTerm cfg mySpec env name = do
     }
 
 makeRelation :: Bare.Env -> ModName -> Bare.SigEnv ->
-  [(LocSymbol, LocSymbol, LocBareType, LocBareType, RelExpr, RelExpr)] -> Bare.Lookup [(Ghc.Var, Ghc.Var, LocSpecType, LocSpecType, RelExpr, RelExpr)]
+  [(Located LHName, Located LHName, LocBareType, LocBareType, RelExpr, RelExpr)] -> Bare.Lookup [(Ghc.Var, Ghc.Var, LocSpecType, LocSpecType, RelExpr, RelExpr)]
 makeRelation env name sigEnv = mapM go
  where
   go (x, y, tx, ty, a, e) = do
-    vx <- Bare.lookupGhcVar env name "Var" x
-    vy <- Bare.lookupGhcVar env name "Var" y
+    vx <- Bare.lookupGhcIdLHName env x
+    vy <- Bare.lookupGhcIdLHName env y
     return
         ( vx
         , vy

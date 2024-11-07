@@ -410,8 +410,8 @@ data Spec ty bndr  = Spec
   -- Separate field bc measures are checked for duplicates, and we want to allow for opaque-reflected measures to be duplicated.
   -- See Note [Duplicate measures and opaque reflection] in "Language.Haskell.Liquid.Measure".
   , classes    :: ![RClass ty]                                        -- ^ Refined Type-Classes
-  , relational :: ![(LocSymbol, LocSymbol, ty, ty, RelExpr, RelExpr)] -- ^ Relational types
-  , asmRel     :: ![(LocSymbol, LocSymbol, ty, ty, RelExpr, RelExpr)] -- ^ Assumed relational types
+  , relational :: ![(F.Located LHName, F.Located LHName, ty, ty, RelExpr, RelExpr)] -- ^ Relational types
+  , asmRel     :: ![(F.Located LHName, F.Located LHName, ty, ty, RelExpr, RelExpr)] -- ^ Assumed relational types
   , termexprs  :: ![(F.Located LHName, [F.Located F.Expr])]                -- ^ Terminating Conditions for functions
   , rinstance  :: ![RInstance ty]
   , dvariance  :: ![(F.Located LHName, [Variance])]                   -- ^ TODO ? Where do these come from ?!

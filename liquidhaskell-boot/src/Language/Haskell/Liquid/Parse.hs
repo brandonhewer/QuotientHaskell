@@ -843,8 +843,8 @@ data Pspec ty ctor
   | Asrts   ([Located LHName], (ty, Maybe [Located Expr]))     -- ^ sym0, ..., symn :: ty / [m0,..., mn]
   | DDecl   DataDecl                                      -- ^ refined 'data'    declaration
   | NTDecl  DataDecl                                      -- ^ refined 'newtype' declaration
-  | Relational (LocSymbol, LocSymbol, ty, ty, RelExpr, RelExpr) -- ^ relational signature
-  | AssmRel (LocSymbol, LocSymbol, ty, ty, RelExpr, RelExpr) -- ^ 'assume' relational signature
+  | Relational (Located LHName, Located LHName, ty, ty, RelExpr, RelExpr) -- ^ relational signature
+  | AssmRel (Located LHName, Located LHName, ty, ty, RelExpr, RelExpr) -- ^ 'assume' relational signature
   | Class   (RClass ty)                                   -- ^ refined 'class' definition
   | RInst   (RInstance ty)                                -- ^ refined 'instance' definition
   | Invt    ty                                            -- ^ 'invariant' specification
@@ -1527,11 +1527,11 @@ dataSizeP
   = brackets (Just . SymSizeFun <$> locLowerIdP)
   <|> return Nothing
 
-relationalP :: Parser (LocSymbol, LocSymbol, LocBareType, LocBareType, RelExpr, RelExpr)
+relationalP :: Parser (Located LHName, Located LHName, LocBareType, LocBareType, RelExpr, RelExpr)
 relationalP = do
-   x <- locBinderP
+   x <- locBinderLHNameP
    reserved "~"
-   y <- locBinderP
+   y <- locBinderLHNameP
    reserved "::"
    braces $ do
     tx <- located genBareTypeP
