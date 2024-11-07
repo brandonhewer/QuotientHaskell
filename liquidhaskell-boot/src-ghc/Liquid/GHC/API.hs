@@ -236,6 +236,7 @@ import GHC.Core                       as Ghc
     , Expr(App, Case, Cast, Coercion, Lam, Let, Lit, Tick, Type, Var)
     , Unfolding(CoreUnfolding, DFunUnfolding, uf_tmpl)
     , bindersOf
+    , bindersOfBinds
     , cmpAlt
     , collectArgs
     , collectBinders

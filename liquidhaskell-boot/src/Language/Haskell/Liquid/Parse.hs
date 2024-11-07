@@ -859,7 +859,7 @@ data Pspec ty ctor
   | Rewrite (Located LHName)                              -- ^ 'rewrite' annotation, the binder generates a rewrite rule
   | Rewritewith (Located LHName, [Located LHName])        -- ^ 'rewritewith' annotation, the first binder is using the rewrite rules of the second list,
   | Insts   (Located LHName)                              -- ^ 'auto-inst' or 'ple' annotation; use ple locally on binder
-  | HMeas   LocSymbol                                     -- ^ 'measure' annotation; lift Haskell binder as measure
+  | HMeas   (Located LHName)                              -- ^ 'measure' annotation; lift Haskell binder as measure
   | Reflect (Located LHName)                              -- ^ 'reflect' annotation; reflect Haskell binder as function in logic
   | PrivateReflect LocSymbol                              -- ^ 'private-reflect' annotation
   | OpaqueReflect (Located LHName)                        -- ^ 'opaque-reflect' annotation
@@ -1286,13 +1286,14 @@ rtAliasP f bodyP
 hmeasureP :: Parser BPspec
 hmeasureP = do
   setLayout
-  b <- locBinderP
-  (do reservedOp "::"
+  (do b <- try (locBinderP <* reservedOp "::")
       ty <- located genBareTypeP
       popLayout >> popLayout
       eqns <- block $ try $ measureDefP (rawBodyP <|> tyBodyP ty)
-      return (Meas $ Measure.mkM b ty eqns MsMeasure mempty))
-    <|> (popLayout >> popLayout >> return (HMeas b))
+      return (Meas $ Measure.mkM b ty eqns MsMeasure mempty)
+    <|>
+   do b <- locBinderLHNameP
+      popLayout >> popLayout >> return (HMeas b))
 
 measureP :: Parser (Measure (Located BareType) LocSymbol)
 measureP = do

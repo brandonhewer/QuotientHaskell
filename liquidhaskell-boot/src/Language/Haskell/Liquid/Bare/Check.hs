@@ -94,7 +94,7 @@ checkBareSpec sp
                                                      ]
                         ]
     inlines   = Ms.inlines    sp
-    hmeasures = Ms.hmeas      sp
+    hmeasures = S.map (fmap getLHNameSymbol) (Ms.hmeas sp)
     reflects  = S.map (fmap getLHNameSymbol) (Ms.reflects sp)
     measures  = msName    <$> Ms.measures sp
     fields    = concatMap dataDeclFields (Ms.dataDecls sp)

@@ -58,7 +58,7 @@ import qualified Language.Haskell.Liquid.Bare.DataType as Bare
 import qualified Language.Haskell.Liquid.Bare.ToBare   as Bare
 import           Language.Haskell.Liquid.UX.Config
 import Control.Monad (mapM)
-import qualified GHC.List as L
+import qualified Data.List as L
 
 --------------------------------------------------------------------------------
 makeHaskellMeasures :: Bool -> GhcSrc -> Bare.TycEnv -> LogicMap -> Ms.BareSpec
@@ -68,14 +68,17 @@ makeHaskellMeasures allowTC src tycEnv lmap spec
           = Bare.measureToBare <$> ms
   where
     ms    = makeMeasureDefinition allowTC tycEnv lmap cbs <$> mSyms
-    cbs   = nonRecCoreBinds   (_giCbs src)
+    cbs   = Ghc.flattenBinds (_giCbs src)
     mSyms = S.toList (Ms.hmeas spec)
 
-makeMeasureDefinition :: Bool -> Bare.TycEnv -> LogicMap -> [Ghc.CoreBind] -> LocSymbol
-                      -> Measure LocSpecType Ghc.DataCon
+makeMeasureDefinition
+  :: Bool -> Bare.TycEnv -> LogicMap -> [(Ghc.Id, Ghc.CoreExpr)] -> Located LHName
+  -> Measure LocSpecType Ghc.DataCon
 makeMeasureDefinition allowTC tycEnv lmap cbs x =
-  case GM.findVarDef (val x) cbs of
-    Nothing        -> Ex.throw $ errHMeas x "Cannot extract measure from haskell function"
+  case L.find ((x ==) . makeGHCLHNameLocatedFromId . fst) cbs of
+    Nothing ->
+      Ex.throw $
+        errHMeas (fmap getLHNameSymbol x) "Cannot extract measure from haskell function"
     Just (v, cexp) -> Ms.mkM vx vinfo mdef MsLifted (makeUnSorted allowTC (Ghc.varType v) mdef)
                      where
                        vx           = F.atLoc x (F.symbol v)
@@ -382,7 +385,8 @@ getLocReflects mbEnv = S.unions . fmap (uncurry $ names mbEnv) . M.toList
       , Ms.privateReflects modSpec
       , S.fromList (fmap getLHNameSymbol . snd <$> Ms.asmReflectSigs modSpec)
       , S.fromList (fmap getLHNameSymbol . fst <$> Ms.asmReflectSigs modSpec)
-      , Ms.inlines modSpec, Ms.hmeas modSpec
+      , Ms.inlines modSpec
+      , S.map (fmap getLHNameSymbol) (Ms.hmeas modSpec)
       ]
 
 -- Get all the symbols that are defined in the logic, based on the environment and the specs.
