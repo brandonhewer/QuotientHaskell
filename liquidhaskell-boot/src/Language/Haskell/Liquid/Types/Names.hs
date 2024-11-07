@@ -82,7 +82,26 @@ data LHName
       -- unresolved names.
       LHNResolved !LHResolvedName !Symbol
     | LHNUnresolved !LHNameSpace !Symbol
-  deriving (Data, Eq, Generic, Ord)
+  deriving (Data, Generic)
+
+-- | An Eq instance that ignores the Symbol in resolved names
+instance Eq LHName where
+  LHNResolved n0 _ == LHNResolved n1 _ = n0 == n1
+  LHNUnresolved ns0 s0 == LHNUnresolved ns1 s1 = ns0 == ns1 && s0 == s1
+  _ == _ = False
+
+-- | An Ord instance that ignores the Symbol in resolved names
+instance Ord LHName where
+  compare (LHNResolved n0 _) (LHNResolved n1 _) = compare n0 n1
+  compare (LHNUnresolved ns0 s0) (LHNUnresolved ns1 s1) =
+    compare (ns0, s0) (ns1, s1)
+  compare LHNResolved{} _ = LT
+  compare LHNUnresolved{} _ = GT
+
+-- | A Hashable instance that ignores the Symbol in resolved names
+instance Hashable LHName where
+  hashWithSalt s (LHNResolved n _) = hashWithSalt s n
+  hashWithSalt s (LHNUnresolved ns sym) = s `hashWithSalt` ns `hashWithSalt` sym
 
 data LHNameSpace
     = LHTcName
@@ -115,7 +134,6 @@ instance Hashable LHResolvedName where
   hashWithSalt s (LHRLocal n) = s `hashWithSalt` (2::Int) `hashWithSalt` n
   hashWithSalt s (LHRIndex w) = s `hashWithSalt` (3::Int) `hashWithSalt` w
 
-instance Hashable LHName
 instance Hashable LogicName where
   hashWithSalt s (LogicName sym m) =
         s `hashWithSalt` sym
