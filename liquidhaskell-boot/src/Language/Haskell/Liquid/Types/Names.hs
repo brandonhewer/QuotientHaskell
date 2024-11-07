@@ -14,6 +14,7 @@ module Language.Haskell.Liquid.Types.Names
   , getLHNameResolved
   , getLHNameSymbol
   , makeGHCLHName
+  , makeGHCLHNameFromId
   , makeGHCLHNameLocated
   , makeGHCLHNameLocatedFromId
   , makeLocalLHName
@@ -177,6 +178,14 @@ makeResolvedLHName = LHNResolved
 
 makeGHCLHName :: GHC.Name -> Symbol -> LHName
 makeGHCLHName n s = makeResolvedLHName (LHRGHC n) s
+
+makeGHCLHNameFromId :: GHC.Id -> LHName
+makeGHCLHNameFromId x =
+    let n = case GHC.idDetails x of
+              GHC.DataConWrapId dc -> GHC.getName dc
+              GHC.DataConWorkId dc -> GHC.getName dc
+              _ -> GHC.getName x
+     in makeGHCLHName n (symbol n)
 
 makeLocalLHName :: Symbol -> LHName
 makeLocalLHName s = LHNResolved (LHRLocal s) s

@@ -265,7 +265,7 @@ findVarDefType :: [(Ghc.Id, Ghc.CoreExpr)] -> [(Ghc.Var, LocSpecType)] -> Bare.E
                -> M.HashMap LocSymbol Ghc.Var -> ToReflectName
                -> Maybe (LocSymbol, Maybe SpecType, Ghc.Var, Ghc.CoreExpr)
 findVarDefType cbs sigs env _defs (Left x) =
-  case L.find ((x ==) . makeGHCLHNameLocated . fst) cbs of
+  case L.find ((val x ==) . makeGHCLHNameFromId . fst) cbs of
   -- YL: probably ok even without checking typeclass flag since user cannot
   -- manually reflect internal names
   Just (v, e) ->
