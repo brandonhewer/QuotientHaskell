@@ -854,7 +854,7 @@ data Pspec ty ctor
   | Embed   (Located LHName, FTycon, TCArgs)              -- ^ 'embed' declaration
   | Qualif  Qualifier                                     -- ^ 'qualif' definition
   | LVars   LocSymbol                                     -- ^ 'lazyvar' annotation, defer checks to *use* sites
-  | Lazy    LocSymbol                                     -- ^ 'lazy' annotation, skip termination check on binder
+  | Lazy    (Located LHName)                              -- ^ 'lazy' annotation, skip termination check on binder
   | Fail    (Located LHName)                              -- ^ 'fail' annotation, the binder should be unsafe
   | Rewrite LocSymbol                                     -- ^ 'rewrite' annotation, the binder generates a rewrite rule
   | Rewritewith (LocSymbol, [LocSymbol])                  -- ^ 'rewritewith' annotation, the first binder is using the rewrite rules of the second list,
@@ -1142,7 +1142,7 @@ specP
     <|> fallbackSpecP "qualif"      (fmap Qualif (qualifierP sortP))
     <|> (reserved "lazyvar"       >> fmap LVars  lazyVarP  )
 
-    <|> (reserved "lazy"          >> fmap Lazy   lazyVarP  )
+    <|> (reserved "lazy"          >> fmap Lazy   locBinderLHNameP)
     <|> (reserved "rewrite"       >> fmap Rewrite   rewriteVarP )
     <|> (reserved "rewriteWith"   >> fmap Rewritewith   rewriteWithP )
     <|> (reserved "fail"          >> fmap Fail locBinderLHNameP )

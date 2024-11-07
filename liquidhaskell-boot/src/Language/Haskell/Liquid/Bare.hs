@@ -595,7 +595,7 @@ makeSpecTerm :: Config -> Ms.BareSpec -> Bare.Env -> ModName ->
 ------------------------------------------------------------------------------------------
 makeSpecTerm cfg mySpec env name = do
   sizes  <- if structuralTerm cfg then pure mempty else makeSize env name mySpec
-  lazies <- makeLazy     env name mySpec
+  lazies <- makeLazy     env mySpec
   autos  <- makeAutoSize env mySpec
   gfail  <- makeFail env mySpec
   return  $ SpTerm
@@ -623,9 +623,9 @@ makeRelation env name sigEnv = mapM go
         )
 
 
-makeLazy :: Bare.Env -> ModName -> Ms.BareSpec -> Bare.Lookup (S.HashSet Ghc.Var)
-makeLazy env name spec =
-  sMapM (Bare.lookupGhcVar env name "Var") (Ms.lazy spec)
+makeLazy :: Bare.Env -> Ms.BareSpec -> Bare.Lookup (S.HashSet Ghc.Var)
+makeLazy env spec =
+  sMapM (Bare.lookupGhcIdLHName env) (Ms.lazy spec)
 
 makeFail :: Bare.Env -> Ms.BareSpec -> Bare.Lookup (S.HashSet (Located Ghc.Var))
 makeFail env spec =
