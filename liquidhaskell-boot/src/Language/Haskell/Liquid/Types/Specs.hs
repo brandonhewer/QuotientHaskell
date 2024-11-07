@@ -550,8 +550,6 @@ data LiftedSpec = LiftedSpec
     -- ^ Exported logic symbols
   , liftedAsmSigs    :: HashSet (F.Located LHName, LocBareType)
     -- ^ Assumed (unchecked) types; including reflected signatures
-  , liftedAsmReflectSigs    :: HashSet (F.LocSymbol, F.LocSymbol)
-    -- ^ Reflected assumed signatures
   , liftedSigs       :: HashSet (F.Located LHName, LocBareType)
     -- ^ Asserted spec signatures
   , liftedInvariants :: HashSet (Maybe F.LocSymbol, LocBareType)
@@ -602,7 +600,6 @@ emptyLiftedSpec = LiftedSpec
   { liftedMeasures = mempty
   , liftedExpSigs  = mempty
   , liftedAsmSigs  = mempty
-  , liftedAsmReflectSigs  = mempty
   , liftedSigs     = mempty
   , liftedInvariants = mempty
   , liftedIaliases   = mempty
@@ -775,7 +772,6 @@ toLiftedSpec a = LiftedSpec
   { liftedMeasures   = S.fromList . measures $ a
   , liftedExpSigs    = S.fromList . expSigs  $ a
   , liftedAsmSigs    = S.fromList . asmSigs  $ a
-  , liftedAsmReflectSigs = S.fromList . asmReflectSigs  $ a
   , liftedSigs       = S.fromList . sigs     $ a
   , liftedInvariants = S.fromList . invariants $ a
   , liftedIaliases   = S.fromList . ialiases $ a
@@ -806,7 +802,7 @@ unsafeFromLiftedSpec a = Spec
   { measures   = S.toList . liftedMeasures $ a
   , expSigs    = S.toList . liftedExpSigs $ a
   , asmSigs    = S.toList . liftedAsmSigs $ a
-  , asmReflectSigs = S.toList . liftedAsmReflectSigs $ a
+  , asmReflectSigs = mempty
   , sigs       = S.toList . liftedSigs $ a
   , relational = mempty
   , asmRel     = mempty
