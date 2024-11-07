@@ -400,7 +400,6 @@ data Spec ty bndr  = Spec
   , opaqueReflects :: !(S.HashSet (F.Located LHName))                 -- ^ Binders to opaque-reflect
   , autois     :: !(S.HashSet (F.Located LHName))                     -- ^ Automatically instantiate axioms in these Functions
   , hmeas      :: !(S.HashSet (F.Located LHName))                     -- ^ Binders to turn into measures using haskell definitions
-  , hbounds    :: !(S.HashSet F.LocSymbol)                            -- ^ Binders to turn into bounds using haskell definitions
   , inlines    :: !(S.HashSet (F.Located LHName))                     -- ^ Binders to turn into logic inline using haskell definitions
   , ignores    :: !(S.HashSet (F.Located LHName))                     -- ^ Binders to ignore during checking; that is DON't check the corebind.
   , autosize   :: !(S.HashSet (F.Located LHName))                     -- ^ Type Constructors that get automatically sizing info
@@ -468,7 +467,6 @@ instance Semigroup (Spec ty bndr) where
            , privateReflects = S.union (privateReflects s1) (privateReflects s2)
            , opaqueReflects   = S.union   (opaqueReflects s1)  (opaqueReflects s2)
            , hmeas      = S.union   (hmeas    s1)  (hmeas    s2)
-           , hbounds    = S.union   (hbounds  s1)  (hbounds  s2)
            , inlines    = S.union   (inlines  s1)  (inlines  s2)
            , ignores    = S.union   (ignores  s1)  (ignores  s2)
            , autosize   = S.union   (autosize s1)  (autosize s2)
@@ -502,7 +500,6 @@ instance Monoid (Spec ty bndr) where
            , reflects   = S.empty
            , privateReflects = S.empty
            , opaqueReflects = S.empty
-           , hbounds    = S.empty
            , inlines    = S.empty
            , ignores    = S.empty
            , autosize   = S.empty
@@ -535,7 +532,6 @@ instance Monoid (Spec ty bndr) where
 -- * The 'lazy', we don't do termination checking in lifted specs;
 -- * The 'reflects', the reflection has already happened at this point;
 -- * The 'hmeas', we have /already/ turned these into measures at this point;
--- * The 'hbounds', ditto as 'hmeas';
 -- * The 'inlines', ditto as 'hmeas';
 -- * The 'ignores', ditto as 'hmeas';
 -- * The 'pragmas', we can't make any use of this information for lifted specs;
@@ -824,7 +820,6 @@ unsafeFromLiftedSpec a = Spec
   , opaqueReflects   = mempty
   , autois     = liftedAutois a
   , hmeas      = mempty
-  , hbounds    = mempty
   , inlines    = mempty
   , ignores    = mempty
   , autosize   = liftedAutosize a

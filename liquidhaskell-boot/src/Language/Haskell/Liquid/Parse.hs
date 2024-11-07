@@ -866,7 +866,6 @@ data Pspec ty ctor
   | Inline  (Located LHName)                              -- ^ 'inline' annotation;  inline (non-recursive) binder as an alias
   | Ignore  (Located LHName)                              -- ^ 'ignore' annotation; skip all checks inside this binder
   | ASize   (Located LHName)                              -- ^ 'autosize' annotation; automatically generate size metric for this type
-  | HBound  LocSymbol                                     -- ^ 'bound' annotation; lift Haskell binder as an abstract-refinement "bound"
   | PBound  (Bound ty Expr)                               -- ^ 'bound' definition
   | Pragma  (Located String)                              -- ^ 'LIQUID' pragma, used to save configuration options in source files
   | CMeas   (Measure ty ())                               -- ^ 'class measure' definition
@@ -957,8 +956,6 @@ ppPspec k (Inline  lx)
   = "inline" <+> pprintTidy k (val lx)
 ppPspec k (Ignore  lx)
   = "ignore" <+> pprintTidy k (val lx)
-ppPspec k (HBound  lx)
-  = "bound" <+> pprintTidy k (val lx)
 ppPspec k (ASize   lx)
   = "autosize" <+> pprintTidy k (val lx)
 ppPspec k (PBound  bnd)
@@ -1015,7 +1012,6 @@ ppPspec k (AssmRel (lxl, lxr, tl, tr, q, p))
   -- show (Axiom  _) = "Axiom"
   show (Reflect _) = "Reflect"
   show (HMeas  _) = "HMeas"
-  show (HBound _) = "HBound"
   show (Inline _) = "Inline"
   show (Pragma _) = "Pragma"
   show (CMeas  _) = "CMeas"
@@ -1092,7 +1088,6 @@ mkSpec name xs         = (name,) $ qualifySpec (symbol name) Measure.Spec
   , Measure.inlines    = S.fromList [s | Inline s <- xs]
   , Measure.ignores    = S.fromList [s | Ignore s <- xs]
   , Measure.autosize   = S.fromList [s | ASize  s <- xs]
-  , Measure.hbounds    = S.fromList [s | HBound s <- xs]
   , Measure.axeqs      = []
   }
 
@@ -1120,8 +1115,7 @@ specP
     <|> fallbackSpecP "inline"      (fmap Inline locBinderLHNameP)
     <|> fallbackSpecP "ignore"      (fmap Ignore  locBinderLHNameP)
 
-    <|> fallbackSpecP "bound"       (fmap PBound  boundP
-                                 <|> fmap HBound  hboundP  )
+    <|> fallbackSpecP "bound"       (fmap PBound  boundP)
     <|> (reserved "class"
          >> ((reserved "measure"  >> fmap CMeas  cMeasureP )
          <|> fmap Class  classP                            ))
@@ -1181,9 +1175,6 @@ rewriteWithP = (,) <$> locBinderLHNameP <*> brackets (sepBy1 locBinderLHNameP co
 
 axiomP :: Parser LocSymbol
 axiomP = locBinderP
-
-hboundP :: Parser LocSymbol
-hboundP = locBinderP
 
 datavarianceP :: Parser (Located LHName, [Variance])
 datavarianceP = liftM2 (,) (locUpperIdLHNameP LHTcName) (many varianceP)

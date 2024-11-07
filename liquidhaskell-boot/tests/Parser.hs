@@ -103,10 +103,6 @@ testSpecP =
        parseSingleSpec "bound Foo = true" @?==
           "bound Foo forall [] . [] =  true"
 
-    , testCase "bound HBound" $
-       parseSingleSpec "bound step" @?==
-            "bound step"
-
     , testCase "class measure" $
        parseSingleSpec "class measure sz :: forall a. a -> Int" @?==
             "class measure sz :: forall a . lq_tmp$db##0:a -> Int"
