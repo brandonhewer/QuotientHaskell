@@ -390,19 +390,19 @@ data Spec ty bndr  = Spec
   , ealiases   :: ![F.Located (RTAlias F.Symbol F.Expr)]              -- ^ Expression aliases
   , embeds     :: !(F.TCEmb (F.Located LHName))                       -- ^ GHC-Tycon-to-fixpoint Tycon map
   , qualifiers :: ![F.Qualifier]                                      -- ^ Qualifiers in source files
-  , lvars      :: !(S.HashSet F.LocSymbol)                            -- ^ Variables that should be checked in the environment they are used
-  , lazy       :: !(S.HashSet F.LocSymbol)                            -- ^ Ignore Termination Check in these Functions
-  , rewrites    :: !(S.HashSet F.LocSymbol)                           -- ^ Theorems turned into rewrite rules
-  , rewriteWith :: !(M.HashMap F.LocSymbol [F.LocSymbol])             -- ^ Definitions using rewrite rules
+  , lvars      :: !(S.HashSet (F.Located LHName))                     -- ^ Variables that should be checked in the environment they are used
+  , lazy       :: !(S.HashSet (F.Located LHName))                     -- ^ Ignore Termination Check in these Functions
+  , rewrites    :: !(S.HashSet (F.Located LHName))                    -- ^ Theorems turned into rewrite rules
+  , rewriteWith :: !(M.HashMap (F.Located LHName) [F.Located LHName]) -- ^ Definitions using rewrite rules
   , fails      :: !(S.HashSet (F.Located LHName))                     -- ^ These Functions should be unsafe
   , reflects   :: !(S.HashSet F.LocSymbol)                            -- ^ Binders to reflect
   , opaqueReflects :: !(S.HashSet F.LocSymbol)                        -- ^ Binders to opaque-reflect
-  , autois     :: !(S.HashSet F.LocSymbol)                            -- ^ Automatically instantiate axioms in these Functions
+  , autois     :: !(S.HashSet (F.Located LHName))                     -- ^ Automatically instantiate axioms in these Functions
   , hmeas      :: !(S.HashSet F.LocSymbol)                            -- ^ Binders to turn into measures using haskell definitions
   , hbounds    :: !(S.HashSet F.LocSymbol)                            -- ^ Binders to turn into bounds using haskell definitions
   , inlines    :: !(S.HashSet F.LocSymbol)                            -- ^ Binders to turn into logic inline using haskell definitions
-  , ignores    :: !(S.HashSet F.LocSymbol)                            -- ^ Binders to ignore during checking; that is DON't check the corebind.
-  , autosize   :: !(S.HashSet F.LocSymbol)                            -- ^ Type Constructors that get automatically sizing info
+  , ignores    :: !(S.HashSet (F.Located LHName))                            -- ^ Binders to ignore during checking; that is DON't check the corebind.
+  , autosize   :: !(S.HashSet (F.Located LHName))                     -- ^ Type Constructors that get automatically sizing info
   , pragmas    :: ![F.Located String]                                 -- ^ Command-line configurations passed in through source
   , cmeasures  :: ![Measure ty ()]                                    -- ^ Measures attached to a type-class
   , imeasures  :: ![Measure ty bndr]                                  -- ^ Mappings from (measure,type) -> measure
@@ -410,8 +410,8 @@ data Spec ty bndr  = Spec
   -- Separate field bc measures are checked for duplicates, and we want to allow for opaque-reflected measures to be duplicated.
   -- See Note [Duplicate measures and opaque reflection] in "Language.Haskell.Liquid.Measure".
   , classes    :: ![RClass ty]                                        -- ^ Refined Type-Classes
-  , relational :: ![(LocSymbol, LocSymbol, ty, ty, RelExpr, RelExpr)] -- ^ Relational types
-  , asmRel     :: ![(LocSymbol, LocSymbol, ty, ty, RelExpr, RelExpr)] -- ^ Assumed relational types
+  , relational :: ![(F.Located LHName, F.Located LHName, ty, ty, RelExpr, RelExpr)] -- ^ Relational types
+  , asmRel     :: ![(F.Located LHName, F.Located LHName, ty, ty, RelExpr, RelExpr)] -- ^ Assumed relational types
   , termexprs  :: ![(F.Located LHName, [F.Located F.Expr])]                -- ^ Terminating Conditions for functions
   , rinstance  :: ![RInstance ty]
   , dvariance  :: ![(F.Located LHName, [Variance])]                   -- ^ TODO ? Where do these come from ?!
@@ -567,11 +567,11 @@ data LiftedSpec = LiftedSpec
     -- ^ GHC-Tycon-to-fixpoint Tycon map
   , liftedQualifiers :: HashSet F.Qualifier
     -- ^ Qualifiers in source/spec files
-  , liftedLvars      :: HashSet F.LocSymbol
+  , liftedLvars      :: HashSet (F.Located LHName)
     -- ^ Variables that should be checked in the environment they are used
-  , liftedAutois     :: S.HashSet F.LocSymbol
+  , liftedAutois     :: S.HashSet (F.Located LHName)
     -- ^ Automatically instantiate axioms in these Functions
-  , liftedAutosize   :: HashSet F.LocSymbol
+  , liftedAutosize   :: HashSet (F.Located LHName)
     -- ^ Type Constructors that get automatically sizing info
   , liftedCmeasures  :: HashSet (Measure LocBareType ())
     -- ^ Measures attached to a type-class

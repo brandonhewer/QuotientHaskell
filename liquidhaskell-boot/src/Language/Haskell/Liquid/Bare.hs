@@ -501,8 +501,8 @@ makeSpecVars :: Config -> GhcSrc -> Ms.BareSpec -> Bare.Env -> Bare.MeasEnv
 ------------------------------------------------------------------------------------------
 makeSpecVars cfg src mySpec env measEnv = do
   tgtVars     <-   mapM (resolveStringVar  env name)              (checks     cfg)
-  igVars      <-  sMapM (Bare.lookupGhcVar env name "gs-ignores") (Ms.ignores mySpec)
-  lVars       <-  sMapM (Bare.lookupGhcVar env name "gs-lvars"  ) (Ms.lvars   mySpec)
+  igVars      <-  sMapM (Bare.lookupGhcIdLHName env) (Ms.ignores mySpec)
+  lVars       <-  sMapM (Bare.lookupGhcIdLHName env) (Ms.lvars   mySpec)
   return (SpVar tgtVars igVars lVars cMethods)
   where
     name       = _giTargetMod src
@@ -595,8 +595,8 @@ makeSpecTerm :: Config -> Ms.BareSpec -> Bare.Env -> ModName ->
 ------------------------------------------------------------------------------------------
 makeSpecTerm cfg mySpec env name = do
   sizes  <- if structuralTerm cfg then pure mempty else makeSize env name mySpec
-  lazies <- makeLazy     env name mySpec
-  autos  <- makeAutoSize env name mySpec
+  lazies <- makeLazy     env mySpec
+  autos  <- makeAutoSize env mySpec
   gfail  <- makeFail env mySpec
   return  $ SpTerm
     { gsLazy       = S.insert dictionaryVar (lazies `mappend` sizes)
@@ -607,12 +607,12 @@ makeSpecTerm cfg mySpec env name = do
     }
 
 makeRelation :: Bare.Env -> ModName -> Bare.SigEnv ->
-  [(LocSymbol, LocSymbol, LocBareType, LocBareType, RelExpr, RelExpr)] -> Bare.Lookup [(Ghc.Var, Ghc.Var, LocSpecType, LocSpecType, RelExpr, RelExpr)]
+  [(Located LHName, Located LHName, LocBareType, LocBareType, RelExpr, RelExpr)] -> Bare.Lookup [(Ghc.Var, Ghc.Var, LocSpecType, LocSpecType, RelExpr, RelExpr)]
 makeRelation env name sigEnv = mapM go
  where
   go (x, y, tx, ty, a, e) = do
-    vx <- Bare.lookupGhcVar env name "Var" x
-    vy <- Bare.lookupGhcVar env name "Var" y
+    vx <- Bare.lookupGhcIdLHName env x
+    vy <- Bare.lookupGhcIdLHName env y
     return
         ( vx
         , vy
@@ -623,9 +623,9 @@ makeRelation env name sigEnv = mapM go
         )
 
 
-makeLazy :: Bare.Env -> ModName -> Ms.BareSpec -> Bare.Lookup (S.HashSet Ghc.Var)
-makeLazy env name spec =
-  sMapM (Bare.lookupGhcVar env name "Var") (Ms.lazy spec)
+makeLazy :: Bare.Env -> Ms.BareSpec -> Bare.Lookup (S.HashSet Ghc.Var)
+makeLazy env spec =
+  sMapM (Bare.lookupGhcIdLHName env) (Ms.lazy spec)
 
 makeFail :: Bare.Env -> Ms.BareSpec -> Bare.Lookup (S.HashSet (Located Ghc.Var))
 makeFail env spec =
@@ -633,26 +633,26 @@ makeFail env spec =
     vx <- Bare.lookupGhcIdLHName env x
     return x { val = vx }
 
-makeRewrite :: Bare.Env -> ModName -> Ms.BareSpec -> Bare.Lookup (S.HashSet (Located Ghc.Var))
-makeRewrite env name spec =
+makeRewrite :: Bare.Env -> Ms.BareSpec -> Bare.Lookup (S.HashSet (Located Ghc.Var))
+makeRewrite env spec =
   sForM (Ms.rewrites spec) $ \x -> do
-    vx <-  Bare.lookupGhcVar env name "Var" x
+    vx <-  Bare.lookupGhcIdLHName env x
     return x { val = vx }
 
-makeRewriteWith :: Bare.Env -> ModName -> Ms.BareSpec -> Bare.Lookup (M.HashMap Ghc.Var [Ghc.Var])
-makeRewriteWith env name spec = M.fromList <$> makeRewriteWith' env name spec
+makeRewriteWith :: Bare.Env -> Ms.BareSpec -> Bare.Lookup (M.HashMap Ghc.Var [Ghc.Var])
+makeRewriteWith env spec = M.fromList <$> makeRewriteWith' env spec
 
-makeRewriteWith' :: Bare.Env -> ModName -> Spec ty bndr -> Bare.Lookup [(Ghc.Var, [Ghc.Var])]
-makeRewriteWith' env name spec =
+makeRewriteWith' :: Bare.Env -> Spec ty bndr -> Bare.Lookup [(Ghc.Var, [Ghc.Var])]
+makeRewriteWith' env spec =
   forM (M.toList $ Ms.rewriteWith spec) $ \(x, xs) -> do
-    xv  <- Bare.lookupGhcVar env name "Var1" x
-    xvs <- mapM (Bare.lookupGhcVar env name "Var2") xs
+    xv  <- Bare.lookupGhcIdLHName env x
+    xvs <- mapM (Bare.lookupGhcIdLHName env) xs
     return (xv, xvs)
 
-makeAutoSize :: Bare.Env -> ModName -> Ms.BareSpec -> Bare.Lookup (S.HashSet Ghc.TyCon)
-makeAutoSize env name
+makeAutoSize :: Bare.Env -> Ms.BareSpec -> Bare.Lookup (S.HashSet Ghc.TyCon)
+makeAutoSize env
   = fmap S.fromList
-  . mapM (Bare.lookupGhcTyCon env name "TyCon")
+  . mapM (Bare.lookupGhcTyConLHName env)
   . S.toList
   . Ms.autosize
 
@@ -677,9 +677,9 @@ makeSpecRefl :: Config -> GhcSrc -> Bare.ModSpecs -> Bare.Env -> ModName -> GhcS
              -> Bare.Lookup GhcSpecRefl
 ------------------------------------------------------------------------------------------
 makeSpecRefl cfg src specs env name sig tycEnv = do
-  autoInst <- makeAutoInst env name mySpec
-  rwr      <- makeRewrite env name mySpec
-  rwrWith  <- makeRewriteWith env name mySpec
+  autoInst <- makeAutoInst env mySpec
+  rwr      <- makeRewrite env mySpec
+  rwrWith  <- makeRewriteWith env mySpec
   wRefls   <- Bare.wiredReflects cfg env name sig
   xtes     <- Bare.makeHaskellAxioms cfg src env tycEnv name lmap sig mySpec
   asmReflAxioms <- Bare.makeAssumeReflectAxioms src env tycEnv name sig mySpec
@@ -777,12 +777,12 @@ addReflSigs env name rtEnv measEnv refl sig =
     reflected               = S.fromList $ fst <$> (wreflSigs ++ notReflActualTySigs)
     notReflected xt         = fst xt `notElem` reflected
 
-makeAutoInst :: Bare.Env -> ModName -> Ms.BareSpec ->
+makeAutoInst :: Bare.Env -> Ms.BareSpec ->
                 Bare.Lookup (S.HashSet Ghc.Var)
-makeAutoInst env name spec = S.fromList <$> kvs
+makeAutoInst env spec = S.fromList <$> kvs
   where
     kvs = forM (S.toList (Ms.autois spec)) $
-            Bare.lookupGhcVar env name "Var"
+            Bare.lookupGhcIdLHName env
 
 
 ----------------------------------------------------------------------------------------

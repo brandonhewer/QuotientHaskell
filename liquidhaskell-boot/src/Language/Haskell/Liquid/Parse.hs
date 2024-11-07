@@ -843,8 +843,8 @@ data Pspec ty ctor
   | Asrts   ([Located LHName], (ty, Maybe [Located Expr]))     -- ^ sym0, ..., symn :: ty / [m0,..., mn]
   | DDecl   DataDecl                                      -- ^ refined 'data'    declaration
   | NTDecl  DataDecl                                      -- ^ refined 'newtype' declaration
-  | Relational (LocSymbol, LocSymbol, ty, ty, RelExpr, RelExpr) -- ^ relational signature
-  | AssmRel (LocSymbol, LocSymbol, ty, ty, RelExpr, RelExpr) -- ^ 'assume' relational signature
+  | Relational (Located LHName, Located LHName, ty, ty, RelExpr, RelExpr) -- ^ relational signature
+  | AssmRel (Located LHName, Located LHName, ty, ty, RelExpr, RelExpr) -- ^ 'assume' relational signature
   | Class   (RClass ty)                                   -- ^ refined 'class' definition
   | RInst   (RInstance ty)                                -- ^ refined 'instance' definition
   | Invt    ty                                            -- ^ 'invariant' specification
@@ -853,18 +853,18 @@ data Pspec ty ctor
   | EAlias  (Located (RTAlias Symbol Expr))               -- ^ 'predicate' alias declaration
   | Embed   (Located LHName, FTycon, TCArgs)              -- ^ 'embed' declaration
   | Qualif  Qualifier                                     -- ^ 'qualif' definition
-  | LVars   LocSymbol                                     -- ^ 'lazyvar' annotation, defer checks to *use* sites
-  | Lazy    LocSymbol                                     -- ^ 'lazy' annotation, skip termination check on binder
+  | LVars   (Located LHName)                              -- ^ 'lazyvar' annotation, defer checks to *use* sites
+  | Lazy    (Located LHName)                              -- ^ 'lazy' annotation, skip termination check on binder
   | Fail    (Located LHName)                              -- ^ 'fail' annotation, the binder should be unsafe
-  | Rewrite LocSymbol                                     -- ^ 'rewrite' annotation, the binder generates a rewrite rule
-  | Rewritewith (LocSymbol, [LocSymbol])                  -- ^ 'rewritewith' annotation, the first binder is using the rewrite rules of the second list,
-  | Insts   LocSymbol                                     -- ^ 'auto-inst' or 'ple' annotation; use ple locally on binder
+  | Rewrite (Located LHName)                              -- ^ 'rewrite' annotation, the binder generates a rewrite rule
+  | Rewritewith (Located LHName, [Located LHName])        -- ^ 'rewritewith' annotation, the first binder is using the rewrite rules of the second list,
+  | Insts   (Located LHName)                              -- ^ 'auto-inst' or 'ple' annotation; use ple locally on binder
   | HMeas   LocSymbol                                     -- ^ 'measure' annotation; lift Haskell binder as measure
   | Reflect LocSymbol                                     -- ^ 'reflect' annotation; reflect Haskell binder as function in logic
   | OpaqueReflect LocSymbol                               -- ^ 'opaque-reflect' annotation
   | Inline  LocSymbol                                     -- ^ 'inline' annotation;  inline (non-recursive) binder as an alias
-  | Ignore  LocSymbol                                     -- ^ 'ignore' annotation; skip all checks inside this binder
-  | ASize   LocSymbol                                     -- ^ 'autosize' annotation; automatically generate size metric for this type
+  | Ignore  (Located LHName)                              -- ^ 'ignore' annotation; skip all checks inside this binder
+  | ASize   (Located LHName)                              -- ^ 'autosize' annotation; automatically generate size metric for this type
   | HBound  LocSymbol                                     -- ^ 'bound' annotation; lift Haskell binder as an abstract-refinement "bound"
   | PBound  (Bound ty Expr)                               -- ^ 'bound' definition
   | Pragma  (Located String)                              -- ^ 'LIQUID' pragma, used to save configuration options in source files
@@ -1099,7 +1099,7 @@ specP
         <|> (reserved "relational" >>  fmap AssmRel relationalP)
         <|>                            fmap Assm   tyBindLHNameP  )
     <|> fallbackSpecP "assert"      (fmap Asrt    tyBindLHNameP)
-    <|> fallbackSpecP "autosize"    (fmap ASize   asizeP   )
+    <|> fallbackSpecP "autosize"    (fmap ASize   tyConBindLHNameP)
     <|> (reserved "local"         >> fmap LAsrt   tyBindP  )
 
     -- TODO: These next two are synonyms, kill one
@@ -1113,7 +1113,7 @@ specP
     <|> (reserved "infixr"        >> fmap BFix    infixrP  )
     <|> (reserved "infix"         >> fmap BFix    infixP   )
     <|> fallbackSpecP "inline"      (fmap Inline  inlineP  )
-    <|> fallbackSpecP "ignore"      (fmap Ignore  inlineP  )
+    <|> fallbackSpecP "ignore"      (fmap Ignore  locBinderLHNameP)
 
     <|> fallbackSpecP "bound"       (fmap PBound  boundP
                                  <|> fmap HBound  hboundP  )
@@ -1140,14 +1140,14 @@ specP
 
     <|> fallbackSpecP "embed"       (fmap Embed  embedP    )
     <|> fallbackSpecP "qualif"      (fmap Qualif (qualifierP sortP))
-    <|> (reserved "lazyvar"       >> fmap LVars  lazyVarP  )
+    <|> (reserved "lazyvar"       >> fmap LVars  locBinderLHNameP)
 
-    <|> (reserved "lazy"          >> fmap Lazy   lazyVarP  )
-    <|> (reserved "rewrite"       >> fmap Rewrite   rewriteVarP )
+    <|> (reserved "lazy"          >> fmap Lazy   locBinderLHNameP)
+    <|> (reserved "rewrite"       >> fmap Rewrite locBinderLHNameP)
     <|> (reserved "rewriteWith"   >> fmap Rewritewith   rewriteWithP )
     <|> (reserved "fail"          >> fmap Fail locBinderLHNameP )
-    <|> (reserved "ple"           >> fmap Insts locBinderP  )
-    <|> (reserved "automatic-instances" >> fmap Insts locBinderP  )
+    <|> (reserved "ple"           >> fmap Insts locBinderLHNameP  )
+    <|> (reserved "automatic-instances" >> fmap Insts locBinderLHNameP  )
     <|> (reserved "LIQUID"        >> fmap Pragma pragmaP   )
     <|> (reserved "liquid"        >> fmap Pragma pragmaP   )
     <|> {- DEFAULT -}                fmap Asrts  tyBindsP
@@ -1171,15 +1171,8 @@ tyBindsRemP sy = do
 pragmaP :: Parser (Located String)
 pragmaP = locStringLiteral
 
-lazyVarP :: Parser LocSymbol
-lazyVarP = locBinderP
-
-
-rewriteVarP :: Parser LocSymbol
-rewriteVarP = locBinderP
-
-rewriteWithP :: Parser (LocSymbol, [LocSymbol])
-rewriteWithP = (,) <$> locBinderP <*> brackets (sepBy1 locBinderP comma)
+rewriteWithP :: Parser (Located LHName, [Located LHName])
+rewriteWithP = (,) <$> locBinderLHNameP <*> brackets (sepBy1 locBinderLHNameP comma)
 
 axiomP :: Parser LocSymbol
 axiomP = locBinderP
@@ -1189,9 +1182,6 @@ hboundP = locBinderP
 
 inlineP :: Parser LocSymbol
 inlineP = locBinderP
-
-asizeP :: Parser LocSymbol
-asizeP = locBinderP
 
 datavarianceP :: Parser (Located LHName, [Variance])
 datavarianceP = liftM2 (,) (locUpperIdLHNameP LHTcName) (many varianceP)
@@ -1489,18 +1479,21 @@ predTypeDDP = (,) <$> bbindP <*> bareTypeP
 bbindP   :: Parser Symbol
 bbindP   = lowerIdP <* reservedOp "::"
 
+tyConBindLHNameP :: Parser (Located LHName)
+tyConBindLHNameP = locUpperIdLHNameP LHTcName
+
 dataConP :: [Symbol] -> Parser DataCtor
 dataConP as = do
-  x   <- dataConNameP
+  x   <- dataConLHNameP
   xts <- dataConFieldsP
-  return $ DataCtor (makeUnresolvedLHName LHDataConName <$> x) as [] xts Nothing
+  return $ DataCtor x as [] xts Nothing
 
 adtDataConP :: [Symbol] -> Parser DataCtor
 adtDataConP as = do
-  x     <- dataConNameP
+  x     <- dataConLHNameP
   reservedOp "::"
   tr    <- toRTypeRep <$> bareTypeP
-  return $ DataCtor (makeUnresolvedLHName LHDataConName <$> x) (tRepVars as tr) [] (tRepFields tr) (Just $ ty_res tr)
+  return $ DataCtor x (tRepVars as tr) [] (tRepFields tr) (Just $ ty_res tr)
 
 tRepVars :: Symbolic a => [Symbol] -> RTypeRep c a r -> [Symbol]
 tRepVars as tr = case fst <$> ty_vars tr of
@@ -1523,16 +1516,19 @@ dataConNameP
      bad c  = isSpace c || c `elem` ("(,)" :: String)
      pwr s  = symbol s
 
+dataConLHNameP :: Parser (Located LHName)
+dataConLHNameP = fmap (makeUnresolvedLHName LHDataConName) <$> dataConNameP
+
 dataSizeP :: Parser (Maybe SizeFun)
 dataSizeP
   = brackets (Just . SymSizeFun <$> locLowerIdP)
   <|> return Nothing
 
-relationalP :: Parser (LocSymbol, LocSymbol, LocBareType, LocBareType, RelExpr, RelExpr)
+relationalP :: Parser (Located LHName, Located LHName, LocBareType, LocBareType, RelExpr, RelExpr)
 relationalP = do
-   x <- locBinderP
+   x <- locBinderLHNameP
    reserved "~"
-   y <- locBinderP
+   y <- locBinderLHNameP
    reserved "::"
    braces $ do
     tx <- located genBareTypeP
