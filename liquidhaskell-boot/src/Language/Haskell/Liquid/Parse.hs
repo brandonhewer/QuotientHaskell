@@ -1274,14 +1274,14 @@ rtAliasP f bodyP
 hmeasureP :: Parser BPspec
 hmeasureP = do
   setLayout
-  (do b <- try (locBinderP <* reservedOp "::")
-      ty <- located genBareTypeP
-      popLayout >> popLayout
-      eqns <- block $ try $ measureDefP (rawBodyP <|> tyBodyP ty)
-      return (Meas $ Measure.mkM b ty eqns MsMeasure mempty)
+  do b <- try (locBinderP <* reservedOp "::")
+     ty <- located genBareTypeP
+     popLayout >> popLayout
+     eqns <- block $ try $ measureDefP (rawBodyP <|> tyBodyP ty)
+     return (Meas $ Measure.mkM b ty eqns MsMeasure mempty)
     <|>
    do b <- locBinderLHNameP
-      popLayout >> popLayout >> return (HMeas b))
+      popLayout >> popLayout >> return (HMeas b)
 
 measureP :: Parser (Measure (Located BareType) LocSymbol)
 measureP = do

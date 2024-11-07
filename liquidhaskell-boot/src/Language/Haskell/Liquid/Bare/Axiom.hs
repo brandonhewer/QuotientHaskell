@@ -283,7 +283,6 @@ findVarDefType cbs sigs env _defs (Left x) =
           [ "Symbol exists but is not defined in the current file,"
           , "and no unfolding is available in the interface files"
           ]
-  where
 
 findVarDefType _cbs sigs _env defs (Right x) = do
     var <- M.lookup x defs
