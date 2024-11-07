@@ -39,6 +39,7 @@ import           Language.Haskell.Liquid.GHC.Play          (getNonPositivesTyCon
 import           Language.Haskell.Liquid.Misc              (condNull, thd5)
 import           Language.Haskell.Liquid.Types.DataDecl
 import           Language.Haskell.Liquid.Types.Errors
+import           Language.Haskell.Liquid.Types.Names
 import           Language.Haskell.Liquid.Types.PredType
 import           Language.Haskell.Liquid.Types.PrettyPrint
 import           Language.Haskell.Liquid.Types.RType
@@ -94,7 +95,7 @@ checkBareSpec sp
                         ]
     inlines   = Ms.inlines    sp
     hmeasures = Ms.hmeas      sp
-    reflects  = Ms.reflects   sp
+    reflects  = S.map (fmap getLHNameSymbol) (Ms.reflects sp)
     measures  = msName    <$> Ms.measures sp
     fields    = concatMap dataDeclFields (Ms.dataDecls sp)
 

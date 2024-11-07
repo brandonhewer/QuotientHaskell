@@ -860,7 +860,7 @@ data Pspec ty ctor
   | Rewritewith (Located LHName, [Located LHName])        -- ^ 'rewritewith' annotation, the first binder is using the rewrite rules of the second list,
   | Insts   (Located LHName)                              -- ^ 'auto-inst' or 'ple' annotation; use ple locally on binder
   | HMeas   LocSymbol                                     -- ^ 'measure' annotation; lift Haskell binder as measure
-  | Reflect LocSymbol                                     -- ^ 'reflect' annotation; reflect Haskell binder as function in logic
+  | Reflect (Located LHName)                              -- ^ 'reflect' annotation; reflect Haskell binder as function in logic
   | PrivateReflect LocSymbol                              -- ^ 'private-reflect' annotation
   | OpaqueReflect LocSymbol                               -- ^ 'opaque-reflect' annotation
   | Inline  LocSymbol                                     -- ^ 'inline' annotation;  inline (non-recursive) binder as an alias
@@ -1107,8 +1107,8 @@ specP
     <|> (reserved "local"         >> fmap LAsrt   tyBindP  )
 
     -- TODO: These next two are synonyms, kill one
-    <|> fallbackSpecP "axiomatize"  (fmap Reflect axiomP   )
-    <|> fallbackSpecP "reflect"     (fmap Reflect axiomP   )
+    <|> fallbackSpecP "axiomatize"  (fmap Reflect locBinderLHNameP)
+    <|> fallbackSpecP "reflect"     (fmap Reflect locBinderLHNameP)
     <|> (reserved "private-reflect" >> fmap PrivateReflect axiomP  )
     <|> (reserved "opaque-reflect" >> fmap OpaqueReflect axiomP  )
 

@@ -180,7 +180,7 @@ getReflectDefs src sig spec env modName =
   where
     sigs                    = gsTySigs sig
     symsToResolve =
-      S.toList (Ms.reflects spec) ++ S.toList (Ms.privateReflects spec)
+      map (fmap getLHNameSymbol) (S.toList (Ms.reflects spec)) ++ S.toList (Ms.privateReflects spec)
     cbs                     = _giCbs src
     initialDefinedMap          = M.empty
 

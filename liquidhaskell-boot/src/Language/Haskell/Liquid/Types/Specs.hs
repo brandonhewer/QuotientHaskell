@@ -395,7 +395,7 @@ data Spec ty bndr  = Spec
   , rewrites    :: !(S.HashSet (F.Located LHName))                    -- ^ Theorems turned into rewrite rules
   , rewriteWith :: !(M.HashMap (F.Located LHName) [F.Located LHName]) -- ^ Definitions using rewrite rules
   , fails      :: !(S.HashSet (F.Located LHName))                     -- ^ These Functions should be unsafe
-  , reflects   :: !(S.HashSet F.LocSymbol)                            -- ^ Binders to reflect
+  , reflects   :: !(S.HashSet (F.Located LHName))                     -- ^ Binders to reflect
   , privateReflects :: !(S.HashSet F.LocSymbol)                       -- ^ Private binders to reflect
   , opaqueReflects :: !(S.HashSet F.LocSymbol)                        -- ^ Binders to opaque-reflect
   , autois     :: !(S.HashSet (F.Located LHName))                     -- ^ Automatically instantiate axioms in these Functions

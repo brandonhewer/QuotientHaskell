@@ -488,7 +488,9 @@ reflectedVars spec cbs = fst <$> xDefs
   where
     xDefs              = Mb.mapMaybe (`GM.findVarDef` cbs) reflSyms
     reflSyms =
-      val <$> S.toList (Ms.reflects spec) ++ S.toList (Ms.privateReflects spec)
+      val <$>
+        map (fmap getLHNameSymbol) (S.toList (Ms.reflects spec)) ++
+        S.toList (Ms.privateReflects spec)
 
 measureVars :: Ms.BareSpec -> [Ghc.CoreBind] -> [Ghc.Var]
 measureVars spec cbs = fst <$> xDefs
@@ -723,7 +725,8 @@ makeSpecRefl cfg src specs env name sig tycEnv = do
     rflSyms      = S.map val rflLocSyms
     lmap         = Bare.reLMap env
     notInReflOnes (_, a) = not $
-      a `S.member` Ms.reflects mySpec || a `S.member` Ms.privateReflects mySpec
+      a `S.member` (S.map (fmap getLHNameSymbol) (Ms.reflects mySpec)) ||
+      a `S.member` Ms.privateReflects mySpec
     anyNonReflFn = L.find notInReflOnes (Ms.asmReflectSigs mySpec)
 
 isReflectVar :: S.HashSet F.Symbol -> Ghc.Var -> Bool

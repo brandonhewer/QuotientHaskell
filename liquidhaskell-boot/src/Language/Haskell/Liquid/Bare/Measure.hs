@@ -378,7 +378,7 @@ getLocReflects mbEnv = S.unions . fmap (uncurry $ names mbEnv) . M.toList
     names (Just env) modName modSpec = Bare.qualifyLocSymbolTop env modName `S.map` unqualified modSpec
     names Nothing _ modSpec = unqualified modSpec
     unqualified modSpec = S.unions
-      [ Ms.reflects modSpec
+      [ S.map (fmap getLHNameSymbol) (Ms.reflects modSpec)
       , Ms.privateReflects modSpec
       , S.fromList (snd <$> Ms.asmReflectSigs modSpec)
       , S.fromList (fst <$> Ms.asmReflectSigs modSpec)

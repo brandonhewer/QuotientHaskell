@@ -60,8 +60,8 @@ compileClasses src env (name, spec) rest =
     { dataDecls = clsDecls
     , reflects  = F.notracepp "reflects " $ S.fromList
                     (  fmap
-                        ( fmap GM.dropModuleNames
-                        . GM.namedLocSymbol
+                        ( fmap (updateLHNameSymbol GM.dropModuleNames)
+                        . makeGHCLHNameLocatedFromId
                         . Ghc.instanceDFunId
                         . fst
                         )
@@ -87,7 +87,7 @@ compileClasses src env (name, spec) rest =
     merge sig v = case v of
       Nothing -> Just [sig]
       Just vs -> Just (sig : vs)
-  methods = [ GM.namedLocSymbol x | (_, xs) <- instmethods, x <- xs ]
+  methods = [ makeGHCLHNameLocatedFromId x | (_, xs) <- instmethods, x <- xs ]
       -- instance methods
 
   mkSymbol x
