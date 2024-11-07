@@ -22,7 +22,6 @@ module Language.Haskell.Liquid.Bare (
   , saveLiftedSpec
   ) where
 
-import           Prelude                                    hiding (error)
 import           Control.Monad                              (forM, mplus, when)
 import qualified Control.Exception                          as Ex
 import qualified Data.Binary                                as B
@@ -707,9 +706,12 @@ makeSpecRefl cfg src specs env name sig tycEnv = do
   case anyNonReflFn of
     Just (actSym , preSym) ->
       let preSym' = show (val preSym) in
-      let errorMsg = preSym' ++ " must be reflected first using {-@ reflect " ++ preSym' ++ " @-}" in
-      let error = ErrHMeas (GM.sourcePosSrcSpan $ loc actSym) (pprint $ val actSym) (text errorMsg) :: Error
-      in Ex.throw error
+      let errorMsg = preSym' ++ " must be reflected first using {-@ reflect " ++ preSym' ++ " @-}"
+      in Ex.throw
+           (ErrHMeas
+             (GM.sourcePosSrcSpan $ loc actSym)
+             (pprint $ val actSym)
+             (text errorMsg) :: Error)
     Nothing -> return SpRefl
       { gsLogicMap   = lmap
       , gsAutoInst   = autoInst
