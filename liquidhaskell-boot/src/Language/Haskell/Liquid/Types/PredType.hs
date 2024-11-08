@@ -220,7 +220,7 @@ replacePredsWithRefs :: (UsedPVar, (F.Symbol, [((), F.Symbol, F.Expr)]) -> F.Exp
 replacePredsWithRefs (p, r) (MkUReft (F.Reft(v, rs)) (Pr ps))
   = MkUReft (F.Reft (v, rs'')) (Pr ps2)
   where
-    rs''             = mconcat $ rs : rs'
+    rs''             = foldr (F.&.&) F.PTrue $ rs : rs'
     rs'              = r . (v,) . pargs <$> ps1
     (ps1, ps2)       = L.partition (== p) ps
 

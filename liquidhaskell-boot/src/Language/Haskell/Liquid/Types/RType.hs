@@ -891,20 +891,27 @@ class (Monoid r, F.Subable r) => Reftable r where
   toReft  :: r -> F.Reft
   ofReft  :: F.Reft -> r
 
+instance Semigroup F.Reft where
+  (<>) = F.meetReft
+
+instance Monoid F.Reft where
+  mempty  = F.trueReft
+  mappend = (<>)
+
 instance Reftable () where
   isTauto _ = True
   ppTy _  d = d
   top  _    = ()
   meet _ _  = ()
-  toReft _  = mempty
-  ofReft _  = mempty
+  toReft _  = F.trueReft
+  ofReft _  = ()
 
 instance Reftable F.Reft where
   isTauto  = all F.isTautoPred . F.conjuncts . F.reftPred
   ppTy     = pprReft
   toReft   = id
   ofReft   = id
-  top (F.Reft (v,_)) = F.Reft (v, mempty)
+  top (F.Reft (v,_)) = F.Reft (v, F.PTrue)
 
 instance F.Subable r => F.Subable (UReft r) where
   syms (MkUReft r p)     = F.syms r ++ F.syms p
@@ -943,7 +950,7 @@ instance Reftable Predicate where
            | otherwise        = d <-> angleBrackets (F.pprint r)
 
   toReft (Pr ps@(p:_))        = F.Reft (parg p, F.pAnd $ pToRef <$> ps)
-  toReft _                    = mempty
+  toReft _                    = F.trueReft
 
   ofReft = todo Nothing "TODO: Predicate.ofReft"
 
