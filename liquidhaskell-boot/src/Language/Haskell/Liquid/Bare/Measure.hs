@@ -58,7 +58,7 @@ import qualified Language.Haskell.Liquid.Bare.DataType as Bare
 import qualified Language.Haskell.Liquid.Bare.ToBare   as Bare
 import           Language.Haskell.Liquid.UX.Config
 import Control.Monad (mapM)
-import qualified GHC.List as L
+import qualified Data.List as L
 
 --------------------------------------------------------------------------------
 makeHaskellMeasures :: Bool -> GhcSrc -> Bare.TycEnv -> LogicMap -> Ms.BareSpec
@@ -68,14 +68,17 @@ makeHaskellMeasures allowTC src tycEnv lmap spec
           = Bare.measureToBare <$> ms
   where
     ms    = makeMeasureDefinition allowTC tycEnv lmap cbs <$> mSyms
-    cbs   = nonRecCoreBinds   (_giCbs src)
+    cbs   = Ghc.flattenBinds (_giCbs src)
     mSyms = S.toList (Ms.hmeas spec)
 
-makeMeasureDefinition :: Bool -> Bare.TycEnv -> LogicMap -> [Ghc.CoreBind] -> LocSymbol
-                      -> Measure LocSpecType Ghc.DataCon
+makeMeasureDefinition
+  :: Bool -> Bare.TycEnv -> LogicMap -> [(Ghc.Id, Ghc.CoreExpr)] -> Located LHName
+  -> Measure LocSpecType Ghc.DataCon
 makeMeasureDefinition allowTC tycEnv lmap cbs x =
-  case GM.findVarDef (val x) cbs of
-    Nothing        -> Ex.throw $ errHMeas x "Cannot extract measure from haskell function"
+  case L.find ((x ==) . makeGHCLHNameLocatedFromId . fst) cbs of
+    Nothing ->
+      Ex.throw $
+        errHMeas (fmap getLHNameSymbol x) "Cannot extract measure from haskell function"
     Just (v, cexp) -> Ms.mkM vx vinfo mdef MsLifted (makeUnSorted allowTC (Ghc.varType v) mdef)
                      where
                        vx           = F.atLoc x (F.symbol v)
@@ -125,14 +128,15 @@ makeHaskellInlines :: Bool -> GhcSrc -> F.TCEmb Ghc.TyCon -> LogicMap -> Ms.Bare
 makeHaskellInlines allowTC src embs lmap spec
          = makeMeasureInline allowTC embs lmap cbs <$> inls
   where
-    cbs  = nonRecCoreBinds (_giCbs src)
+    cbs  = Ghc.flattenBinds (_giCbs src)
     inls = S.toList        (Ms.inlines spec)
 
-makeMeasureInline :: Bool -> F.TCEmb Ghc.TyCon -> LogicMap -> [Ghc.CoreBind] -> LocSymbol
-                  -> (LocSymbol, LMap)
+makeMeasureInline
+  :: Bool -> F.TCEmb Ghc.TyCon -> LogicMap -> [(Ghc.Id, Ghc.CoreExpr)] -> Located LHName
+  -> (LocSymbol, LMap)
 makeMeasureInline allowTC embs lmap cbs x =
-  case GM.findVarDef (val x) cbs of
-    Nothing        -> Ex.throw $ errHMeas x "Cannot inline haskell function"
+  case L.find ((val x ==) . makeGHCLHNameFromId . fst) cbs of
+    Nothing        -> Ex.throw $ errHMeas (fmap getLHNameSymbol x) "Cannot inline haskell function"
     Just (v, defn) -> (vx, coreToFun' allowTC embs Nothing lmap vx v defn ok)
                      where
                        vx         = F.atLoc x (F.symbol v)
@@ -152,12 +156,6 @@ coreToFun' allowTC embs dmMb lmap x v defn ok = either Ex.throw ok act
     err  = errHMeas x
     dm   = Mb.fromMaybe mempty dmMb
 
-
-nonRecCoreBinds :: [Ghc.CoreBind] -> [Ghc.CoreBind]
-nonRecCoreBinds            = concatMap go
-  where
-    go cb@(Ghc.NonRec _ _) = [cb]
-    go    (Ghc.Rec xes)    = [Ghc.NonRec x e | (x, e) <- xes]
 
 -------------------------------------------------------------------------------
 makeHaskellDataDecls :: Config -> ModName -> Ms.BareSpec -> [Ghc.TyCon]
@@ -378,10 +376,12 @@ getLocReflects mbEnv = S.unions . fmap (uncurry $ names mbEnv) . M.toList
     names (Just env) modName modSpec = Bare.qualifyLocSymbolTop env modName `S.map` unqualified modSpec
     names Nothing _ modSpec = unqualified modSpec
     unqualified modSpec = S.unions
-      [ Ms.reflects modSpec
-      , S.fromList (snd <$> Ms.asmReflectSigs modSpec)
-      , S.fromList (fst <$> Ms.asmReflectSigs modSpec)
-      , Ms.inlines modSpec, Ms.hmeas modSpec
+      [ S.map (fmap getLHNameSymbol) (Ms.reflects modSpec)
+      , Ms.privateReflects modSpec
+      , S.fromList (fmap getLHNameSymbol . snd <$> Ms.asmReflectSigs modSpec)
+      , S.fromList (fmap getLHNameSymbol . fst <$> Ms.asmReflectSigs modSpec)
+      , S.map (fmap getLHNameSymbol) (Ms.inlines modSpec)
+      , S.map (fmap getLHNameSymbol) (Ms.hmeas modSpec)
       ]
 
 -- Get all the symbols that are defined in the logic, based on the environment and the specs.
@@ -437,11 +437,11 @@ makeOpaqueReflMeasures env measEnv specs eqs =
   where
     -- Get the set of variables for the requested opaque reflections
     requestedOpaqueRefl = S.unions
-      . fmap (uncurry (S.map . getVar) . second Ms.opaqueReflects)
+      . map (S.map getVar . Ms.opaqueReflects . snd)
       . M.toList $ specs
-    getVar name sym = case Bare.lookupGhcVar env name "opaque-reflection" sym of
+    getVar sym = case Bare.lookupGhcIdLHName env sym of
       Right x -> x
-      Left _ -> Ex.throw $ mkError sym $ "Not in scope: " ++ show (val sym)
+      Left _ -> panic (Just $ GM.fSrcSpan sym) "function to reflect not in scope"
     definedSymbols = getDefinedSymbolsInLogic env measEnv specs
     undefinedInLogic v = not (S.member (varLocSym v) definedSymbols)
     -- Variables to consider
@@ -458,9 +458,6 @@ makeOpaqueReflMeasures env measEnv specs eqs =
         bareType = varBareType var
         bmeas = M locSym bareType [] MsReflect []
         smeas = M locSym (val specType) [] MsReflect []
-
-mkError :: LocSymbol -> String -> Error
-mkError x str = ErrHMeas (GM.sourcePosSrcSpan $ loc x) (pprint $ val x) (text str)
 
 getUnfoldingOfVar :: Ghc.Var -> Maybe Ghc.CoreExpr
 getUnfoldingOfVar = getExpr . Ghc.realUnfoldingInfo . Ghc.idInfo

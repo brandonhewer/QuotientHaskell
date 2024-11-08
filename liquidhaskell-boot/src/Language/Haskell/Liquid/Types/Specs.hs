@@ -380,7 +380,7 @@ data Spec ty bndr  = Spec
   { measures   :: ![Measure ty bndr]                                  -- ^ User-defined properties for ADTs
   , expSigs    :: ![(F.Symbol, F.Sort)]                               -- ^ Exported logic symbols
   , asmSigs    :: ![(F.Located LHName, ty)]                           -- ^ Assumed (unchecked) types; including reflected signatures
-  , asmReflectSigs :: ![(F.LocSymbol, F.LocSymbol)]                   -- ^ Assume reflects : left is the actual function and right the pretended one
+  , asmReflectSigs :: ![(F.Located LHName, F.Located LHName)]         -- ^ Assume reflects : left is the actual function and right the pretended one
   , sigs       :: ![(F.Located LHName, ty)]                           -- ^ Asserted spec signatures
   , invariants :: ![(Maybe F.LocSymbol, ty)]                          -- ^ Data type invariants; the Maybe is the generating measure
   , ialiases   :: ![(ty, ty)]                                         -- ^ Data type invariants to be checked
@@ -395,13 +395,13 @@ data Spec ty bndr  = Spec
   , rewrites    :: !(S.HashSet (F.Located LHName))                    -- ^ Theorems turned into rewrite rules
   , rewriteWith :: !(M.HashMap (F.Located LHName) [F.Located LHName]) -- ^ Definitions using rewrite rules
   , fails      :: !(S.HashSet (F.Located LHName))                     -- ^ These Functions should be unsafe
-  , reflects   :: !(S.HashSet F.LocSymbol)                            -- ^ Binders to reflect
-  , opaqueReflects :: !(S.HashSet F.LocSymbol)                        -- ^ Binders to opaque-reflect
+  , reflects   :: !(S.HashSet (F.Located LHName))                     -- ^ Binders to reflect
+  , privateReflects :: !(S.HashSet F.LocSymbol)                       -- ^ Private binders to reflect
+  , opaqueReflects :: !(S.HashSet (F.Located LHName))                 -- ^ Binders to opaque-reflect
   , autois     :: !(S.HashSet (F.Located LHName))                     -- ^ Automatically instantiate axioms in these Functions
-  , hmeas      :: !(S.HashSet F.LocSymbol)                            -- ^ Binders to turn into measures using haskell definitions
-  , hbounds    :: !(S.HashSet F.LocSymbol)                            -- ^ Binders to turn into bounds using haskell definitions
-  , inlines    :: !(S.HashSet F.LocSymbol)                            -- ^ Binders to turn into logic inline using haskell definitions
-  , ignores    :: !(S.HashSet (F.Located LHName))                            -- ^ Binders to ignore during checking; that is DON't check the corebind.
+  , hmeas      :: !(S.HashSet (F.Located LHName))                     -- ^ Binders to turn into measures using haskell definitions
+  , inlines    :: !(S.HashSet (F.Located LHName))                     -- ^ Binders to turn into logic inline using haskell definitions
+  , ignores    :: !(S.HashSet (F.Located LHName))                     -- ^ Binders to ignore during checking; that is DON't check the corebind.
   , autosize   :: !(S.HashSet (F.Located LHName))                     -- ^ Type Constructors that get automatically sizing info
   , pragmas    :: ![F.Located String]                                 -- ^ Command-line configurations passed in through source
   , cmeasures  :: ![Measure ty ()]                                    -- ^ Measures attached to a type-class
@@ -464,9 +464,9 @@ instance Semigroup (Spec ty bndr) where
            , rewriteWith = M.union  (rewriteWith s1)  (rewriteWith s2)
            , fails      = S.union   (fails    s1)  (fails    s2)
            , reflects   = S.union   (reflects s1)  (reflects s2)
+           , privateReflects = S.union (privateReflects s1) (privateReflects s2)
            , opaqueReflects   = S.union   (opaqueReflects s1)  (opaqueReflects s2)
            , hmeas      = S.union   (hmeas    s1)  (hmeas    s2)
-           , hbounds    = S.union   (hbounds  s1)  (hbounds  s2)
            , inlines    = S.union   (inlines  s1)  (inlines  s2)
            , ignores    = S.union   (ignores  s1)  (ignores  s2)
            , autosize   = S.union   (autosize s1)  (autosize s2)
@@ -498,8 +498,8 @@ instance Monoid (Spec ty bndr) where
            , autois     = S.empty
            , hmeas      = S.empty
            , reflects   = S.empty
+           , privateReflects = S.empty
            , opaqueReflects = S.empty
-           , hbounds    = S.empty
            , inlines    = S.empty
            , ignores    = S.empty
            , autosize   = S.empty
@@ -532,7 +532,6 @@ instance Monoid (Spec ty bndr) where
 -- * The 'lazy', we don't do termination checking in lifted specs;
 -- * The 'reflects', the reflection has already happened at this point;
 -- * The 'hmeas', we have /already/ turned these into measures at this point;
--- * The 'hbounds', ditto as 'hmeas';
 -- * The 'inlines', ditto as 'hmeas';
 -- * The 'ignores', ditto as 'hmeas';
 -- * The 'pragmas', we can't make any use of this information for lifted specs;
@@ -547,8 +546,6 @@ data LiftedSpec = LiftedSpec
     -- ^ Exported logic symbols
   , liftedAsmSigs    :: HashSet (F.Located LHName, LocBareType)
     -- ^ Assumed (unchecked) types; including reflected signatures
-  , liftedAsmReflectSigs    :: HashSet (F.LocSymbol, F.LocSymbol)
-    -- ^ Reflected assumed signatures
   , liftedSigs       :: HashSet (F.Located LHName, LocBareType)
     -- ^ Asserted spec signatures
   , liftedInvariants :: HashSet (Maybe F.LocSymbol, LocBareType)
@@ -599,7 +596,6 @@ emptyLiftedSpec = LiftedSpec
   { liftedMeasures = mempty
   , liftedExpSigs  = mempty
   , liftedAsmSigs  = mempty
-  , liftedAsmReflectSigs  = mempty
   , liftedSigs     = mempty
   , liftedInvariants = mempty
   , liftedIaliases   = mempty
@@ -772,7 +768,6 @@ toLiftedSpec a = LiftedSpec
   { liftedMeasures   = S.fromList . measures $ a
   , liftedExpSigs    = S.fromList . expSigs  $ a
   , liftedAsmSigs    = S.fromList . asmSigs  $ a
-  , liftedAsmReflectSigs = S.fromList . asmReflectSigs  $ a
   , liftedSigs       = S.fromList . sigs     $ a
   , liftedInvariants = S.fromList . invariants $ a
   , liftedIaliases   = S.fromList . ialiases $ a
@@ -803,7 +798,7 @@ unsafeFromLiftedSpec a = Spec
   { measures   = S.toList . liftedMeasures $ a
   , expSigs    = S.toList . liftedExpSigs $ a
   , asmSigs    = S.toList . liftedAsmSigs $ a
-  , asmReflectSigs = S.toList . liftedAsmReflectSigs $ a
+  , asmReflectSigs = mempty
   , sigs       = S.toList . liftedSigs $ a
   , relational = mempty
   , asmRel     = mempty
@@ -821,10 +816,10 @@ unsafeFromLiftedSpec a = Spec
   , rewrites   = mempty
   , rewriteWith = mempty
   , reflects   = mempty
+  , privateReflects = mempty
   , opaqueReflects   = mempty
   , autois     = liftedAutois a
   , hmeas      = mempty
-  , hbounds    = mempty
   , inlines    = mempty
   , ignores    = mempty
   , autosize   = liftedAutosize a

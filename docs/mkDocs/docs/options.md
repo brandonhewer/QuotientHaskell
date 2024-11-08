@@ -243,6 +243,18 @@ Opaque reflections:
 - GHC.Internal.Real.even
 ```
 
+If not reflecting `keepEvens`, the other functions can still be opaquely-reflected with the `opaque-reflect`
+annotation.
+
+```Haskell
+{-@ LIQUID "--reflection"      @-}
+{-@ LIQUID "--dump-opaque-reflections"      @-}
+
+module OpaqueRefl06 where
+
+{-@ opaque-reflect even @-}
+{-@ opaque-reflect filter @-}
+```
 
 Note: you can also reflect functions *away* from their definition, using interface files. For instance, you may do:
 
@@ -267,10 +279,10 @@ not all functions can be reflected, for the same reasons as some of your own fun
  for instance).
 
 If the reflection of these happen to need the reflection of private variables inside those modules, you can also request their reflection
-with another `reflect` annotation with the _fully-qualified_ name of the private variable to reflect, i.e. something like:
+with a `private-reflect` annotation with the _fully-qualified_ name of the private variable to reflect, i.e. something like:
 
 ```
-{-@ reflect MyMod.privFn @-}
+{-@ private-reflect MyMod.privFn @-}
 ```
 
 Note: reflection of private variables only work if these variables occur in the definition of other variables that could already be reflected.

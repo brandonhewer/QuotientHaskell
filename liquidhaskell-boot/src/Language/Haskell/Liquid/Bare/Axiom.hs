@@ -40,7 +40,6 @@ import           Language.Haskell.Liquid.Bare.Types   as Bare
 import           Language.Haskell.Liquid.Bare.Measure as Bare
 import           Language.Haskell.Liquid.UX.Config
 import qualified Data.List as L
-import Language.Haskell.Liquid.Misc (fst4)
 import Control.Applicative
 import Data.Function (on)
 import qualified Data.Map as Map
@@ -68,7 +67,7 @@ makeHaskellAxioms :: Config -> GhcSrc -> Bare.Env -> Bare.TycEnv -> ModName -> L
 -----------------------------------------------------------------------------------------------
 makeHaskellAxioms cfg src env tycEnv name lmap spSig spec = do
   wiDefs     <- wiredDefs cfg env name spSig
-  let refDefs = getReflectDefs src spSig spec env name
+  let refDefs = getReflectDefs src spSig spec env
   return (makeAxiom env tycEnv name lmap <$> (wiDefs ++ refDefs))
 
 -----------------------------------------------------------------------------------------------
@@ -85,13 +84,15 @@ makeAssumeReflectAxioms :: GhcSrc -> Bare.Env -> Bare.TycEnv -> ModName -> GhcSp
 makeAssumeReflectAxioms src env tycEnv name spSig spec = do
   -- Send an error message if we're redefining a reflection
   case findDuplicatePair val reflActSymbols <|> findDuplicateBetweenLists val refSymbols reflActSymbols of
-    Just (x , y) -> Ex.throw $ mkError y $ "Duplicate reflection of " ++ show x ++ " and " ++ show y
+    Just (x , y) -> Ex.throw $ mkError y $
+                      "Duplicate reflection of " ++ show x ++ " and " ++ show y
     Nothing -> return $ turnIntoAxiom <$> Ms.asmReflectSigs spec
   where
     turnIntoAxiom (actual, pretended) = makeAssumeReflectAxiom spSig env embs name (actual, pretended)
-    refDefs                 = getReflectDefs src spSig spec env name
+    refDefs                 = getReflectDefs src spSig spec env
     embs                    = Bare.tcEmbs       tycEnv
-    refSymbols              = fst4 <$> refDefs
+    refSymbols              =
+      (\(x, _, v, _) -> F.atLoc x $ makeGHCLHName (Ghc.getName v) (F.symbol v)) <$> refDefs
     reflActSymbols          = fst <$> Ms.asmReflectSigs spec
 
 -----------------------------------------------------------------------------------------------
@@ -99,7 +100,7 @@ makeAssumeReflectAxioms src env tycEnv name spSig spec = do
 -- `makeAssumeReflectAxioms`. Can also be used to compute the updated SpecType of            --
 -- a type where we add the post-condition that actual and pretended are the same             --
 makeAssumeReflectAxiom :: GhcSpecSig -> Bare.Env -> F.TCEmb Ghc.TyCon -> ModName
-                       -> (LocSymbol, LocSymbol) -- actual function and pretended function
+                       -> (Located LHName, Located LHName) -- actual function and pretended function
                        -> (Ghc.Var, LocSpecType, F.Equation)
 -----------------------------------------------------------------------------------------------
 makeAssumeReflectAxiom sig env tce name (actual, pretended) =
@@ -114,15 +115,15 @@ makeAssumeReflectAxiom sig env tce name (actual, pretended) =
     at = val $ strengthenSpecWithMeasure sig env actualV pretended{val=qPretended}
 
     -- Get the Ghc.Var's of the actual and pretended function names
-    actualV = case Bare.lookupGhcVar env name "assume-reflection" actual of
+    actualV = case Bare.lookupGhcIdLHName env actual of
       Right x -> x
-      Left _ -> Ex.throw $ mkError actual $ "Not in scope: " ++ show (val actual)
-    pretendedV = case Bare.lookupGhcVar env name "assume-reflection" pretended of
+      Left _ -> panic (Just $ GM.fSrcSpan actual) "function to reflect not in scope"
+    pretendedV = case Bare.lookupGhcIdLHName env pretended of
       Right x -> x
-      Left _ -> Ex.throw $ mkError pretended $ "Not in scope: " ++ show (val pretended)
+      Left _ -> panic (Just $ GM.fSrcSpan pretended) "function to reflect not in scope"
     -- Get the qualified name symbols for the actual and pretended functions
-    qActual = Bare.qualifyTop env name (F.loc actual) (val actual)
-    qPretended = Bare.qualifyTop env name (F.loc pretended) (val pretended)
+    qActual = Bare.qualifyTop env name (F.loc actual) (getLHNameSymbol $ val actual)
+    qPretended = Bare.qualifyTop env name (F.loc pretended) (getLHNameSymbol $ val pretended)
     -- Get the GHC type of the actual and pretended functions
     actualTy = Ghc.varType actualV
     pretendedTy = Ghc.varType pretendedV
@@ -173,14 +174,16 @@ strengthenSpecWithMeasure sig env actualV qPretended =
 --
 -- Iterates until no new definition is found. In which case, we fail
 -- if there are still symbols left which we failed to find the source for.
-getReflectDefs :: GhcSrc -> GhcSpecSig -> Ms.BareSpec -> Bare.Env -> ModName
+getReflectDefs :: GhcSrc -> GhcSpecSig -> Ms.BareSpec -> Bare.Env
                -> [(LocSymbol, Maybe SpecType, Ghc.Var, Ghc.CoreExpr)]
-getReflectDefs src sig spec env modName =
+getReflectDefs src sig spec env =
   searchInTransitiveClosure symsToResolve initialDefinedMap []
   where
     sigs                    = gsTySigs sig
-    symsToResolve           = S.toList (Ms.reflects spec)
-    cbs                     = _giCbs src
+    symsToResolve =
+      map Left (S.toList (Ms.reflects spec)) ++
+      map Right (S.toList (Ms.privateReflects spec))
+    cbs = Ghc.flattenBinds $ _giCbs src
     initialDefinedMap          = M.empty
 
     -- First argument of the `searchInTransitiveClosure` function should always
@@ -202,13 +205,13 @@ getReflectDefs src sig spec env modName =
                 [] -> acc
                 -- No one newly found but at least one symbol left - we throw
                 -- an error
-                x:_ -> Ex.throw . mkError x $
+                x:_ -> Ex.throw . either mkError mkError x $
                   "Not found in scope nor in the amongst these variables: " ++
                     foldr (\x1 acc1 -> acc1 ++ " , " ++ show x1) "" newFvMap
          else searchInTransitiveClosure newToResolve newFvMap newAcc
       where
         -- Try to get the definitions of the symbols that are left (`toResolve`)
-        resolvedSyms = findVarDefType cbs sigs env modName fvMap <$> toResolve
+        resolvedSyms = findVarDefType cbs sigs env fvMap <$> toResolve
         -- Collect the newly found definitions
         found     = Mb.catMaybes resolvedSyms
         -- Add them to the accumulator
@@ -231,9 +234,14 @@ getReflectDefs src sig spec env modName =
 
     getAllFreeVars = Ghc.exprSomeFreeVarsList (const True)
 
+-- | Names for functions that need to be reflected
+--
+-- > Left nameInScope | Right qualifiedPrivateName
+type ToReflectName = Either (Located LHName) LocSymbol
+
 -- Finds the definition of a variable in the given Core binds, or in the
 -- unfoldings of a Var. Used for reflection. Returns the same
--- `LocSymbol` given as argument, the SpecType of this symbol, its corresponding
+-- `LHName` given as argument, the SpecType of this symbol, its corresponding
 -- variable and definition (the `CoreExpr`).
 --
 -- Takes as arguments:
@@ -253,23 +261,33 @@ getReflectDefs src sig spec env modName =
 -- Errors can be raised whenever the symbol was found but the rest of the
 -- process failed (no unfoldings available, lifted functions not exported,
 -- etc.).
-findVarDefType :: [Ghc.CoreBind] -> [(Ghc.Var, LocSpecType)] -> Bare.Env -> ModName
-               -> M.HashMap LocSymbol Ghc.Var -> LocSymbol
+findVarDefType :: [(Ghc.Id, Ghc.CoreExpr)] -> [(Ghc.Var, LocSpecType)] -> Bare.Env
+               -> M.HashMap LocSymbol Ghc.Var -> ToReflectName
                -> Maybe (LocSymbol, Maybe SpecType, Ghc.Var, Ghc.CoreExpr)
-findVarDefType cbs sigs env modName defs x = case findVarDefMethod (val x) cbs of
+findVarDefType cbs sigs env _defs (Left x) =
+  case L.find ((val x ==) . makeGHCLHNameFromId . fst) cbs of
   -- YL: probably ok even without checking typeclass flag since user cannot
   -- manually reflect internal names
   Just (v, e) ->
-    if GM.isExternalId v || isMethod (F.symbol x) || isDictionary (F.symbol x) then
-      Just (x, val <$> lookup v sigs, v, e)
-    else
-      Ex.throw $ mkError x $
-        "Lifted functions must be exported; please export " ++ show v
+    Just (fmap getLHNameSymbol x, val <$> lookup v sigs, v, e)
   Nothing     -> do
-    var <- Bare.maybeResolveSym env modName "findVarDefType" qSym <|>
-           M.lookup qSym defs
+    let ecall = panic (Just $ GM.fSrcSpan x) "function to reflect not found"
+        var = either ecall id (Bare.lookupGhcIdLHName env x)
+        info = Ghc.idInfo var
+        unfolding = getExprFromUnfolding . Ghc.realUnfoldingInfo $ info
+    case unfolding of
+      Just e ->
+        Just (fmap getLHNameSymbol x, val <$> lookup var sigs, var, e)
+      _ ->
+        Ex.throw $ mkError x $ unwords
+          [ "Symbol exists but is not defined in the current file,"
+          , "and no unfolding is available in the interface files"
+          ]
+
+findVarDefType _cbs sigs _env defs (Right x) = do
+    var <- M.lookup x defs
     let info = Ghc.idInfo var
-    let unfolding = getExpr . Ghc.realUnfoldingInfo $ info
+    let unfolding = getExprFromUnfolding . Ghc.realUnfoldingInfo $ info
     case unfolding of
       Just e ->
         Just (x, val <$> lookup var sigs, var, e)
@@ -278,13 +296,10 @@ findVarDefType cbs sigs env modName defs x = case findVarDefMethod (val x) cbs o
           [ "Symbol exists but is not defined in the current file,"
           , "and no unfolding is available in the interface files"
           ]
-  where
-    qSym = x {val = qualifySym x}
-    qualifySym l = Bare.qualifyTop env modName (loc l) (val l)
-    getExpr :: Ghc.Unfolding -> Maybe Ghc.CoreExpr
-    getExpr (Ghc.CoreUnfolding expr _ _ _ _) = Just expr
-    getExpr _ = Nothing
 
+getExprFromUnfolding :: Ghc.Unfolding -> Maybe Ghc.CoreExpr
+getExprFromUnfolding (Ghc.CoreUnfolding expr _ _ _ _) = Just expr
+getExprFromUnfolding _ = Nothing
 
 --------------------------------------------------------------------------------
 makeAxiom :: Bare.Env -> Bare.TycEnv -> ModName -> LogicMap
@@ -300,7 +315,7 @@ makeAxiom env tycEnv name lmap (x, mbT, v, def)
     dm      = Bare.tcDataConMap tycEnv
     allowTC = typeclass (getConfig env)
 
-mkError :: LocSymbol -> String -> Error
+mkError :: PPrint a => Located a -> String -> Error
 mkError x str = ErrHMeas (sourcePosSrcSpan $ loc x) (pprint $ val x) (PJ.text str)
 
 makeAssumeType

@@ -657,17 +657,6 @@ ignoreCoreBinds vs cbs
     go (Rec xes)      = [Rec (filter ((`notElem` vs) . fst) xes)]
 
 
-findVarDef :: Symbol -> [CoreBind] -> Maybe (Var, CoreExpr)
-findVarDef sym cbs = case xCbs of
-                     (NonRec v def   : _ ) -> Just (v, def)
-                     (Rec [(v, def)] : _ ) -> Just (v, def)
-                     _                     -> Nothing
-  where
-    xCbs            = [ cb | cb <- concatMap unRec cbs, sym `elem` coreBindSymbols cb ]
-    unRec (Rec xes) = [NonRec x es | (x,es) <- xes]
-    unRec nonRec    = [nonRec]
-
-
 findVarDefMethod :: Symbol -> [CoreBind] -> Maybe (Var, CoreExpr)
 findVarDefMethod sym cbs =
   case rcbs  of

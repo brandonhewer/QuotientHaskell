@@ -22,7 +22,6 @@ module Language.Haskell.Liquid.Bare (
   , saveLiftedSpec
   ) where
 
-import           Prelude                                    hiding (error)
 import           Control.Monad                              (forM, mplus, when)
 import qualified Control.Exception                          as Ex
 import qualified Data.Binary                                as B
@@ -484,16 +483,22 @@ specTypeCons         = foldRType tc []
     tc acc _         = acc
 
 reflectedVars :: Ms.BareSpec -> [Ghc.CoreBind] -> [Ghc.Var]
-reflectedVars spec cbs = fst <$> xDefs
+reflectedVars spec cbs =
+    filter
+      (isReflSym . makeGHCLHNameLocatedFromId)
+      (Ghc.bindersOfBinds cbs)
   where
-    xDefs              = Mb.mapMaybe (`GM.findVarDef` cbs) reflSyms
-    reflSyms           = val <$> S.toList (Ms.reflects spec)
+    isReflSym x =
+      S.member x (Ms.reflects spec) ||
+      S.member (fmap getLHNameSymbol x) (Ms.privateReflects spec)
 
 measureVars :: Ms.BareSpec -> [Ghc.CoreBind] -> [Ghc.Var]
-measureVars spec cbs = fst <$> xDefs
+measureVars spec cbs =
+    filter
+      ((`S.member` measureSyms) . makeGHCLHNameLocatedFromId)
+      (Ghc.bindersOfBinds cbs)
   where
-    xDefs              = Mb.mapMaybe (`GM.findVarDef` cbs) measureSyms
-    measureSyms        = val <$> S.toList (Ms.hmeas spec)
+    measureSyms = Ms.hmeas spec
 
 ------------------------------------------------------------------------------------------
 makeSpecVars :: Config -> GhcSrc -> Ms.BareSpec -> Bare.Env -> Bare.MeasEnv
@@ -701,9 +706,12 @@ makeSpecRefl cfg src specs env name sig tycEnv = do
   case anyNonReflFn of
     Just (actSym , preSym) ->
       let preSym' = show (val preSym) in
-      let errorMsg = preSym' ++ " must be reflected first using {-@ reflect " ++ preSym' ++ " @-}" in
-      let error = ErrHMeas (GM.sourcePosSrcSpan $ loc actSym) (pprint $ val actSym) (text errorMsg) :: Error
-      in Ex.throw error
+      let errorMsg = preSym' ++ " must be reflected first using {-@ reflect " ++ preSym' ++ " @-}"
+      in Ex.throw
+           (ErrHMeas
+             (GM.sourcePosSrcSpan $ loc actSym)
+             (pprint $ val actSym)
+             (text errorMsg) :: Error)
     Nothing -> return SpRefl
       { gsLogicMap   = lmap
       , gsAutoInst   = autoInst
@@ -721,7 +729,9 @@ makeSpecRefl cfg src specs env name sig tycEnv = do
     rflLocSyms   = Bare.getLocReflects (Just env) specs
     rflSyms      = S.map val rflLocSyms
     lmap         = Bare.reLMap env
-    notInReflOnes (_, a) = not $ a `S.member` Ms.reflects mySpec
+    notInReflOnes (_, a) = not $
+      a `S.member` Ms.reflects mySpec ||
+      fmap getLHNameSymbol a `S.member` Ms.privateReflects mySpec
     anyNonReflFn = L.find notInReflOnes (Ms.asmReflectSigs mySpec)
 
 isReflectVar :: S.HashSet F.Symbol -> Ghc.Var -> Bool
@@ -820,13 +830,9 @@ makeSpecSig cfg name mySpec specs env sigEnv tycEnv measEnv cbs = do
     (instances, dicts) = Bare.makeSpecDictionaries env sigEnv (name, mySpec) (M.toList specs)
     allSpecs   = (name, mySpec) : M.toList specs
     rtEnv      = Bare.sigRTEnv sigEnv
-    getVar sym = case Bare.lookupGhcVar env name "assume-reflection specs" sym of
+    getVar sym = case Bare.lookupGhcIdLHName env sym of
       Right x -> x
-      Left _ -> Ex.throw $ mkError sym $ "Not in scope: " ++ show (val sym)
-
-    mkError :: LocSymbol -> String -> Error
-    mkError x str = ErrHMeas (GM.sourcePosSrcSpan $ loc x) (pprint $ val x) (text str)
-    -- hmeas      = makeHMeas    env allSpecs
+      Left _ -> panic (Just $ GM.fSrcSpan sym) "function to reflect not in scope"
 
 strengthenSigs :: [(Ghc.Var, (Int, LocSpecType))] ->[(Ghc.Var, LocSpecType)]
 strengthenSigs sigs = go <$> Misc.groupList sigs
@@ -842,12 +848,17 @@ makeMthSigs measEnv = [ (v, t) | (_, v, t) <- Bare.meMethods measEnv ]
 makeInlSigs :: Bare.Env -> BareRTEnv -> [(ModName, Ms.BareSpec)] -> [(Ghc.Var, LocSpecType)]
 makeInlSigs env rtEnv
   = makeLiftedSigs rtEnv (CoreToLogic.inlineSpecType (typeclass (getConfig env)))
-  . makeFromSet "hinlines" Ms.inlines env
+  . concatMap (map (lookupFunctionId env) . S.toList . Ms.inlines . snd)
 
 makeMsrSigs :: Bare.Env -> BareRTEnv -> [(ModName, Ms.BareSpec)] -> [(Ghc.Var, LocSpecType)]
 makeMsrSigs env rtEnv
   = makeLiftedSigs rtEnv (CoreToLogic.inlineSpecType (typeclass (getConfig env)))
-  . makeFromSet "hmeas" Ms.hmeas env
+  . concatMap (map (lookupFunctionId env) . S.toList . Ms.hmeas . snd)
+
+lookupFunctionId :: Bare.Env -> Located LHName -> Ghc.Id
+lookupFunctionId env x =
+    either (panic (Just $ GM.fSrcSpan x) "function not found") id $
+    Bare.lookupGhcIdLHName env x
 
 makeLiftedSigs :: BareRTEnv -> (Ghc.Var -> SpecType) -> [Ghc.Var] -> [(Ghc.Var, LocSpecType)]
 makeLiftedSigs rtEnv f xs
@@ -857,12 +868,6 @@ makeLiftedSigs rtEnv f xs
     ]
   where
     expand   = Bare.specExpandType rtEnv
-
-makeFromSet :: String -> (Ms.BareSpec -> S.HashSet LocSymbol) -> Bare.Env -> [(ModName, Ms.BareSpec)]
-            -> [Ghc.Var]
-makeFromSet msg f env specs = concat [ mk n xs | (n, s) <- specs, let xs = S.toList (f s)]
-  where
-    mk name                 = Mb.mapMaybe (Bare.maybeResolveSym env name msg)
 
 makeTySigs :: Bare.Env -> Bare.SigEnv -> ModName -> Ms.BareSpec
            -> Bare.Lookup [(Ghc.Var, LocSpecType, Maybe [Located F.Expr])]
@@ -1118,18 +1123,12 @@ makeMeasureInvariants :: Bare.Env -> ModName -> GhcSpecSig -> Ms.BareSpec
 makeMeasureInvariants env name sig mySpec
   = Mb.catMaybes <$>
     unzip (measureTypeToInv env name <$> [(x, (y, ty)) | x <- xs, (y, ty) <- sigs
-                                         , isSymbolOfVar (val x) y ])
+                                         , x == makeGHCLHNameLocatedFromId y ])
   where
     sigs = gsTySigs sig
     xs   = S.toList (Ms.hmeas  mySpec)
 
-isSymbolOfVar :: Symbol -> Ghc.Var -> Bool
-isSymbolOfVar x v = x == symbol' v
-  where
-    symbol' :: Ghc.Var -> Symbol
-    symbol' = GM.dropModuleNames . symbol . Ghc.getName
-
-measureTypeToInv :: Bare.Env -> ModName -> (LocSymbol, (Ghc.Var, LocSpecType)) -> ((Maybe Ghc.Var, LocSpecType), Maybe UnSortedExpr)
+measureTypeToInv :: Bare.Env -> ModName -> (Located LHName, (Ghc.Var, LocSpecType)) -> ((Maybe Ghc.Var, LocSpecType), Maybe UnSortedExpr)
 measureTypeToInv env name (x, (v, t))
   = notracepp "measureTypeToInv" ((Just v, t {val = Bare.qualifyTop env name (F.loc x) mtype}), usorted)
   where
@@ -1139,7 +1138,11 @@ measureTypeToInv env name (x, (v, t))
     res  = ty_res   trep
     z    = last args
     tz   = last rts
-    usorted = if isSimpleADT tz then Nothing else first (:[]) <$> mkReft (dummyLoc $ F.symbol v) z tz res
+    usorted =
+      if isSimpleADT tz then
+        Nothing
+      else
+        first (:[]) <$> mkReft (dummyLoc $ val $ makeGHCLHNameLocatedFromId v) z tz res
     mtype
       | null rts
       = uError $ ErrHMeas (GM.sourcePosSrcSpan $ loc t) (pprint x) "Measure has no arguments!"
@@ -1148,18 +1151,18 @@ measureTypeToInv env name (x, (v, t))
     isSimpleADT (RApp _ ts _ _) = all isRVar ts
     isSimpleADT _               = False
 
-mkInvariant :: LocSymbol -> Symbol -> SpecType -> SpecType -> SpecType
+mkInvariant :: Located LHName -> Symbol -> SpecType -> SpecType -> SpecType
 mkInvariant x z t tr = strengthen (top <$> t) (MkUReft reft' mempty)
       where
         reft' = Mb.maybe mempty Reft mreft
         mreft = mkReft x z t tr
 
 
-mkReft :: LocSymbol -> Symbol -> SpecType -> SpecType -> Maybe (Symbol, Expr)
+mkReft :: Located LHName -> Symbol -> SpecType -> SpecType -> Maybe (Symbol, Expr)
 mkReft x z _t tr
   | Just q <- stripRTypeBase tr
   = let Reft (v, p) = toReft q
-        su          = mkSubst [(v, mkEApp x [EVar v]), (z,EVar v)]
+        su          = mkSubst [(v, mkEApp (fmap getLHNameSymbol x) [EVar v]), (z,EVar v)]
         -- p'          = pAnd $ filter (\e -> z `notElem` syms e) $ conjuncts p
     in  Just (v, subst su p)
 mkReft _ _ _ _
@@ -1317,10 +1320,13 @@ addOpaqueReflMeas cfg tycEnv env spec measEnv specs eqs = do
     -- could have duplicates
     -- We skip the variables from the axiom equations that correspond to the actual functions
     -- of opaque reflections, since we never need to look at the unfoldings of those
-    qualifySym l = Bare.qualifyTop env name (loc l) (val l)
-    actualFns = S.fromList $ qualifySym . fst <$> Ms.asmReflectSigs spec
+    actualFns = S.fromList $ val . fst <$> Ms.asmReflectSigs spec
     shouldBeUsedForScanning sym = not (sym `S.member` actualFns)
-    varsUsedForTcScanning = L.filter (shouldBeUsedForScanning . symbol) $ fst3 <$> eqs
+    varsUsedForTcScanning =
+      [ v
+      | (v, _, _) <- eqs
+      , shouldBeUsedForScanning $ makeGHCLHName (Ghc.getName v) (symbol v)
+      ]
     tcs           = S.toList $ Ghc.dataConTyCon `S.map` Bare.getReflDCs measEnv varsUsedForTcScanning
     dataDecls     = Bare.makeHaskellDataDecls cfg name spec tcs
     tyi           = Bare.tcTyConMap    tycEnv

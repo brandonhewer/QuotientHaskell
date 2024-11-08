@@ -837,7 +837,7 @@ type BPspec = Pspec LocBareType LocSymbol
 data Pspec ty ctor
   = Meas    (Measure ty ctor)                             -- ^ 'measure' definition
   | Assm    (Located LHName, ty)                          -- ^ 'assume' signature (unchecked)
-  | AssmReflect (LocSymbol, LocSymbol)                    -- ^ 'assume reflects' signature (unchecked)
+  | AssmReflect (Located LHName, Located LHName)          -- ^ 'assume reflects' signature (unchecked)
   | Asrt    (Located LHName, ty)                          -- ^ 'assert' signature (checked)
   | LAsrt   (LocSymbol, ty)                               -- ^ 'local' assertion -- TODO RJ: what is this
   | Asrts   ([Located LHName], (ty, Maybe [Located Expr]))     -- ^ sym0, ..., symn :: ty / [m0,..., mn]
@@ -859,13 +859,13 @@ data Pspec ty ctor
   | Rewrite (Located LHName)                              -- ^ 'rewrite' annotation, the binder generates a rewrite rule
   | Rewritewith (Located LHName, [Located LHName])        -- ^ 'rewritewith' annotation, the first binder is using the rewrite rules of the second list,
   | Insts   (Located LHName)                              -- ^ 'auto-inst' or 'ple' annotation; use ple locally on binder
-  | HMeas   LocSymbol                                     -- ^ 'measure' annotation; lift Haskell binder as measure
-  | Reflect LocSymbol                                     -- ^ 'reflect' annotation; reflect Haskell binder as function in logic
-  | OpaqueReflect LocSymbol                               -- ^ 'opaque-reflect' annotation
-  | Inline  LocSymbol                                     -- ^ 'inline' annotation;  inline (non-recursive) binder as an alias
+  | HMeas   (Located LHName)                              -- ^ 'measure' annotation; lift Haskell binder as measure
+  | Reflect (Located LHName)                              -- ^ 'reflect' annotation; reflect Haskell binder as function in logic
+  | PrivateReflect LocSymbol                              -- ^ 'private-reflect' annotation
+  | OpaqueReflect (Located LHName)                        -- ^ 'opaque-reflect' annotation
+  | Inline  (Located LHName)                              -- ^ 'inline' annotation;  inline (non-recursive) binder as an alias
   | Ignore  (Located LHName)                              -- ^ 'ignore' annotation; skip all checks inside this binder
   | ASize   (Located LHName)                              -- ^ 'autosize' annotation; automatically generate size metric for this type
-  | HBound  LocSymbol                                     -- ^ 'bound' annotation; lift Haskell binder as an abstract-refinement "bound"
   | PBound  (Bound ty Expr)                               -- ^ 'bound' definition
   | Pragma  (Located String)                              -- ^ 'LIQUID' pragma, used to save configuration options in source files
   | CMeas   (Measure ty ())                               -- ^ 'class measure' definition
@@ -948,14 +948,14 @@ ppPspec k (HMeas   lx)
   = "measure" <+> pprintTidy k (val lx)
 ppPspec k (Reflect lx)
   = "reflect" <+> pprintTidy k (val lx)
+ppPspec k (PrivateReflect lx)
+  = "private-reflect" <+> pprintTidy k (val lx)
 ppPspec k (OpaqueReflect lx)
   = "opaque-reflect" <+> pprintTidy k (val lx)
 ppPspec k (Inline  lx)
   = "inline" <+> pprintTidy k (val lx)
 ppPspec k (Ignore  lx)
   = "ignore" <+> pprintTidy k (val lx)
-ppPspec k (HBound  lx)
-  = "bound" <+> pprintTidy k (val lx)
 ppPspec k (ASize   lx)
   = "autosize" <+> pprintTidy k (val lx)
 ppPspec k (PBound  bnd)
@@ -1012,7 +1012,6 @@ ppPspec k (AssmRel (lxl, lxr, tl, tr, q, p))
   -- show (Axiom  _) = "Axiom"
   show (Reflect _) = "Reflect"
   show (HMeas  _) = "HMeas"
-  show (HBound _) = "HBound"
   show (Inline _) = "Inline"
   show (Pragma _) = "Pragma"
   show (CMeas  _) = "CMeas"
@@ -1083,12 +1082,12 @@ mkSpec name xs         = (name,) $ qualifySpec (symbol name) Measure.Spec
   , Measure.rewriteWith = M.fromList [s | Rewritewith s <- xs]
   , Measure.bounds     = M.fromList [(bname i, i) | PBound i <- xs]
   , Measure.reflects   = S.fromList [s | Reflect s <- xs]
+  , Measure.privateReflects = S.fromList [s | PrivateReflect s <- xs]
   , Measure.opaqueReflects = S.fromList [s | OpaqueReflect s <- xs]
   , Measure.hmeas      = S.fromList [s | HMeas  s <- xs]
   , Measure.inlines    = S.fromList [s | Inline s <- xs]
   , Measure.ignores    = S.fromList [s | Ignore s <- xs]
   , Measure.autosize   = S.fromList [s | ASize  s <- xs]
-  , Measure.hbounds    = S.fromList [s | HBound s <- xs]
   , Measure.axeqs      = []
   }
 
@@ -1103,20 +1102,20 @@ specP
     <|> (reserved "local"         >> fmap LAsrt   tyBindP  )
 
     -- TODO: These next two are synonyms, kill one
-    <|> fallbackSpecP "axiomatize"  (fmap Reflect axiomP   )
-    <|> fallbackSpecP "reflect"     (fmap Reflect axiomP   )
-    <|> (reserved "opaque-reflect" >> fmap OpaqueReflect axiomP  )
+    <|> fallbackSpecP "axiomatize"  (fmap Reflect locBinderLHNameP)
+    <|> fallbackSpecP "reflect"     (fmap Reflect locBinderLHNameP)
+    <|> (reserved "private-reflect" >> fmap PrivateReflect axiomP  )
+    <|> (reserved "opaque-reflect" >> fmap OpaqueReflect locBinderLHNameP  )
 
     <|> fallbackSpecP "measure"    hmeasureP
 
     <|> (reserved "infixl"        >> fmap BFix    infixlP  )
     <|> (reserved "infixr"        >> fmap BFix    infixrP  )
     <|> (reserved "infix"         >> fmap BFix    infixP   )
-    <|> fallbackSpecP "inline"      (fmap Inline  inlineP  )
+    <|> fallbackSpecP "inline"      (fmap Inline locBinderLHNameP)
     <|> fallbackSpecP "ignore"      (fmap Ignore  locBinderLHNameP)
 
-    <|> fallbackSpecP "bound"       (fmap PBound  boundP
-                                 <|> fmap HBound  hboundP  )
+    <|> fallbackSpecP "bound"       (fmap PBound  boundP)
     <|> (reserved "class"
          >> ((reserved "measure"  >> fmap CMeas  cMeasureP )
          <|> fmap Class  classP                            ))
@@ -1177,12 +1176,6 @@ rewriteWithP = (,) <$> locBinderLHNameP <*> brackets (sepBy1 locBinderLHNameP co
 axiomP :: Parser LocSymbol
 axiomP = locBinderP
 
-hboundP :: Parser LocSymbol
-hboundP = locBinderP
-
-inlineP :: Parser LocSymbol
-inlineP = locBinderP
-
 datavarianceP :: Parser (Located LHName, [Variance])
 datavarianceP = liftM2 (,) (locUpperIdLHNameP LHTcName) (many varianceP)
 
@@ -1217,9 +1210,9 @@ tyBindLHNameP = do
     return (x, t)
 
 -- | Parses a loc symbol.
-assmReflectBindP :: Parser (LocSymbol, LocSymbol)
+assmReflectBindP :: Parser (Located LHName, Located LHName)
 assmReflectBindP =
-  (,) <$> locBinderP <* reservedOp "as" <*> locBinderP
+  (,) <$> locBinderLHNameP <* reservedOp "as" <*> locBinderLHNameP
 
 termBareTypeP :: Parser (Located BareType, Maybe [Located Expr])
 termBareTypeP = do
@@ -1281,13 +1274,14 @@ rtAliasP f bodyP
 hmeasureP :: Parser BPspec
 hmeasureP = do
   setLayout
-  b <- locBinderP
-  (do reservedOp "::"
-      ty <- located genBareTypeP
-      popLayout >> popLayout
-      eqns <- block $ try $ measureDefP (rawBodyP <|> tyBodyP ty)
-      return (Meas $ Measure.mkM b ty eqns MsMeasure mempty))
-    <|> (popLayout >> popLayout >> return (HMeas b))
+  do b <- try (locBinderP <* reservedOp "::")
+     ty <- located genBareTypeP
+     popLayout >> popLayout
+     eqns <- block $ try $ measureDefP (rawBodyP <|> tyBodyP ty)
+     return (Meas $ Measure.mkM b ty eqns MsMeasure mempty)
+    <|>
+   do b <- locBinderLHNameP
+      popLayout >> popLayout >> return (HMeas b)
 
 measureP :: Parser (Measure (Located BareType) LocSymbol)
 measureP = do

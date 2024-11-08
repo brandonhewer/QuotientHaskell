@@ -8,7 +8,7 @@ module ReflExt03A where
 import ReflExt03B
 
 {-@ reflect f @-}
-{-@ reflect ReflExt03B.myAdd @-}
+{-@ private-reflect ReflExt03B.myAdd @-}
 
 -- 3 * 2 + 2 = 8
 {-@ lemma :: {f 3 2 = 8} @-}
