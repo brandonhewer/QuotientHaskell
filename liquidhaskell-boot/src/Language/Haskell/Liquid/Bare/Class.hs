@@ -272,13 +272,18 @@ makeDefaultMethods :: Bare.Env -> [(ModName, Ghc.Var, LocSpecType)]
 ----------------------------------------------------------------------------------
 makeDefaultMethods env mts = [ (mname, dm, t)
                                  | (mname, m, t) <- mts
-                                 , dm            <- lookupDefaultVar env mname m ]
+                                 , Just dm <- [lookupDefaultVar env m]
+                             ]
 
-lookupDefaultVar :: Bare.Env -> ModName -> Ghc.Var -> [Ghc.Var]
-lookupDefaultVar env name v = Mb.maybeToList
-                            . Bare.maybeResolveSym env name "default-method"
-                            $ dmSym
-  where
-    dmSym                   = F.atLoc v (GM.qualifySymbol mSym dnSym)
-    dnSym                   = F.mappendSym "$dm" nSym
-    (mSym, nSym)            = GM.splitModuleName (F.symbol v)
+lookupDefaultVar :: Bare.Env -> Ghc.Var -> Maybe Ghc.Var
+lookupDefaultVar env v =
+    case Ghc.idDetails v of
+      Ghc.ClassOpId cls _ -> do
+        mdm <- lookup v (Ghc.classOpItems cls)
+        (n, dmspec) <- mdm
+        case dmspec of
+          Ghc.VanillaDM -> case lookupGhcIdLHName env (makeGHCLHNameLocated n) of
+            Right x -> Just x
+            _ -> Nothing
+          _ -> Nothing
+      _ -> Nothing
