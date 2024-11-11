@@ -712,6 +712,7 @@ strengthen (RVar a r)         r' = RVar a         (r `meet` r')
 strengthen (RFun b i t1 t2 r) r' = RFun b i t1 t2 (r `meet` r')
 strengthen (RAppTy t1 t2 r)   r' = RAppTy t1 t2   (r `meet` r')
 strengthen (RAllT a t r)      r' = RAllT a t      (r `meet` r')
+strengthen (RHole r)          r' = RHole          (r `meet` r')
 strengthen t                  _  = t
 
 quantifyRTy :: (Monoid r, Eq tv) => [RTVar tv (RType c tv ())] -> RType c tv r -> RType c tv r
