@@ -329,6 +329,9 @@ makeGhcSpec0 cfg session tcg instEnvs localVars src lmap targetSpec dependencySp
                 , rinstance = specInstances
                   -- Preserve rinstances.
                 , asmReflectSigs = Ms.asmReflectSigs mySpec
+                , reflects = Ms.reflects mySpec0
+                , cmeasures = Ms.cmeasures targetSpec
+                , embeds = Ms.embeds targetSpec
                 }
     })
   where
@@ -434,16 +437,7 @@ makeLiftedSpec0 :: Config -> GhcSrc -> F.TCEmb Ghc.TyCon -> LogicMap -> Ms.BareS
                 -> Ms.BareSpec
 makeLiftedSpec0 cfg src embs lmap mySpec = mempty
   { Ms.ealiases  = lmapEAlias . snd <$> Bare.makeHaskellInlines (typeclass cfg) src embs lmap mySpec
-  , Ms.reflects  = Ms.reflects mySpec
   , Ms.dataDecls = Bare.makeHaskellDataDecls cfg name mySpec tcs
-  , Ms.embeds    = Ms.embeds mySpec
-  -- We do want 'embeds' to survive and to be present into the final 'LiftedSpec'. The
-  -- caveat is to decide which format is more appropriate. We obviously cannot store
-  -- them as a 'TCEmb TyCon' as serialising a 'TyCon' would be fairly exponsive. This
-  -- needs more thinking.
-  , Ms.cmeasures = Ms.cmeasures mySpec
-  -- We do want 'cmeasures' to survive and to be present into the final 'LiftedSpec'. The
-  -- caveat is to decide which format is more appropriate. This needs more thinking.
   }
   where
     tcs          = uniqNub (_gsTcs src ++ refTcs)
