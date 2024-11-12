@@ -359,19 +359,19 @@ type SpecMeasure   = Measure LocSpecType DataCon
 --
 -- Also, a 'BareSpec' has not yet been subject to name resolution, so it may refer
 -- to undefined or out-of-scope entities.
-type BareSpec = Spec LocBareType
+type BareSpec = Spec BareType
 
 -- | A generic 'Spec' type, polymorphic over the inner choice of type and binder.
 data Spec ty = Spec
-  { measures   :: ![Measure ty LocSymbol]                             -- ^ User-defined properties for ADTs
+  { measures   :: ![Measure (F.Located ty) LocSymbol]                 -- ^ User-defined properties for ADTs
   , expSigs    :: ![(F.Symbol, F.Sort)]                               -- ^ Exported logic symbols
-  , asmSigs    :: ![(F.Located LHName, ty)]                           -- ^ Assumed (unchecked) types; including reflected signatures
+  , asmSigs    :: ![(F.Located LHName, F.Located ty)]                 -- ^ Assumed (unchecked) types; including reflected signatures
   , asmReflectSigs :: ![(F.Located LHName, F.Located LHName)]         -- ^ Assume reflects : left is the actual function and right the pretended one
-  , sigs       :: ![(F.Located LHName, ty)]                           -- ^ Asserted spec signatures
-  , invariants :: ![(Maybe F.LocSymbol, ty)]                          -- ^ Data type invariants; the Maybe is the generating measure
-  , ialiases   :: ![(ty, ty)]                                         -- ^ Data type invariants to be checked
-  , dataDecls  :: ![DataDecl]                                         -- ^ Predicated data definitions
-  , newtyDecls :: ![DataDecl]                                         -- ^ Predicated new type definitions
+  , sigs       :: ![(F.Located LHName, F.Located ty)]                 -- ^ Asserted spec signatures
+  , invariants :: ![(Maybe F.LocSymbol, F.Located ty)]                -- ^ Data type invariants; the Maybe is the generating measure
+  , ialiases   :: ![(F.Located ty, F.Located ty)]                     -- ^ Data type invariants to be checked
+  , dataDecls  :: ![DataDeclP ty]                                     -- ^ Predicated data definitions
+  , newtyDecls :: ![DataDeclP ty]                                     -- ^ Predicated new type definitions
   , aliases    :: ![F.Located (RTAlias F.Symbol BareType)]            -- ^ RefType aliases
   , ealiases   :: ![F.Located (RTAlias F.Symbol F.Expr)]              -- ^ Expression aliases
   , embeds     :: !(F.TCEmb (F.Located LHName))                       -- ^ GHC-Tycon-to-fixpoint Tycon map
@@ -390,19 +390,19 @@ data Spec ty = Spec
   , ignores    :: !(S.HashSet (F.Located LHName))                     -- ^ Binders to ignore during checking; that is DON't check the corebind.
   , autosize   :: !(S.HashSet (F.Located LHName))                     -- ^ Type Constructors that get automatically sizing info
   , pragmas    :: ![F.Located String]                                 -- ^ Command-line configurations passed in through source
-  , cmeasures  :: ![Measure ty ()]                                    -- ^ Measures attached to a type-class
-  , imeasures  :: ![Measure ty LocSymbol]                             -- ^ Mappings from (measure,type) -> measure
-  , omeasures  :: ![Measure ty LocSymbol]                             -- ^ Opaque reflection measures.
+  , cmeasures  :: ![Measure (F.Located ty) ()]                        -- ^ Measures attached to a type-class
+  , imeasures  :: ![Measure (F.Located ty) LocSymbol]                 -- ^ Mappings from (measure,type) -> measure
+  , omeasures  :: ![Measure (F.Located ty) LocSymbol]                 -- ^ Opaque reflection measures.
   -- Separate field bc measures are checked for duplicates, and we want to allow for opaque-reflected measures to be duplicated.
   -- See Note [Duplicate measures and opaque reflection] in "Language.Haskell.Liquid.Measure".
-  , classes    :: ![RClass ty]                                        -- ^ Refined Type-Classes
-  , relational :: ![(F.Located LHName, F.Located LHName, ty, ty, RelExpr, RelExpr)] -- ^ Relational types
-  , asmRel     :: ![(F.Located LHName, F.Located LHName, ty, ty, RelExpr, RelExpr)] -- ^ Assumed relational types
+  , classes    :: ![RClass (F.Located ty)]                            -- ^ Refined Type-Classes
+  , relational :: ![(F.Located LHName, F.Located LHName, F.Located ty, F.Located ty, RelExpr, RelExpr)] -- ^ Relational types
+  , asmRel     :: ![(F.Located LHName, F.Located LHName, F.Located ty, F.Located ty, RelExpr, RelExpr)] -- ^ Assumed relational types
   , termexprs  :: ![(F.Located LHName, [F.Located F.Expr])]                -- ^ Terminating Conditions for functions
-  , rinstance  :: ![RInstance ty]
+  , rinstance  :: ![RInstance (F.Located ty)]
   , dvariance  :: ![(F.Located LHName, [Variance])]                   -- ^ TODO ? Where do these come from ?!
-  , dsize      :: ![([ty], F.LocSymbol)]                              -- ^ Size measure to enforce fancy termination
-  , bounds     :: !(RRBEnv ty)
+  , dsize      :: ![([F.Located ty], F.LocSymbol)]                    -- ^ Size measure to enforce fancy termination
+  , bounds     :: !(RRBEnv (F.Located ty))
   , axeqs      :: ![F.Equation]                                       -- ^ Equalities used for Proof-By-Evaluation
   } deriving (Data, Generic, Show)
 
@@ -679,7 +679,7 @@ data GhcSpec = SP
   , _gsRefl   :: !GhcSpecRefl
   , _gsImps   :: ![(F.Symbol, F.Sort)]  -- ^ Imported Environment
   , _gsConfig :: !Config
-  , _gsLSpec  :: !(Spec LocBareType) -- ^ Lifted specification for the target module
+  , _gsLSpec  :: !(Spec BareType) -- ^ Lifted specification for the target module
   }
 
 instance HasConfig GhcSpec where
@@ -742,7 +742,7 @@ toTargetSpec ghcSpec =
       , gsConfig = _gsConfig ghcSpec
       }
 
-toLiftedSpec :: Spec LocBareType -> LiftedSpec
+toLiftedSpec :: Spec BareType -> LiftedSpec
 toLiftedSpec a = LiftedSpec
   { liftedMeasures   = S.fromList . measures $ a
   , liftedExpSigs    = S.fromList . expSigs  $ a
@@ -772,7 +772,7 @@ toLiftedSpec a = LiftedSpec
 
 -- This is a temporary internal function that we use to convert the input dependencies into a format
 -- suitable for 'makeGhcSpec'.
-unsafeFromLiftedSpec :: LiftedSpec -> Spec LocBareType
+unsafeFromLiftedSpec :: LiftedSpec -> Spec BareType
 unsafeFromLiftedSpec a = Spec
   { measures   = S.toList . liftedMeasures $ a
   , expSigs    = S.toList . liftedExpSigs $ a

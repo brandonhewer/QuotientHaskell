@@ -66,6 +66,7 @@ module Language.Haskell.Liquid.Types.RType (
 
   -- * Instantiated RType
   , BareType
+  , BareTypeV
   , SpecType, SpecProp, SpecRTVar
   , LocBareType, LocSpecType
   , RSort
@@ -775,8 +776,10 @@ type BSort       = BRType    ()
 type RSort       = RRType    ()
 type BPVar       = PVar      BSort
 type RPVar       = PVar      RSort
-type RReft       = UReft     F.Reft
-type BareType    = BRType    RReft
+type RReft       = RReftV    F.Symbol
+type RReftV v    = UReft     (F.ReftV v)
+type BareType    = BareTypeV F.Symbol
+type BareTypeV v = BRType    (RReftV v)
 type SpecType    = RRType    RReft
 type SpecProp    = RRProp    RReft
 type RRProp r    = Ref       RSort (RRType r)
