@@ -43,11 +43,9 @@ import           Language.Haskell.Liquid.Types.Types
 import           Language.Haskell.Liquid.Types.RefType
 -- import           Language.Haskell.Liquid.Types.Variance
 -- import           Language.Haskell.Liquid.Types.Bounds
-import           Language.Haskell.Liquid.Types.Specs hiding (BareSpec)
+import           Language.Haskell.Liquid.Types.Specs
 import           Language.Haskell.Liquid.UX.Tidy
 
--- /FIXME/: This needs to be removed once the port to the new API is complete.
-type BareSpec = Spec LocBareType LocSymbol
 
 mkM ::  LocSymbol -> ty -> [Def ty bndr] -> MeasureKind -> UnSortedExprs -> Measure ty bndr
 mkM name typ eqns kind u

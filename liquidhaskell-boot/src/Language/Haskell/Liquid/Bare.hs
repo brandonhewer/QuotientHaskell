@@ -128,7 +128,7 @@ makeTargetSpec :: Config
 makeTargetSpec cfg localVars lmap targetSrc bareSpec dependencies = do
   let targDiagnostics     = Bare.checkTargetSrc cfg targetSrc
   let depsDiagnostics     = mapM (Bare.checkBareSpec . snd) legacyDependencies
-  let bareSpecDiagnostics = Bare.checkBareSpec legacyBareSpec
+  let bareSpecDiagnostics = Bare.checkBareSpec bareSpec
   case targDiagnostics >> depsDiagnostics >> bareSpecDiagnostics of
    Left d | noErrors d -> secondPhase (allWarnings d)
    Left d              -> return $ Left d
@@ -136,35 +136,7 @@ makeTargetSpec cfg localVars lmap targetSrc bareSpec dependencies = do
   where
     secondPhase :: [Warning] -> Ghc.TcRn (Either Diagnostics ([Warning], TargetSpec, LiftedSpec))
     secondPhase phaseOneWarns = do
-
-      -- we should be able to setContext regardless of whether
-      -- we use the ghc api. However, ghc will complain
-      -- if the filename does not match the module name
-      -- when (typeclass cfg) $ do
-      --   Ghc.setContext [iimport |(modName, _) <- allSpecs legacyBareSpec,
-      --                   let iimport = if isTarget modName
-      --                                 then Ghc.IIModule (getModName modName)
-      --                                 else Ghc.IIDecl (Ghc.simpleImportDecl (getModName modName))]
-      --   void $ Ghc.execStmt
-      --     "let {infixr 1 ==>; True ==> False = False; _ ==> _ = True}"
-      --     Ghc.execOptions
-      --   void $ Ghc.execStmt
-      --     "let {infixr 1 <=>; True <=> False = False; _ <=> _ = True}"
-      --     Ghc.execOptions
-      --   void $ Ghc.execStmt
-      --     "let {infix 4 ==; (==) :: a -> a -> Bool; _ == _ = undefined}"
-      --     Ghc.execOptions
-      --   void $ Ghc.execStmt
-      --     "let {infix 4 /=; (/=) :: a -> a -> Bool; _ /= _ = undefined}"
-      --     Ghc.execOptions
-      --   void $ Ghc.execStmt
-      --     "let {infixl 7 /; (/) :: Num a => a -> a -> a; _ / _ = undefined}"
-      --     Ghc.execOptions
-      --   void $ Ghc.execStmt
-      --     "let {len :: [a] -> Int; len _ = undefined}"
-      --     Ghc.execOptions
-
-      diagOrSpec <- makeGhcSpec cfg localVars (fromTargetSrc targetSrc) lmap legacyBareSpec legacyDependencies
+      diagOrSpec <- makeGhcSpec cfg localVars (fromTargetSrc targetSrc) lmap bareSpec legacyDependencies
       case diagOrSpec of
         Left d -> return $ Left d
         Right (warns, ghcSpec) -> do
@@ -177,9 +149,6 @@ makeTargetSpec cfg localVars lmap targetSrc bareSpec dependencies = do
 
     legacyDependencies :: [(ModName, Ms.BareSpec)]
     legacyDependencies = map toLegacyDep . M.toList . getDependencies $ dependencies
-
-    legacyBareSpec :: Ms.BareSpec
-    legacyBareSpec = fromBareSpec bareSpec
 
     -- Assumptions about local functions that are not exported aren't useful for
     -- other modules.
