@@ -109,7 +109,7 @@ makeBoundType penv (q:qs) xts = go xts
     go [(x, t)]      = [(F.dummySymbol, tp t x), (F.dummySymbol, tq t x)]
     go ((x, t):xtss) = (val x, mkt t x) : go xtss
 
-    mkt t x = ofRSort t `strengthen` ofUReft (MkUReft (F.Reft (val x, mempty))
+    mkt t x = ofRSort t `strengthen` ofUReft (MkUReft (F.Reft (val x, F.PTrue))
                                                 (Pr $ M.lookupDefault [] (val x) ps))
     tp t x  = ofRSort t `strengthen` ofUReft (MkUReft (F.Reft (val x, F.pAnd rs))
                                                 (Pr $ M.lookupDefault [] (val x) ps))
@@ -160,7 +160,7 @@ makeRef penv v (F.PAnd rs) = ofUReft (MkUReft (F.Reft (val v, F.pAnd rrs)) r)
     (pps, rrs)           = partition (isPApp penv) rs
 
 makeRef penv v rr
-  | isPApp penv rr       = ofUReft (MkUReft (F.Reft(val v, mempty)) r)
+  | isPApp penv rr       = ofUReft (MkUReft (F.Reft(val v, F.PTrue)) r)
   where
     r                    = Pr [toUsedPVar penv rr]
 

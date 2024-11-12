@@ -255,6 +255,7 @@ import GHC.Core                       as Ghc
 import GHC.Core.Class                 as Ghc
     ( classAllSelIds
     , classBigSig
+    , classOpItems
     , classSCSelIds
     , Class
        ( classKey
@@ -558,6 +559,7 @@ import GHC.Types.Avail                as Ghc
 import GHC.Types.Basic                as Ghc
     ( Arity
     , Boxity(Boxed)
+    , DefMethSpec(VanillaDM)
     , PprPrec
     , PromotionFlag(NotPromoted)
     , TopLevelFlag(NotTopLevel)
@@ -601,7 +603,7 @@ import GHC.Types.Id                   as Ghc
     )
 import GHC.Types.Id.Info              as Ghc
     ( CafInfo(NoCafRefs)
-    , IdDetails(DataConWorkId, DataConWrapId, RecSelId, VanillaId)
+    , IdDetails(ClassOpId, DataConWorkId, DataConWrapId, RecSelId, VanillaId)
     , IdInfo(occInfo, realUnfoldingInfo)
     , cafInfo
     , inlinePragInfo
