@@ -835,7 +835,6 @@ data Pspec ty ctor
   | Assm    (Located LHName, ty)                          -- ^ 'assume' signature (unchecked)
   | AssmReflect (Located LHName, Located LHName)          -- ^ 'assume reflects' signature (unchecked)
   | Asrt    (Located LHName, ty)                          -- ^ 'assert' signature (checked)
-  | LAsrt   (LocSymbol, ty)                               -- ^ 'local' assertion -- TODO RJ: what is this
   | Asrts   ([Located LHName], (ty, Maybe [Located Expr]))     -- ^ sym0, ..., symn :: ty / [m0,..., mn]
   | DDecl   DataDecl                                      -- ^ refined 'data'    declaration
   | NTDecl  DataDecl                                      -- ^ refined 'newtype' declaration
@@ -904,8 +903,6 @@ ppPspec k (AssmReflect (lx, ly))
   = "assume reflect"  <+> pprintTidy k (val lx) <+> "as" <+> pprintTidy k (val ly)
 ppPspec k (Asrt (lx, t))
   = "assert"  <+> pprintTidy k (val lx) <+> "::" <+> pprintTidy k t
-ppPspec k (LAsrt (lx, t))
-  = "local assert"  <+> pprintTidy k (val lx) <+> "::" <+> pprintTidy k t
 ppPspec k (Asrts (lxs, (t, les)))
   = ppAsserts k lxs t les
 ppPspec k (DDecl d)
@@ -991,7 +988,6 @@ ppPspec k (AssmRel (lxl, lxr, tl, tr, q, p))
   show (Meas   _) = "Meas"
   show (Assm   _) = "Assm"
   show (Asrt   _) = "Asrt"
-  show (LAsrt  _) = "LAsrt"
   show (Asrts  _) = "Asrts"
   show (Impt   _) = "Impt"
   shcl  _) = "DDecl"
@@ -1082,7 +1078,6 @@ specP
         <|>                            fmap Assm   tyBindLHNameP  )
     <|> fallbackSpecP "assert"      (fmap Asrt    tyBindLocalLHNameP)
     <|> fallbackSpecP "autosize"    (fmap ASize   tyConBindLHNameP)
-    <|> (reserved "local"         >> fmap LAsrt   tyBindP  )
 
     -- TODO: These next two are synonyms, kill one
     <|> fallbackSpecP "axiomatize"  (fmap Reflect locBinderLHNameP)

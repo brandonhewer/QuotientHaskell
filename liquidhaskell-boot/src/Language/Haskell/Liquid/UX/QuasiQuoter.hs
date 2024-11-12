@@ -85,9 +85,6 @@ mkSpecDecs :: BPspec -> Either UserError [Dec]
 mkSpecDecs (Asrt (name, ty)) =
   return . SigD (lhNameToName name)
     <$> simplifyBareType name (quantifyFreeRTy $ val ty)
-mkSpecDecs (LAsrt (name, ty)) =
-  return . SigD (symbolName name)
-    <$> simplifyBareType name (quantifyFreeRTy $ val ty)
 mkSpecDecs (Asrts (names, (ty, _))) =
   (\t -> (`SigD` t) . lhNameToName <$> names)
     <$> simplifyBareType (head names) (quantifyFreeRTy $ val ty)
