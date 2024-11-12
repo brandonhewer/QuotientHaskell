@@ -10,6 +10,7 @@ module Language.Haskell.Liquid.Types.Names
   , LHResolvedName (..)
   , LHName (..)
   , LHNameSpace (..)
+  , LHThisModuleNameFlag (..)
   , makeResolvedLHName
   , getLHNameResolved
   , getLHNameSymbol
@@ -106,13 +107,22 @@ instance Hashable LHName where
 
 data LHNameSpace
     = LHTcName
-    | LHDataConName
-    | LHVarName
-  deriving (Data, Eq, Generic, Ord)
+    | LHDataConName LHThisModuleNameFlag
+    | LHVarName LHThisModuleNameFlag
+  deriving (Data, Eq, Generic, Ord, Show)
 
 instance B.Binary LHNameSpace
 instance NFData LHNameSpace
 instance Hashable LHNameSpace
+
+-- | Whether the name should be looked up in the current module only or in any
+-- module
+data LHThisModuleNameFlag = LHThisModuleNameF | LHAnyModuleNameF
+  deriving (Data, Eq, Generic, Ord, Show)
+
+instance B.Binary LHThisModuleNameFlag
+instance NFData LHThisModuleNameFlag
+instance Hashable LHThisModuleNameFlag
 
 instance Ord LogicName where
   compare (LogicName s1 m1) (LogicName s2 m2) =

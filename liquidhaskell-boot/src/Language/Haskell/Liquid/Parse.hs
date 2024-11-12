@@ -46,7 +46,6 @@ import           Language.Haskell.Liquid.Types.PredType
 import           Language.Haskell.Liquid.Types.RType
 import           Language.Haskell.Liquid.Types.RefType
 import           Language.Haskell.Liquid.Types.RTypeOp
-import           Language.Haskell.Liquid.Types.Specs
 import           Language.Haskell.Liquid.Types.Types
 import           Language.Haskell.Liquid.Types.Variance
 import qualified Language.Haskell.Liquid.Misc           as Misc
@@ -56,13 +55,10 @@ import           Liquid.GHC.API                         (ModuleName)
 
 import Control.Monad.State
 
--- import Debug.Trace
-
 -- * Top-level parsing API
 
 hsSpecificationP :: ModuleName -> [BPspec] -> (ModName, Measure.BareSpec)
-hsSpecificationP modName specs =
-    mkSpec (ModName SrcImport modName) specs
+hsSpecificationP modName specs = (ModName SrcImport modName, mkSpec specs)
 
 -- | Parse comments in .hs and .lhs files
 parseSpecComments :: [(SourcePos, String)] -> Either [Error] [BPspec]
@@ -467,7 +463,7 @@ lowerIdTail l =
 
 bTyConP :: Parser BTyCon
 bTyConP
-  =  (reservedOp "'" >> mkPromotedBTyCon <$> locUpperIdLHNameP LHDataConName)
+  =  (reservedOp "'" >> mkPromotedBTyCon <$> locUpperIdLHNameP (LHDataConName LHAnyModuleNameF))
  <|> mkBTyCon <$> locUpperIdLHNameP LHTcName
  <|> (reserved "*" >>
         return (mkBTyCon (dummyLoc $ makeUnresolvedLHName LHTcName $ symbol ("*" :: String)))
@@ -1024,14 +1020,6 @@ ppPspec k (AssmRel (lxl, lxr, tl, tr, q, p))
   show (BFix   _) = "BFix"
   show (Define _) = "Define"-}
 
-qualifySpec :: Symbol -> Spec ty bndr -> Spec ty bndr
-qualifySpec name sp = sp { sigs      = [ (tx x, t)  | (x, t)  <- sigs sp]
-                         -- , asmSigs   = [ (tx x, t)  | (x, t)  <- asmSigs sp]
-                         }
-  where
-    tx :: Located LHName -> Located LHName
-    tx = fmap (updateLHNameSymbol (qualifySymbol name))
-
 -- | Turns a list of parsed specifications into a "bare spec".
 --
 -- This is primarily a rearrangement, as the bare spec is a record containing
@@ -1042,13 +1030,8 @@ qualifySpec name sp = sp { sigs      = [ (tx x, t)  | (x, t)  <- sigs sp]
 -- signatues) are being qualified, i.e., the binding occurrences are prefixed
 -- with the module name.
 --
--- Andres: It is unfortunately totally unclear to me what the justification
--- for the qualification is, and in particular, why it is being done for
--- the asserted signatures only. My trust is not exactly improved by the
--- commented out line in 'qualifySpec'.
---
-mkSpec :: ModName -> [BPspec] -> (ModName, Measure.Spec LocBareType LocSymbol)
-mkSpec name xs         = (name,) $ qualifySpec (symbol name) Measure.Spec
+mkSpec :: [BPspec] -> Measure.Spec LocBareType LocSymbol
+mkSpec xs         = Measure.Spec
   { Measure.measures   = [m | Meas   m <- xs]
   , Measure.asmSigs    = [a | Assm   a <- xs]
   , Measure.asmReflectSigs = [(l, r) | AssmReflect (l, r) <- xs]
@@ -1097,7 +1080,7 @@ specP
   = fallbackSpecP "assume" ((reserved "reflect" >> fmap AssmReflect assmReflectBindP)
         <|> (reserved "relational" >>  fmap AssmRel relationalP)
         <|>                            fmap Assm   tyBindLHNameP  )
-    <|> fallbackSpecP "assert"      (fmap Asrt    tyBindLHNameP)
+    <|> fallbackSpecP "assert"      (fmap Asrt    tyBindLocalLHNameP)
     <|> fallbackSpecP "autosize"    (fmap ASize   tyConBindLHNameP)
     <|> (reserved "local"         >> fmap LAsrt   tyBindP  )
 
@@ -1112,8 +1095,8 @@ specP
     <|> (reserved "infixl"        >> fmap BFix    infixlP  )
     <|> (reserved "infixr"        >> fmap BFix    infixrP  )
     <|> (reserved "infix"         >> fmap BFix    infixP   )
-    <|> fallbackSpecP "inline"      (fmap Inline locBinderLHNameP)
-    <|> fallbackSpecP "ignore"      (fmap Ignore  locBinderLHNameP)
+    <|> fallbackSpecP "inline"      (fmap Inline locBinderThisModuleLHNameP)
+    <|> fallbackSpecP "ignore"      (fmap Ignore  locBinderThisModuleLHNameP)
 
     <|> fallbackSpecP "bound"       (fmap PBound  boundP)
     <|> (reserved "class"
@@ -1139,14 +1122,14 @@ specP
 
     <|> fallbackSpecP "embed"       (fmap Embed  embedP    )
     <|> fallbackSpecP "qualif"      (fmap Qualif (qualifierP sortP))
-    <|> (reserved "lazyvar"       >> fmap LVars  locBinderLHNameP)
+    <|> (reserved "lazyvar"       >> fmap LVars  locBinderThisModuleLHNameP)
 
     <|> (reserved "lazy"          >> fmap Lazy   locBinderLHNameP)
     <|> (reserved "rewrite"       >> fmap Rewrite locBinderLHNameP)
     <|> (reserved "rewriteWith"   >> fmap Rewritewith   rewriteWithP )
-    <|> (reserved "fail"          >> fmap Fail locBinderLHNameP )
-    <|> (reserved "ple"           >> fmap Insts locBinderLHNameP  )
-    <|> (reserved "automatic-instances" >> fmap Insts locBinderLHNameP  )
+    <|> (reserved "fail"          >> fmap Fail locBinderThisModuleLHNameP )
+    <|> (reserved "ple"           >> fmap Insts locBinderThisModuleLHNameP  )
+    <|> (reserved "automatic-instances" >> fmap Insts locBinderThisModuleLHNameP  )
     <|> (reserved "LIQUID"        >> fmap Pragma pragmaP   )
     <|> (reserved "liquid"        >> fmap Pragma pragmaP   )
     <|> {- DEFAULT -}                fmap Asrts  tyBindsP
@@ -1158,7 +1141,7 @@ specP
 fallbackSpecP :: String -> Parser BPspec -> Parser BPspec
 fallbackSpecP kw p = do
   (Loc l1 l2 _) <- locReserved kw
-  p <|> fmap Asrts (tyBindsRemP (Loc l1 l2 (makeUnresolvedLHName LHVarName (symbol kw))) )
+  p <|> fmap Asrts (tyBindsRemP (Loc l1 l2 (makeUnresolvedLHName (LHVarName LHThisModuleNameF) (symbol kw))))
 
 -- | Same as tyBindsP, except the single initial symbol has already been matched
 tyBindsRemP :: Located LHName -> Parser ([Located LHName], (Located BareType, Maybe [Located Expr]))
@@ -1192,7 +1175,7 @@ varianceP = (reserved "bivariant"     >> return Bivariant)
 
 tyBindsP :: Parser ([Located LHName], (Located BareType, Maybe [Located Expr]))
 tyBindsP =
-  xyP (sepBy1 locBinderLHNameP comma) (reservedOp "::") termBareTypeP
+  xyP (sepBy1 locBinderThisModuleLHNameP comma) (reservedOp "::") termBareTypeP
 
 tyBindNoLocP :: Parser (LocSymbol, BareType)
 tyBindNoLocP = second val <$> tyBindP
@@ -1205,6 +1188,13 @@ tyBindP =
 tyBindLHNameP :: Parser (Located LHName, Located BareType)
 tyBindLHNameP = do
     x <- locBinderLHNameP
+    _ <- reservedOp "::"
+    t <- located genBareTypeP
+    return (x, t)
+
+tyBindLocalLHNameP :: Parser (Located LHName, Located BareType)
+tyBindLocalLHNameP = do
+    x <- locBinderThisModuleLHNameP
     _ <- reservedOp "::"
     t <- located genBareTypeP
     return (x, t)
@@ -1381,7 +1371,11 @@ locBinderP =
 
 locBinderLHNameP :: Parser (Located LHName)
 locBinderLHNameP =
-  located $ makeUnresolvedLHName LHVarName <$> binderP
+  located $ makeUnresolvedLHName (LHVarName LHAnyModuleNameF) <$> binderP
+
+locBinderThisModuleLHNameP :: Parser (Located LHName)
+locBinderThisModuleLHNameP =
+  located $ makeUnresolvedLHName (LHVarName LHThisModuleNameF) <$> binderP
 
 -- | LHS of the thing being defined
 --
@@ -1511,7 +1505,7 @@ dataConNameP
      pwr s  = symbol s
 
 dataConLHNameP :: Parser (Located LHName)
-dataConLHNameP = fmap (makeUnresolvedLHName LHDataConName) <$> dataConNameP
+dataConLHNameP = fmap (makeUnresolvedLHName (LHDataConName LHAnyModuleNameF)) <$> dataConNameP
 
 dataSizeP :: Parser (Maybe SizeFun)
 dataSizeP
