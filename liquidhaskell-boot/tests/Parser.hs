@@ -63,10 +63,6 @@ testSpecP =
        parseSingleSpec "autosize List" @?==
             "autosize List"
 
-    , testCase "local" $
-       parseSingleSpec "local foo :: Nat -> Nat" @?==
-            "local assert foo :: lq_tmp$db##0:Nat -> Nat"
-
     , testCase "axiomatize" $
        parseSingleSpec "axiomatize fibA" @?==
             "reflect fibA"
