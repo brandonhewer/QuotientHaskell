@@ -3,6 +3,7 @@
 {-# LANGUAGE OverloadedStrings  #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric      #-}
+{-# LANGUAGE NamedFieldPuns     #-}
 
 {-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 
@@ -15,6 +16,8 @@ module Language.Haskell.Liquid.Types.Bounds (
     RBEnv, RRBEnv,
 
     makeBound,
+    mapBoundTy,
+    mapBoundTyM
 
     ) where
 
@@ -52,6 +55,21 @@ type RRBound tv    = Bound tv F.Expr
 type RBEnv         = M.HashMap LocSymbol RBound
 type RRBEnv tv     = M.HashMap LocSymbol (RRBound tv)
 
+mapBoundTyM :: Monad m => (t0 -> m t1) -> Bound t0 e -> m (Bound t1 e)
+mapBoundTyM f b = do
+    tyvars <- mapM f $ tyvars b
+    bparams <- mapM (traverse f) $ bparams b
+    bargs <- mapM (traverse f) $ bargs b
+    return b{tyvars, bparams, bargs}
+
+mapBoundTy :: (t0 -> t1) -> Bound t0 e -> Bound t1 e
+mapBoundTy f Bound{..} =
+    Bound
+      { tyvars = map f tyvars
+      , bparams = map (fmap f) bparams
+      , bargs = map (fmap f) bargs
+      , ..
+      }
 
 instance Hashable (Bound t e) where
   hashWithSalt i = hashWithSalt i . bname

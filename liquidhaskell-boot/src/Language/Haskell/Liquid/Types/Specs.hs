@@ -6,7 +6,9 @@
 {-# LANGUAGE DeriveDataTypeable         #-}
 {-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE DerivingVia                #-}
+{-# LANGUAGE NamedFieldPuns             #-}
 {-# LANGUAGE StandaloneDeriving         #-}
+{-# LANGUAGE TupleSections              #-}
 
 {-# OPTIONS_GHC -Wno-orphans #-}
 
@@ -49,6 +51,8 @@ module Language.Haskell.Liquid.Types.Specs (
   , BareMeasure
   , SpecMeasure
   , VarOrLocSymbol
+  , emapSpecTyM
+  , mapSpecTy
   -- * Legacy data structures
   -- $legacyDataStructures
   , GhcSrc(..)
@@ -64,6 +68,8 @@ module Language.Haskell.Liquid.Types.Specs (
   ) where
 
 import           GHC.Generics            hiding (to, moduleName)
+import           Data.Bifunctor          (bimap, first)
+import           Data.Bitraversable      (bimapM)
 import           Data.Binary
 import qualified Language.Fixpoint.Types as F
 import           Data.Data (Data)
@@ -413,6 +419,79 @@ instance (Show ty, F.PPrint ty) => F.PPrint (Spec ty) where
                       text "classes = " <+> pprintTidy k (classes sp)
                          HughesPJ.$$
                       text "sigs = " <+> pprintTidy k (sigs sp)
+
+-- | A function to resolve names in the ty parameter of Spec
+--
+-- The first parameter of the function argument are the variables in scope.
+-- This is necessary for bounds and aliases.
+emapSpecTyM :: Monad m => ([F.Symbol] -> ty0 -> m ty1) -> Spec ty0 -> m (Spec ty1)
+emapSpecTyM f s = do
+    measures <- mapM (mapMeasureTyM (traverse fnull)) (measures s)
+    asmSigs <- mapM (traverse (traverse fnull)) (asmSigs s)
+    sigs <- mapM (traverse (traverse fnull)) (sigs s)
+    invariants <- mapM (traverse (traverse fnull)) (invariants s)
+    ialiases <- mapM (bimapM (traverse fnull) (traverse fnull)) (ialiases s)
+    dataDecls <- mapM (traverse fnull) (dataDecls s)
+    newtyDecls <- mapM (traverse fnull) (newtyDecls s)
+    cmeasures <- mapM (mapMeasureTyM (traverse fnull)) (cmeasures s)
+    imeasures <- mapM (mapMeasureTyM (traverse fnull)) (imeasures s)
+    omeasures <- mapM (mapMeasureTyM (traverse fnull)) (omeasures s)
+    classes <- mapM (traverse (traverse fnull)) (classes s)
+    relational <- mapM (mapRelationalTyM fnull) (relational s)
+    asmRel <- mapM (mapRelationalTyM fnull) (asmRel s)
+    rinstance <- mapM (traverse (traverse fnull)) (rinstance s)
+    dsize <- mapM (firstM (mapM (traverse fnull))) (dsize s)
+    bounds <- M.fromList <$> mapM (traverse (emapBoundTyM (traverse . f))) (M.toList $ bounds s)
+    return s
+      { measures
+      , asmSigs
+      , sigs
+      , invariants
+      , ialiases
+      , dataDecls
+      , newtyDecls
+      , cmeasures
+      , imeasures
+      , omeasures
+      , classes
+      , relational
+      , asmRel
+      , rinstance
+      , dsize
+      , bounds
+      }
+  where
+    fnull = f []
+    mapRelationalTyM f1 (n0, n1, a, b, e0, e1) = do
+      a' <- traverse f1 a
+      b' <- traverse f1 b
+      return (n0, n1, a', b', e0, e1)
+    firstM f1 (a, b) = (, b) <$> f1 a
+    emapBoundTyM f1 b = mapBoundTyM (f1 $ map (val . fst) $ bargs b) b
+
+mapSpecTy :: (ty0 -> ty1) -> Spec ty0 -> Spec ty1
+mapSpecTy f Spec {..} =
+    Spec
+      { measures = map (mapMeasureTy (fmap f)) measures
+      , asmSigs = map (fmap (fmap f)) asmSigs
+      , sigs = map (fmap (fmap f)) sigs
+      , invariants = map (fmap (fmap f)) invariants
+      , ialiases = map (bimap (fmap f) (fmap f)) ialiases
+      , dataDecls = map (fmap f) dataDecls
+      , newtyDecls = map (fmap f) newtyDecls
+      , cmeasures = map (mapMeasureTy (fmap f)) cmeasures
+      , imeasures = map (mapMeasureTy (fmap f)) imeasures
+      , omeasures = map (mapMeasureTy (fmap f)) omeasures
+      , classes = map (fmap (fmap f)) classes
+      , relational = map (mapRelationalTy f) relational
+      , asmRel = map (mapRelationalTy f) asmRel
+      , rinstance = map (fmap (fmap f)) rinstance
+      , dsize = map (first (map (fmap f))) dsize
+      , bounds = M.map (mapBoundTy (fmap f)) bounds
+      , ..
+      }
+  where
+    mapRelationalTy f1 (n0, n1, a, b, e0, e1) = (n0, n1, fmap f1 a, fmap f1 b, e0, e1)
 
 -- /NOTA BENE/: These instances below are considered legacy, because merging two 'Spec's together doesn't
 -- really make sense, and we provide this only for legacy purposes.

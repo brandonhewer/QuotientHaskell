@@ -8,6 +8,8 @@
 {-# LANGUAGE ConstraintKinds            #-}
 {-# LANGUAGE DerivingVia                #-}
 {-# LANGUAGE DeriveFunctor              #-}
+{-# LANGUAGE DeriveFoldable             #-}
+{-# LANGUAGE DeriveTraversable          #-}
 
 {-# OPTIONS_GHC -Wno-orphans #-}
 
@@ -61,7 +63,7 @@ data DataDeclP ty  = DataDecl
   , tycSFun   :: Maybe SizeFun         -- ^ Default termination measure
   , tycPropTy :: Maybe ty              -- ^ Type of Ind-Prop
   , tycKind   :: !DataDeclKind         -- ^ User-defined or Auto-lifted
-  } deriving (Data, Typeable, Generic, Functor)
+  } deriving (Data, Typeable, Generic, Functor, Foldable, Traversable)
 
 instance Hashable ty => Hashable (DataDeclP ty)
 
@@ -81,7 +83,7 @@ data DataCtorP ty = DataCtor
   , dcTheta  :: [ty]                   -- ^ The GHC ThetaType corresponding to DataCon.dataConSig
   , dcFields :: [(F.Symbol, ty)]       -- ^ field-name and field-Type pairs
   , dcResult :: Maybe ty               -- ^ Possible output (if in GADT form)
-  } deriving (Data, Typeable, Generic, Eq, Functor)
+  } deriving (Data, Typeable, Generic, Eq, Functor, Foldable, Traversable)
 
 instance Hashable ty => Hashable (DataCtorP ty)
 

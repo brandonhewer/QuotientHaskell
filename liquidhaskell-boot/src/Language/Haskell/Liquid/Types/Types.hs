@@ -9,6 +9,7 @@
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE ConstraintKinds            #-}
 {-# LANGUAGE DerivingVia                #-}
+{-# LANGUAGE NamedFieldPuns             #-}
 
 {-# OPTIONS_GHC -Wno-orphans #-}
 
@@ -101,6 +102,10 @@ module Language.Haskell.Liquid.Types.Types (
   , Def (..)
   , Body (..)
   , MSpec (..)
+  , mapDefTy
+  , mapMeasureTy
+  , mapDefTyM
+  , mapMeasureTyM
 
   -- * Type Classes
   , RClass (..)
@@ -288,11 +293,11 @@ data RInstance t = RI
   , riDictName :: Maybe (F.Located LHName)
   , ritype  :: [t]
   , risigs  :: [(F.Located LHName, RISig t)]
-  } deriving (Eq, Generic, Functor, Data, Typeable, Show)
+  } deriving (Eq, Generic, Functor, Data, Typeable, Foldable, Traversable, Show)
     deriving Hashable via Generically (RInstance t)
 
 data RISig t = RIAssumed t | RISig t
-  deriving (Eq, Generic, Functor, Data, Typeable, Show)
+  deriving (Eq, Generic, Functor, Data, Typeable, Show, Foldable, Traversable)
   deriving Hashable via Generically (RISig t)
 
 instance F.PPrint t => F.PPrint (RISig t) where
@@ -589,6 +594,20 @@ data Def ty ctor = Def
   } deriving (Show, Data, Typeable, Generic, Eq, Functor)
     deriving Hashable via Generically (Def ty ctor)
 
+mapDefTyM :: Monad m => (ty0 -> m ty1) -> Def ty0 ctor -> m (Def ty1 ctor)
+mapDefTyM f d = do
+    dsort <- traverse f (dsort d)
+    binds <- mapM (traverse (traverse f)) (binds d)
+    return d {dsort, binds}
+
+mapDefTy :: (ty0 -> ty1) -> Def ty0 ctor -> Def ty1 ctor
+mapDefTy f Def{..} =
+    Def
+      { dsort = fmap f dsort
+      , binds = map (fmap (fmap f)) binds
+      , ..
+      }
+
 data Measure ty ctor = M
   { msName :: F.LocSymbol
   , msSort :: ty
@@ -597,6 +616,20 @@ data Measure ty ctor = M
   , msUnSorted :: !UnSortedExprs -- potential unsorted expressions used at measure denifinitions
   } deriving (Eq, Data, Typeable, Generic, Functor)
     deriving Hashable via Generically (Measure ty ctor)
+
+mapMeasureTyM :: Monad m => (ty0 -> m ty1) -> Measure ty0 ctor -> m (Measure ty1 ctor)
+mapMeasureTyM f m = do
+    msSort <- f (msSort m)
+    msEqns <- mapM (mapDefTyM f) (msEqns m)
+    return m{msSort, msEqns}
+
+mapMeasureTy :: (ty0 -> ty1) -> Measure ty0 ctor -> Measure ty1 ctor
+mapMeasureTy f M{..} =
+    M
+      { msSort = f msSort
+      , msEqns = map (mapDefTy f) msEqns
+      , ..
+      }
 
 type UnSortedExprs = [UnSortedExpr] -- mempty = []
 type UnSortedExpr  = ([F.Symbol], F.Expr)
@@ -711,7 +744,7 @@ data RClass ty = RClass
   , rcSupers  :: [ty]
   , rcTyVars  :: [BTyVar]
   , rcMethods :: [(F.Located LHName, ty)]
-  } deriving (Eq, Show, Functor, Data, Typeable, Generic)
+  } deriving (Eq, Show, Functor, Data, Typeable, Generic, Foldable, Traversable)
     deriving Hashable via Generically (RClass ty)
 
 
