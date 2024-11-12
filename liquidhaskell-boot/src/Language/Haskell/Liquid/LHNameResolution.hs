@@ -50,9 +50,8 @@ collectTypeAliases
   -> BareSpec
   -> [(StableModule, LiftedSpec)]
   -> HM.HashMap Symbol (GHC.Module, RTAlias Symbol BareType)
-collectTypeAliases m bs deps =
-    let spec = getBareSpec bs
-        bsAliases = [ (rtName a, (m, a)) | a <- map val (aliases spec) ]
+collectTypeAliases m spec deps =
+    let bsAliases = [ (rtName a, (m, a)) | a <- map val (aliases spec) ]
         depAliases =
           [ (rtName a, (unStableModule sm, a))
           | (sm, lspec) <- deps
@@ -198,9 +197,8 @@ resolveBoundVarsInTypeAliases = updateAliases resolveBoundVars
 
     -- Applies a function to the body of type aliases, passes to every call the
     -- arguments of the alias.
-    updateAliases f bs =
-      let spec = getBareSpec bs
-       in MkBareSpec spec
+    updateAliases f spec =
+       spec
             { aliases = [ Loc sp0 sp1 (a { rtBody = mapLHNames (f args) (rtBody a) })
                         | Loc sp0 sp1 a <- aliases spec
                         , let args = rtTArgs a ++ rtVArgs a

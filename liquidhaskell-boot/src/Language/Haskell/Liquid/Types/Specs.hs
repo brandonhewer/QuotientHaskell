@@ -24,7 +24,7 @@ module Language.Haskell.Liquid.Types.Specs (
   , TargetSpec(..)
   -- * BareSpec
   -- $bareSpec
-  , BareSpec(..)
+  , BareSpec
   -- * LiftedSpec
   -- $liftedSpec
   , LiftedSpec(..)
@@ -59,8 +59,6 @@ module Language.Haskell.Liquid.Types.Specs (
   , toTargetSrc
   , fromTargetSrc
   , toTargetSpec
-  , toBareSpec
-  , fromBareSpec
   , toLiftedSpec
   , unsafeFromLiftedSpec
   , emptyLiftedSpec
@@ -362,18 +360,7 @@ type SpecMeasure   = Measure LocSpecType DataCon
 --
 -- Also, a 'BareSpec' has not yet been subject to name resolution, so it may refer
 -- to undefined or out-of-scope entities.
-newtype BareSpec =
-  MkBareSpec { getBareSpec :: Spec LocBareType F.LocSymbol }
-  deriving (Data, Generic, Show, Binary)
-
-instance Semigroup BareSpec where
-  x <> y = MkBareSpec { getBareSpec = getBareSpec x <> getBareSpec y }
-
-instance Monoid BareSpec where
-  mempty = MkBareSpec { getBareSpec = mempty }
-
-
--- instance Semigroup (Spec ty bndr) where
+type BareSpec = Spec LocBareType LocSymbol
 
 -- | A generic 'Spec' type, polymorphic over the inner choice of type and binder.
 data Spec ty bndr  = Spec
@@ -756,12 +743,6 @@ toTargetSpec ghcSpec =
       , gsImps   = _gsImps ghcSpec
       , gsConfig = _gsConfig ghcSpec
       }
-
-toBareSpec :: Spec LocBareType F.LocSymbol -> BareSpec
-toBareSpec = MkBareSpec
-
-fromBareSpec :: BareSpec -> Spec LocBareType F.LocSymbol
-fromBareSpec = getBareSpec
 
 toLiftedSpec :: Spec LocBareType F.LocSymbol -> LiftedSpec
 toLiftedSpec a = LiftedSpec
