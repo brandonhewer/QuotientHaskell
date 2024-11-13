@@ -45,14 +45,17 @@ module Language.Haskell.Liquid.Types.RType (
   , setRtvPol
 
   -- * Predicate Variables
-  , PVar (PV, pname, parg, ptype, pargs), pvType
-  , Predicate (..)
+  , PVar
+  , PVarV (PV, pname, parg, ptype, pargs), pvType
+  , Predicate
+  , PredicateV (..)
 
   -- * Manipulating `Predicates`
   , pvars, pappSym, pApp
 
   -- * Refinements
-  , UReft(..)
+  , UReft
+  , UReftV(..)
 
   -- * Parse-time entities describing refined data types
   , SizeFun  (..), szFun
@@ -66,11 +69,16 @@ module Language.Haskell.Liquid.Types.RType (
 
   -- * Instantiated RType
   , BareType
+  , BareTypeLHName
   , BareTypeV
   , SpecType, SpecProp, SpecRTVar
-  , LocBareType, LocSpecType
+  , LocBareType
+  , LocBareTypeLHName
+  , LocSpecType
   , RSort
-  , UsedPVar, RPVar, RReft
+  , UsedPVar
+  , UsedPVarV
+  , RPVar, RReft
 
   -- * Printer Configuration
   , PPEnv (..)
@@ -238,26 +246,27 @@ instance F.PPrint SizeFun where
 -- | Abstract Predicate Variables ----------------------------------
 --------------------------------------------------------------------
 
-data PVar t = PV
+type PVar t = PVarV Symbol t
+data PVarV v t = PV
   { pname :: !Symbol
   , ptype :: !t
   , parg  :: !Symbol
-  , pargs :: ![(t, Symbol, Expr)]
+  , pargs :: ![(t, Symbol, F.ExprV v)]
   } deriving (Generic, Data, Typeable, Show, Functor)
 
-instance Eq (PVar t) where
+instance Eq (PVarV v t) where
   pv == pv' = pname pv == pname pv' {- UNIFY: What about: && eqArgs pv pv' -}
 
-instance Ord (PVar t) where
+instance Ord (PVarV v t) where
   compare (PV n _ _ _)  (PV n' _ _ _) = compare n n'
 
-instance B.Binary t => B.Binary (PVar t)
-instance NFData t   => NFData   (PVar t)
+instance (B.Binary v, B.Binary t) => B.Binary (PVarV v t)
+instance (NFData v, NFData t) => NFData   (PVarV v t)
 
-instance Hashable (PVar a) where
+instance Hashable (PVarV v a) where
   hashWithSalt i (PV n _ _ _) = hashWithSalt i n
 
-pvType :: PVar t -> t
+pvType :: PVarV v t -> t
 pvType = ptype
 
 instance F.PPrint (PVar a) where
@@ -273,13 +282,15 @@ pprPvar (PV s _ _ xts) = F.pprint s <+> hsep (F.pprint <$> dargs xts)
 -- | Predicates ----------------------------------------------------------------
 --------------------------------------------------------------------------------
 
-type UsedPVar      = PVar ()
+type UsedPVar    = UsedPVarV Symbol
+type UsedPVarV v = PVarV v ()
 
-newtype Predicate  = Pr [UsedPVar]
+type Predicate = PredicateV Symbol
+newtype PredicateV v = Pr [UsedPVarV v]
   deriving (Generic, Data, Typeable)
-  deriving Hashable via Generically Predicate
+  deriving Hashable via Generically (PredicateV v)
 
-instance Eq Predicate where
+instance Ord v => Eq (PredicateV v) where
   (Pr vs) == (Pr ws)
       = and $ (length vs' == length ws') : [v == w | (v, w) <- zip vs' ws']
         where
@@ -288,7 +299,7 @@ instance Eq Predicate where
 
 
 
-instance B.Binary Predicate
+instance B.Binary v => B.Binary (PredicateV v)
 
 instance NFData Predicate where
   rnf _ = ()
@@ -761,14 +772,15 @@ rPropP τ r = RProp τ (RHole r)
 --   In general, perhaps we need not expose @Ref@ directly at all.
 type RTProp c tv r = Ref (RType c tv ()) (RType c tv r)
 
-data UReft r = MkUReft
+type UReft r = UReftV F.Symbol r
+data UReftV v r = MkUReft
   { ur_reft   :: !r
-  , ur_pred   :: !Predicate
+  , ur_pred   :: !(PredicateV v)
   }
   deriving (Eq, Generic, Data, Typeable, Functor, Foldable, Traversable)
-  deriving Hashable via Generically (UReft r)
 
-instance B.Binary r => B.Binary (UReft r)
+instance (Ord v, Hashable v, Hashable r) => Hashable (UReftV v r)
+instance (B.Binary v, B.Binary r) => B.Binary (UReftV v r)
 
 type BRType      = RType BTyCon BTyVar       -- ^ "Bare" parsed version
 type RRType      = RType RTyCon RTyVar       -- ^ "Resolved" version
@@ -777,8 +789,9 @@ type RSort       = RRType    ()
 type BPVar       = PVar      BSort
 type RPVar       = PVar      RSort
 type RReft       = RReftV    F.Symbol
-type RReftV v    = UReft     (F.ReftV v)
+type RReftV v    = UReftV v (F.ReftV v)
 type BareType    = BareTypeV F.Symbol
+type BareTypeLHName = BareTypeV LHName
 type BareTypeV v = BRType    (RReftV v)
 type SpecType    = RRType    RReft
 type SpecProp    = RRProp    RReft
@@ -789,6 +802,7 @@ type SpecRTVar   = RTVar     RTyVar RSort
 
 
 type LocBareType = F.Located BareType
+type LocBareTypeLHName = F.Located BareTypeLHName
 type LocSpecType = F.Located SpecType
 
 

@@ -19,6 +19,7 @@ module Language.Haskell.Liquid.Types.DataDecl (
 
   -- * Parse-time entities describing refined data types
     DataDecl
+  , DataDeclLHName
   , DataDeclP (..)
   , DataName (..), dataNameSymbol
   , DataCtor
@@ -54,6 +55,7 @@ import           Language.Haskell.Liquid.Types.RType
 -- | Data type refinements
 --------------------------------------------------------------------------------
 type DataDecl = DataDeclP BareType
+type DataDeclLHName = DataDeclP BareTypeLHName
 data DataDeclP ty  = DataDecl
   { tycName   :: DataName              -- ^ Type  Constructor Name
   , tycTyVars :: [F.Symbol]            -- ^ Tyvar Parameters
@@ -115,8 +117,8 @@ hasDecl d
 instance NFData   DataDeclKind
 instance B.Binary DataDeclKind
 instance B.Binary DataName
-instance B.Binary DataCtor
-instance B.Binary DataDecl
+instance B.Binary ty => B.Binary (DataCtorP ty)
+instance B.Binary ty => B.Binary (DataDeclP ty)
 
 instance Eq (DataDeclP ty) where
   d1 == d2 = tycName d1 == tycName d2

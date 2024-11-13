@@ -26,6 +26,7 @@ module Language.Haskell.Liquid.Types.Specs (
   -- * BareSpec
   -- $bareSpec
   , BareSpec
+  , BareSpecLHName
   -- * LiftedSpec
   -- $liftedSpec
   , LiftedSpec(..)
@@ -366,6 +367,7 @@ type SpecMeasure   = Measure LocSpecType DataCon
 -- Also, a 'BareSpec' has not yet been subject to name resolution, so it may refer
 -- to undefined or out-of-scope entities.
 type BareSpec = Spec BareType
+type BareSpecLHName = Spec BareTypeLHName
 
 -- | A generic 'Spec' type, polymorphic over the inner choice of type and binder.
 data Spec ty = Spec
