@@ -287,8 +287,7 @@ maybeParen ctxt_prec inner_prec pretty
 
 ppExists
   :: (OkRT c tv r, PPrint c, PPrint tv, PPrint (RType c tv r),
-      PPrint (RType c tv ()), Reftable (RTProp c tv r),
-      Reftable (RTProp c tv ()))
+      PPrint (RType c tv ()))
   => PPEnv -> Prec -> RType c tv r -> Doc
 ppExists bb p rt
   = text "exists" <+> brackets (intersperse comma [pprDbind bb topPrec x t | (x, t) <- ws]) <-> dot <-> pprRtype bb p rt'
