@@ -108,10 +108,10 @@ makeTargetSpec cfg localVars lmap targetSrc bareSpec dependencies = do
           liftedSpec' <- removeUnexportedLocalAssumptions liftedSpec
           return $ Right (phaseOneWarns <> warns, targetSpec, liftedSpec')
 
-    toLegacyDep :: (Ghc.StableModule, LiftedSpec) -> (ModName, Ms.BareSpec)
-    toLegacyDep (sm, ls) = (ModName SrcImport (Ghc.moduleName . Ghc.unStableModule $ sm), unsafeFromLiftedSpec ls)
+    toLegacyDep :: (Ghc.StableModule, LiftedSpec) -> (ModName, BareSpec)
+    toLegacyDep (sm, ls) = (ModName SrcImport (Ghc.moduleName . Ghc.unStableModule $ sm), error "toBareSpecLHName" $ unsafeFromLiftedSpec ls)
 
-    legacyDependencies :: [(ModName, Ms.BareSpec)]
+    legacyDependencies :: [(ModName, BareSpec)]
     legacyDependencies = map toLegacyDep . M.toList . getDependencies $ dependencies
 
     -- Assumptions about local functions that are not exported aren't useful for

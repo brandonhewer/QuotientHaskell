@@ -608,21 +608,21 @@ instance Monoid (Spec lname ty) where
 -- Apart from less fields, a 'LiftedSpec' /replaces all instances of lists with sets/, to enforce
 -- duplicate detection and removal on what we serialise on disk.
 data LiftedSpec = LiftedSpec
-  { liftedMeasures   :: HashSet (Measure LocBareType F.LocSymbol)
+  { liftedMeasures   :: HashSet (Measure LocBareTypeLHName F.LocSymbol)
     -- ^ User-defined properties for ADTs
-  , liftedExpSigs    :: HashSet (F.Symbol, F.Sort)
+  , liftedExpSigs    :: HashSet (LHName, F.Sort)
     -- ^ Exported logic symbols
-  , liftedAsmSigs    :: HashSet (F.Located LHName, LocBareType)
+  , liftedAsmSigs    :: HashSet (F.Located LHName, LocBareTypeLHName)
     -- ^ Assumed (unchecked) types; including reflected signatures
-  , liftedSigs       :: HashSet (F.Located LHName, LocBareType)
+  , liftedSigs       :: HashSet (F.Located LHName, LocBareTypeLHName)
     -- ^ Asserted spec signatures
-  , liftedInvariants :: HashSet (Maybe F.LocSymbol, LocBareType)
+  , liftedInvariants :: HashSet (Maybe F.LocSymbol, LocBareTypeLHName)
     -- ^ Data type invariants; the Maybe is the generating measure
-  , liftedIaliases   :: HashSet (LocBareType, LocBareType)
+  , liftedIaliases   :: HashSet (LocBareTypeLHName, LocBareTypeLHName)
     -- ^ Data type invariants to be checked
-  , liftedDataDecls  :: HashSet DataDecl
+  , liftedDataDecls  :: HashSet DataDeclLHName
     -- ^ Predicated data definitions
-  , liftedNewtyDecls :: HashSet DataDecl
+  , liftedNewtyDecls :: HashSet DataDeclLHName
     -- ^ Predicated new type definitions
   , liftedAliases    :: HashSet (F.Located (RTAlias F.Symbol BareType))
     -- ^ RefType aliases
@@ -638,24 +638,28 @@ data LiftedSpec = LiftedSpec
     -- ^ Automatically instantiate axioms in these Functions
   , liftedAutosize   :: HashSet (F.Located LHName)
     -- ^ Type Constructors that get automatically sizing info
-  , liftedCmeasures  :: HashSet (Measure LocBareType ())
+  , liftedCmeasures  :: HashSet (Measure LocBareTypeLHName ())
     -- ^ Measures attached to a type-class
-  , liftedImeasures  :: HashSet (Measure LocBareType F.LocSymbol)
+  , liftedImeasures  :: HashSet (Measure LocBareTypeLHName F.LocSymbol)
     -- Lifted opaque reflection measures
-  , liftedOmeasures  :: HashSet (Measure LocBareType F.LocSymbol)
+  , liftedOmeasures  :: HashSet (Measure LocBareTypeLHName F.LocSymbol)
     -- ^ Mappings from (measure,type) -> measure
-  , liftedClasses    :: HashSet (RClass LocBareType)
+  , liftedClasses    :: HashSet (RClass LocBareTypeLHName)
     -- ^ Refined Type-Classes
-  , liftedRinstance  :: HashSet (RInstance LocBareType)
-  , liftedDsize      :: [([LocBareType], F.LocSymbol)]
+  , liftedRinstance  :: HashSet (RInstance LocBareTypeLHName)
+  , liftedDsize      :: [([LocBareTypeLHName], F.LocSymbol)]
   , liftedDvariance  :: HashSet (F.Located LHName, [Variance])
     -- ^ ? Where do these come from ?!
-  , liftedBounds     :: RRBEnv LocBareType
+  , liftedBounds     :: RRBEnv LocBareTypeLHName
   , liftedAxeqs      :: HashSet F.Equation
     -- ^ Equalities used for Proof-By-Evaluation
-  } deriving (Eq, Data, Generic, Show)
+  } deriving (Eq, Data, Generic)
     deriving Hashable via Generically LiftedSpec
     deriving Binary   via Generically LiftedSpec
+
+
+instance Show LiftedSpec where
+  show = (show :: BareSpec -> String) . error "fromBareSpecLHName" . unsafeFromLiftedSpec
 
 instance Binary F.Equation
 
@@ -809,9 +813,9 @@ fromTargetSrc a = Src
   , _gsTyThings  = gsTyThings a
   }
 
-toTargetSpec :: GhcSpec -> (TargetSpec, LiftedSpec)
+toTargetSpec ::  GhcSpec -> (TargetSpec, LiftedSpec)
 toTargetSpec ghcSpec =
-  (targetSpec, (toLiftedSpec . _gsLSpec) ghcSpec)
+  (targetSpec, (toLiftedSpec . error "toBareSpecLHName" . _gsLSpec) ghcSpec)
   where
     targetSpec = TargetSpec
       { gsSig    = _gsSig ghcSpec
@@ -825,7 +829,7 @@ toTargetSpec ghcSpec =
       , gsConfig = _gsConfig ghcSpec
       }
 
-toLiftedSpec :: Spec F.Symbol BareType -> LiftedSpec
+toLiftedSpec :: BareSpecLHName -> LiftedSpec
 toLiftedSpec a = LiftedSpec
   { liftedMeasures   = S.fromList . measures $ a
   , liftedExpSigs    = S.fromList . expSigs  $ a
@@ -855,7 +859,7 @@ toLiftedSpec a = LiftedSpec
 
 -- This is a temporary internal function that we use to convert the input dependencies into a format
 -- suitable for 'makeGhcSpec'.
-unsafeFromLiftedSpec :: LiftedSpec -> Spec F.Symbol BareType
+unsafeFromLiftedSpec :: LiftedSpec -> BareSpecLHName
 unsafeFromLiftedSpec a = Spec
   { measures   = S.toList . liftedMeasures $ a
   , expSigs    = S.toList . liftedExpSigs $ a
