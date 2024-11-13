@@ -85,5 +85,5 @@ txPV :: (c1 -> c2) -> (tv1 -> tv2) -> PVU c1 tv1 -> PVU c2 tv2
 txPV cF vF (PV sym k y txes) = PV sym k' y txes'
   where
     txes'                  = [ (tx t, x, e) | (t, x, e) <- txes]
-    k'                     = tx <$> k
+    k'                     = tx k
     tx                     = txRType cF vF

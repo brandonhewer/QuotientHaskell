@@ -247,19 +247,13 @@ pvarRType (PV _ k {- (PVProp τ) -} _ args) = rpredType k (fst3 <$> args) -- (ty
   --   ty  = uRTypeGen τ
   --   tys = uRTypeGen . fst3 <$> args
 
-
--- rpredType    :: (PPrint r, Reftable r) => PVKind (RRType r) -> [RRType r] -> RRType r
 rpredType :: Reftable r
-          => PVKind (RType RTyCon tv a)
+          => RType RTyCon tv a
           -> [RType RTyCon tv a] -> RType RTyCon tv r
-rpredType (PVProp t) ts = RApp predRTyCon  (uRTypeGen <$> t : ts) [] mempty
-rpredType PVHProp    ts = RApp wpredRTyCon (uRTypeGen <$>     ts) [] mempty
+rpredType t ts = RApp predRTyCon  (uRTypeGen <$> t : ts) [] mempty
 
 predRTyCon   :: RTyCon
 predRTyCon   = symbolRTyCon predName
-
-wpredRTyCon   :: RTyCon
-wpredRTyCon   = symbolRTyCon wpredName
 
 symbolRTyCon   :: F.Symbol -> RTyCon
 symbolRTyCon n = RTyCon (stringTyCon 'x' 42 $ F.symbolString n) [] defaultTyConInfo
@@ -508,9 +502,8 @@ meetListWithPSubRef ss (RProp s1 r1) (RProp s2 r2) π
 predType   :: Type
 predType   = symbolType predName
 
-wpredName, predName :: F.Symbol
+predName :: F.Symbol
 predName   = "Pred"
-wpredName  = "WPred"
 
 symbolType :: F.Symbol -> Type
 symbolType = TyVarTy . symbolTyVar
