@@ -405,9 +405,8 @@ pprPvarDef bb p (PV s t _ xts)
     dargs = [pprPvarSort bb p xt | (xt,_,_) <- xts]
 
 
-pprPvarKind :: (OkRT c tv ()) => PPEnv -> Prec -> PVKind (RType c tv ()) -> Doc
-pprPvarKind bb p (PVProp t) = pprPvarSort bb p t <+> arrow <+> pprName F.boolConName -- propConName
-pprPvarKind _ _ PVHProp     = panic Nothing "TODO: pprPvarKind:hprop" -- pprName hpropConName
+pprPvarKind :: (OkRT c tv ()) => PPEnv -> Prec -> RType c tv () -> Doc
+pprPvarKind bb p t = pprPvarSort bb p t <+> arrow <+> pprName F.boolConName
 
 pprName :: F.Symbol -> Doc
 pprName                      = text . F.symbolString

@@ -143,8 +143,8 @@ listTyDataCons   = ( [TyConP l0 c [RTV tyv] [p] [Covariant] [Covariant] (Just fs
       fld        = "fldList"
       xHead      = "head"
       xTail      = "tail"
-      p          = PV "p" (PVProp t) (F.vv Nothing) [(t, fld, F.EVar fld)]
-      px         = pdVarReft $ PV "p" (PVProp t) (F.vv Nothing) [(t, fld, F.EVar xHead)]
+      p          = PV "p" t (F.vv Nothing) [(t, fld, F.EVar fld)]
+      px         = pdVarReft $ PV "p" t (F.vv Nothing) [(t, fld, F.EVar xHead)]
       lt         = rApp c [xt] [rPropP [] $ pdVarReft p] mempty
       xt         = rVar tyv
       xst        = rApp c [RVar (RTV tyv) px] [rPropP [] $ pdVarReft p] mempty
@@ -193,7 +193,7 @@ mkps_ :: [F.Symbol]
 mkps_ []     _       _          _    ps = ps
 mkps_ (n:ns) (t:ts) ((f, x):xs) args ps = mkps_ ns ts xs (a:args) (p:ps)
   where
-    p                                   = PV n (PVProp t) (F.vv Nothing) args
+    p                                   = PV n t (F.vv Nothing) args
     a                                   = (t, f, x)
 mkps_ _     _       _          _    _ = panic Nothing "Bare : mkps_"
 

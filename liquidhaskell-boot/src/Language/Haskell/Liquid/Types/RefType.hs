@@ -762,11 +762,7 @@ rtPropTop
       SubsTy tv (RType c tv ()) tv,
       SubsTy tv (RType c tv ()) (RTVar tv (RType c tv ())))
    => PVar (RType c tv ()) -> Ref (RType c tv ()) (RType c tv r)
-rtPropTop pv = case ptype pv of
-                 PVProp t -> RProp xts $ ofRSort t
-                 PVHProp  -> RProp xts mempty
-               where
-                 xts      =  pvArgs pv
+rtPropTop pv = RProp (pvArgs pv) $ ofRSort $ ptype pv
 
 rtPropPV :: (Fixpoint a, Reftable r)
          => a
@@ -1288,10 +1284,6 @@ instance SubsTy RTyVar RSort Sort where
     | symbol v == s = typeSort mempty (toType True sv)
     | otherwise     = FObj s
   subt _ s          = s
-
-instance (SubsTy tv ty ty) => SubsTy tv ty (PVKind ty) where
-  subt su (PVProp t) = PVProp (subt su t)
-  subt _   PVHProp   = PVHProp
 
 instance (SubsTy tv ty ty) => SubsTy tv ty (PVar ty) where
   subt su (PV n pvk v xts) = PV n (subt su pvk) v [(subt su t, x, y) | (t,x,y) <- xts]

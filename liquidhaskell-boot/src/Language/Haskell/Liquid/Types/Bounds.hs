@@ -141,7 +141,7 @@ toUsedPVars _ _ = impossible Nothing "This cannot happen"
 
 toUsedPVar :: [(F.Symbol, F.Symbol)] -> F.Expr -> PVar ()
 toUsedPVar penv ee@(F.EApp _ _)
-  = PV q (PVProp ()) e (((), F.dummySymbol,) <$> es')
+  = PV q () e (((), F.dummySymbol,) <$> es')
    where
      F.EVar e = {- unProp $ -} last es
      es'    = init es
