@@ -548,15 +548,24 @@ processModule LiquidHaskellContext{..} = do
         eBareSpec = resolveLHNames
           thisModule
           localVars
+          (imp_mods $ tcg_imports tcg)
           (tcg_rdr_env tcg)
+          lhModuleLogicMap
           bareSpec0
           dependencies
     result <-
       case eBareSpec of
         Left errors -> pure $ Left $ mkDiagnostics [] errors
-        Right bareSpec ->
+        Right (bareSpec, lnameEnv) ->
           fmap (,bareSpec) <$>
-            makeTargetSpec moduleCfg localVars lhModuleLogicMap targetSrc bareSpec dependencies
+            makeTargetSpec
+              moduleCfg
+              localVars
+              lnameEnv
+              lhModuleLogicMap
+              targetSrc
+              bareSpec
+              dependencies
 
     let continue = pure $ Left (ErrorsOccurred [])
         reportErrs :: (Show e, F.PPrint e) => [TError e] -> TcRn (Either LiquidCheckException ProcessModuleResult)

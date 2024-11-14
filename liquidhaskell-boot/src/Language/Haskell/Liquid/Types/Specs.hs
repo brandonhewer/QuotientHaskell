@@ -53,7 +53,9 @@ module Language.Haskell.Liquid.Types.Specs (
   , SpecMeasure
   , VarOrLocSymbol
   , emapSpecTyM
+  , fromBareSpecLHName
   , mapSpecLName
+  , mapSpecLNameM
   , mapSpecTy
   -- * Legacy data structures
   -- $legacyDataStructures
@@ -83,6 +85,7 @@ import           Data.HashMap.Strict     (HashMap)
 import           Language.Haskell.Liquid.Types.DataDecl
 import           Language.Haskell.Liquid.Types.Names
 import           Language.Haskell.Liquid.Types.RType
+import           Language.Haskell.Liquid.Types.RTypeOp (mapReft)
 import           Language.Haskell.Liquid.Types.Types
 import           Language.Haskell.Liquid.Types.Variance
 import           Language.Haskell.Liquid.Types.Bounds
@@ -505,6 +508,12 @@ mapSpecLName f Spec {..} =
       , ..
       }
 
+mapSpecLNameM
+  :: Monad m => (lname0 -> m lname1) -> Spec lname0 ty -> m (Spec lname1 ty)
+mapSpecLNameM f sp = do
+    expSigs <- sequence [ (,s) <$> f n | (n, s) <- expSigs sp ]
+    return sp {expSigs}
+
 -- /NOTA BENE/: These instances below are considered legacy, because merging two 'Spec's together doesn't
 -- really make sense, and we provide this only for legacy purposes.
 instance Semigroup (Spec lname ty) where
@@ -667,9 +676,15 @@ data LiftedSpec = LiftedSpec
 
 
 instance Show LiftedSpec where
-  show = (show :: BareSpec -> String) . error "fromBareSpecLHName" . unsafeFromLiftedSpec
+  show = (show :: BareSpec -> String) . fromBareSpecLHName . unsafeFromLiftedSpec
 
 instance Binary F.Equation
+
+fromBareSpecLHName :: BareSpecLHName -> BareSpec
+fromBareSpecLHName sp =
+    mapSpecTy
+      (mapReft $ mapUReftV logicNameToSymbol (fmap logicNameToSymbol)) $
+    mapSpecLName logicNameToSymbol sp
 
 emptyLiftedSpec :: LiftedSpec
 emptyLiftedSpec = LiftedSpec
@@ -821,11 +836,8 @@ fromTargetSrc a = Src
   , _gsTyThings  = gsTyThings a
   }
 
-toTargetSpec ::  GhcSpec -> (TargetSpec, LiftedSpec)
-toTargetSpec ghcSpec =
-  (targetSpec, (toLiftedSpec . error "toBareSpecLHName" . _gsLSpec) ghcSpec)
-  where
-    targetSpec = TargetSpec
+toTargetSpec ::  GhcSpec -> TargetSpec
+toTargetSpec ghcSpec = TargetSpec
       { gsSig    = _gsSig ghcSpec
       , gsQual   = _gsQual ghcSpec
       , gsData   = _gsData ghcSpec

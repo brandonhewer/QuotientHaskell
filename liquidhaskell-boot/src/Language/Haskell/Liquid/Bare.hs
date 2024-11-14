@@ -35,6 +35,7 @@ import qualified Language.Haskell.Liquid.Misc               as Misc -- (nubHashO
 import qualified Language.Haskell.Liquid.GHC.Misc           as GM
 import qualified Liquid.GHC.API            as Ghc
 import           Language.Haskell.Liquid.GHC.Types          (StableName)
+import           Language.Haskell.Liquid.LHNameResolution   (LogicNameEnv, toBareSpecLHName)
 import           Language.Haskell.Liquid.Types.Errors
 import           Language.Haskell.Liquid.Types.DataDecl
 import           Language.Haskell.Liquid.Types.Names
@@ -84,12 +85,13 @@ to disk so that we can retrieve it later without having to re-check the relevant
 -- to treat warnings and errors).
 makeTargetSpec :: Config
                -> Bare.LocalVars
+               -> LogicNameEnv
                -> LogicMap
                -> TargetSrc
                -> BareSpec
                -> TargetDependencies
                -> Ghc.TcRn (Either Diagnostics ([Warning], TargetSpec, LiftedSpec))
-makeTargetSpec cfg localVars lmap targetSrc bareSpec dependencies = do
+makeTargetSpec cfg localVars lnameEnv lmap targetSrc bareSpec dependencies = do
   let targDiagnostics     = Bare.checkTargetSrc cfg targetSrc
   let depsDiagnostics     = mapM (Bare.checkBareSpec . snd) legacyDependencies
   let bareSpecDiagnostics = Bare.checkBareSpec bareSpec
@@ -104,12 +106,13 @@ makeTargetSpec cfg localVars lmap targetSrc bareSpec dependencies = do
       case diagOrSpec of
         Left d -> return $ Left d
         Right (warns, ghcSpec) -> do
-          let (targetSpec, liftedSpec) = toTargetSpec ghcSpec
+          let targetSpec = toTargetSpec ghcSpec
+              liftedSpec = ghcSpecToLiftedSpec ghcSpec
           liftedSpec' <- removeUnexportedLocalAssumptions liftedSpec
           return $ Right (phaseOneWarns <> warns, targetSpec, liftedSpec')
 
     toLegacyDep :: (Ghc.StableModule, LiftedSpec) -> (ModName, BareSpec)
-    toLegacyDep (sm, ls) = (ModName SrcImport (Ghc.moduleName . Ghc.unStableModule $ sm), error "toBareSpecLHName" $ unsafeFromLiftedSpec ls)
+    toLegacyDep (sm, ls) = (ModName SrcImport (Ghc.moduleName . Ghc.unStableModule $ sm), fromBareSpecLHName $ unsafeFromLiftedSpec ls)
 
     legacyDependencies :: [(ModName, BareSpec)]
     legacyDependencies = map toLegacyDep . M.toList . getDependencies $ dependencies
@@ -126,6 +129,9 @@ makeTargetSpec cfg localVars lmap targetSrc bareSpec dependencies = do
               Just m -> m /= Ghc.tcg_mod tcg || Ghc.elemNameSet n exportedNames
           exportedAssumption _ = True
       return lspec { liftedAsmSigs = S.filter (exportedAssumption . val . fst) (liftedAsmSigs lspec) }
+
+    ghcSpecToLiftedSpec = toLiftedSpec . toBareSpecLHName lnameEnv . _gsLSpec
+
 
 -------------------------------------------------------------------------------------
 -- | @makeGhcSpec@ invokes @makeGhcSpec0@ to construct the @GhcSpec@ and then
@@ -149,7 +155,7 @@ makeGhcSpec cfg localVars src lmap targetSpec dependencySpecs = do
                                          (toTargetSrc src)
                                          (ghcSpecEnv sp)
                                          (_giCbs src)
-                                         (fst . toTargetSpec $ sp)
+                                         (toTargetSpec sp)
   pure $ if not (noErrors dg0) then Left dg0 else
            case diagnostics of
              Left dg1
