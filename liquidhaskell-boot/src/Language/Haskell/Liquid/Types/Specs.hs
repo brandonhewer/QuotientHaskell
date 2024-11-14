@@ -366,13 +366,16 @@ type SpecMeasure   = Measure LocSpecType DataCon
 --
 -- Also, a 'BareSpec' has not yet been subject to name resolution, so it may refer
 -- to undefined or out-of-scope entities.
-type BareSpec = Spec BareType
-type BareSpecLHName = Spec BareTypeLHName
+type BareSpec = Spec F.Symbol BareType
+type BareSpecLHName = Spec LHName BareTypeLHName
 
--- | A generic 'Spec' type, polymorphic over the inner choice of type and binder.
-data Spec ty = Spec
+-- | A generic 'Spec' type, polymorphic over the inner choice of type and binders.
+--
+-- @lname@ corresponds to the names used for entities only known to LH like
+-- non-interpreted functions and type aliases.
+data Spec lname ty = Spec
   { measures   :: ![Measure (F.Located ty) LocSymbol]                 -- ^ User-defined properties for ADTs
-  , expSigs    :: ![(F.Symbol, F.Sort)]                               -- ^ Exported logic symbols
+  , expSigs    :: ![(lname, F.Sort)]                                  -- ^ Exported logic symbols
   , asmSigs    :: ![(F.Located LHName, F.Located ty)]                 -- ^ Assumed (unchecked) types; including reflected signatures
   , asmReflectSigs :: ![(F.Located LHName, F.Located LHName)]         -- ^ Assume reflects : left is the actual function and right the pretended one
   , sigs       :: ![(F.Located LHName, F.Located ty)]                 -- ^ Asserted spec signatures
@@ -414,8 +417,7 @@ data Spec ty = Spec
   , axeqs      :: ![F.Equation]                                       -- ^ Equalities used for Proof-By-Evaluation
   } deriving (Data, Generic, Show)
 
-
-instance (Show ty, F.PPrint ty) => F.PPrint (Spec ty) where
+instance (Show lname, F.PPrint lname, Show ty, F.PPrint ty) => F.PPrint (Spec lname ty) where
     pprintTidy k sp = text "dataDecls = " <+> pprintTidy k  (dataDecls sp)
                          HughesPJ.$$
                       text "classes = " <+> pprintTidy k (classes sp)
@@ -426,7 +428,7 @@ instance (Show ty, F.PPrint ty) => F.PPrint (Spec ty) where
 --
 -- The first parameter of the function argument are the variables in scope.
 -- This is necessary for bounds and aliases.
-emapSpecTyM :: Monad m => ([F.Symbol] -> ty0 -> m ty1) -> Spec ty0 -> m (Spec ty1)
+emapSpecTyM :: Monad m => ([F.Symbol] -> ty0 -> m ty1) -> Spec lname ty0 -> m (Spec lname ty1)
 emapSpecTyM f s = do
     measures <- mapM (mapMeasureTyM (traverse fnull)) (measures s)
     asmSigs <- mapM (traverse (traverse fnull)) (asmSigs s)
@@ -471,7 +473,7 @@ emapSpecTyM f s = do
     firstM f1 (a, b) = (, b) <$> f1 a
     emapBoundTyM f1 b = mapBoundTyM (f1 $ map (val . fst) $ bargs b) b
 
-mapSpecTy :: (ty0 -> ty1) -> Spec ty0 -> Spec ty1
+mapSpecTy :: (ty0 -> ty1) -> Spec lname ty0 -> Spec lname ty1
 mapSpecTy f Spec {..} =
     Spec
       { measures = map (mapMeasureTy (fmap f)) measures
@@ -497,7 +499,7 @@ mapSpecTy f Spec {..} =
 
 -- /NOTA BENE/: These instances below are considered legacy, because merging two 'Spec's together doesn't
 -- really make sense, and we provide this only for legacy purposes.
-instance Semigroup (Spec ty) where
+instance Semigroup (Spec lname ty) where
   s1 <> s2
     = Spec { measures   =           measures   s1 ++ measures   s2
            , expSigs    =           expSigs    s1 ++ expSigs    s2
@@ -540,7 +542,7 @@ instance Semigroup (Spec ty) where
            , autois     = S.union   (autois s1)      (autois s2)
            }
 
-instance Monoid (Spec ty) where
+instance Monoid (Spec lname ty) where
   mappend = (<>)
   mempty
     = Spec { measures   = []
@@ -760,7 +762,7 @@ data GhcSpec = SP
   , _gsRefl   :: !GhcSpecRefl
   , _gsImps   :: ![(F.Symbol, F.Sort)]  -- ^ Imported Environment
   , _gsConfig :: !Config
-  , _gsLSpec  :: !(Spec BareType) -- ^ Lifted specification for the target module
+  , _gsLSpec  :: !(Spec F.Symbol BareType) -- ^ Lifted specification for the target module
   }
 
 instance HasConfig GhcSpec where
@@ -823,7 +825,7 @@ toTargetSpec ghcSpec =
       , gsConfig = _gsConfig ghcSpec
       }
 
-toLiftedSpec :: Spec BareType -> LiftedSpec
+toLiftedSpec :: Spec F.Symbol BareType -> LiftedSpec
 toLiftedSpec a = LiftedSpec
   { liftedMeasures   = S.fromList . measures $ a
   , liftedExpSigs    = S.fromList . expSigs  $ a
@@ -853,7 +855,7 @@ toLiftedSpec a = LiftedSpec
 
 -- This is a temporary internal function that we use to convert the input dependencies into a format
 -- suitable for 'makeGhcSpec'.
-unsafeFromLiftedSpec :: LiftedSpec -> Spec BareType
+unsafeFromLiftedSpec :: LiftedSpec -> Spec F.Symbol BareType
 unsafeFromLiftedSpec a = Spec
   { measures   = S.toList . liftedMeasures $ a
   , expSigs    = S.toList . liftedExpSigs $ a

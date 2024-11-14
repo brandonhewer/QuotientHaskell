@@ -476,7 +476,7 @@ makeSpecQual _cfg env tycEnv measEnv _rtEnv specs = SpQual
                    ++ (fst <$> Bare.meSyms measEnv)
                    ++ (fst <$> Bare.meClassSyms measEnv)
 
-makeQualifiers :: Bare.Env -> Bare.TycEnv -> (ModName, Ms.Spec ty) -> [F.Qualifier]
+makeQualifiers :: Bare.Env -> Bare.TycEnv -> (ModName, Ms.Spec lname ty) -> [F.Qualifier]
 makeQualifiers env tycEnv (modn, spec)
   = fmap        (Bare.qualifyTopDummy env        modn)
   . Mb.mapMaybe (resolveQParams       env tycEnv modn)
@@ -574,7 +574,7 @@ makeRewrite env spec =
 makeRewriteWith :: Bare.Env -> Ms.BareSpec -> Bare.Lookup (M.HashMap Ghc.Var [Ghc.Var])
 makeRewriteWith env spec = M.fromList <$> makeRewriteWith' env spec
 
-makeRewriteWith' :: Bare.Env -> Spec ty -> Bare.Lookup [(Ghc.Var, [Ghc.Var])]
+makeRewriteWith' :: Bare.Env -> Spec lname ty -> Bare.Lookup [(Ghc.Var, [Ghc.Var])]
 makeRewriteWith' env spec =
   forM (M.toList $ Ms.rewriteWith spec) $ \(x, xs) -> do
     xv  <- Bare.lookupGhcIdLHName env x
