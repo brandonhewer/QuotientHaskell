@@ -360,11 +360,11 @@ type SpecMeasure   = Measure LocSpecType DataCon
 --
 -- Also, a 'BareSpec' has not yet been subject to name resolution, so it may refer
 -- to undefined or out-of-scope entities.
-type BareSpec = Spec LocBareType LocSymbol
+type BareSpec = Spec LocBareType
 
 -- | A generic 'Spec' type, polymorphic over the inner choice of type and binder.
-data Spec ty bndr  = Spec
-  { measures   :: ![Measure ty bndr]                                  -- ^ User-defined properties for ADTs
+data Spec ty = Spec
+  { measures   :: ![Measure ty LocSymbol]                             -- ^ User-defined properties for ADTs
   , expSigs    :: ![(F.Symbol, F.Sort)]                               -- ^ Exported logic symbols
   , asmSigs    :: ![(F.Located LHName, ty)]                           -- ^ Assumed (unchecked) types; including reflected signatures
   , asmReflectSigs :: ![(F.Located LHName, F.Located LHName)]         -- ^ Assume reflects : left is the actual function and right the pretended one
@@ -392,8 +392,8 @@ data Spec ty bndr  = Spec
   , autosize   :: !(S.HashSet (F.Located LHName))                     -- ^ Type Constructors that get automatically sizing info
   , pragmas    :: ![F.Located String]                                 -- ^ Command-line configurations passed in through source
   , cmeasures  :: ![Measure ty ()]                                    -- ^ Measures attached to a type-class
-  , imeasures  :: ![Measure ty bndr]                                  -- ^ Mappings from (measure,type) -> measure
-  , omeasures  :: ![Measure ty bndr]                                  -- ^ Opaque reflection measures.
+  , imeasures  :: ![Measure ty LocSymbol]                             -- ^ Mappings from (measure,type) -> measure
+  , omeasures  :: ![Measure ty LocSymbol]                             -- ^ Opaque reflection measures.
   -- Separate field bc measures are checked for duplicates, and we want to allow for opaque-reflected measures to be duplicated.
   -- See Note [Duplicate measures and opaque reflection] in "Language.Haskell.Liquid.Measure".
   , classes    :: ![RClass ty]                                        -- ^ Refined Type-Classes
@@ -407,9 +407,9 @@ data Spec ty bndr  = Spec
   , axeqs      :: ![F.Equation]                                       -- ^ Equalities used for Proof-By-Evaluation
   } deriving (Data, Generic, Show)
 
-instance Binary (Spec LocBareType F.LocSymbol)
+instance Binary (Spec LocBareType)
 
-instance (Show ty, Show bndr, F.PPrint ty, F.PPrint bndr) => F.PPrint (Spec ty bndr) where
+instance (Show ty, F.PPrint ty) => F.PPrint (Spec ty) where
     pprintTidy k sp = text "dataDecls = " <+> pprintTidy k  (dataDecls sp)
                          HughesPJ.$$
                       text "classes = " <+> pprintTidy k (classes sp)
@@ -418,7 +418,7 @@ instance (Show ty, Show bndr, F.PPrint ty, F.PPrint bndr) => F.PPrint (Spec ty b
 
 -- /NOTA BENE/: These instances below are considered legacy, because merging two 'Spec's together doesn't
 -- really make sense, and we provide this only for legacy purposes.
-instance Semigroup (Spec ty bndr) where
+instance Semigroup (Spec ty) where
   s1 <> s2
     = Spec { measures   =           measures   s1 ++ measures   s2
            , expSigs    =           expSigs    s1 ++ expSigs    s2
@@ -461,7 +461,7 @@ instance Semigroup (Spec ty bndr) where
            , autois     = S.union   (autois s1)      (autois s2)
            }
 
-instance Monoid (Spec ty bndr) where
+instance Monoid (Spec ty) where
   mappend = (<>)
   mempty
     = Spec { measures   = []
@@ -681,7 +681,7 @@ data GhcSpec = SP
   , _gsRefl   :: !GhcSpecRefl
   , _gsImps   :: ![(F.Symbol, F.Sort)]  -- ^ Imported Environment
   , _gsConfig :: !Config
-  , _gsLSpec  :: !(Spec LocBareType F.LocSymbol) -- ^ Lifted specification for the target module
+  , _gsLSpec  :: !(Spec LocBareType) -- ^ Lifted specification for the target module
   }
 
 instance HasConfig GhcSpec where
@@ -744,7 +744,7 @@ toTargetSpec ghcSpec =
       , gsConfig = _gsConfig ghcSpec
       }
 
-toLiftedSpec :: Spec LocBareType F.LocSymbol -> LiftedSpec
+toLiftedSpec :: Spec LocBareType -> LiftedSpec
 toLiftedSpec a = LiftedSpec
   { liftedMeasures   = S.fromList . measures $ a
   , liftedExpSigs    = S.fromList . expSigs  $ a
@@ -774,7 +774,7 @@ toLiftedSpec a = LiftedSpec
 
 -- This is a temporary internal function that we use to convert the input dependencies into a format
 -- suitable for 'makeGhcSpec'.
-unsafeFromLiftedSpec :: LiftedSpec -> Spec LocBareType F.LocSymbol
+unsafeFromLiftedSpec :: LiftedSpec -> Spec LocBareType
 unsafeFromLiftedSpec a = Spec
   { measures   = S.toList . liftedMeasures $ a
   , expSigs    = S.toList . liftedExpSigs $ a
