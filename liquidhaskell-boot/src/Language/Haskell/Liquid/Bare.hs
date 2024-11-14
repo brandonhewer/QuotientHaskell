@@ -16,15 +16,10 @@ module Language.Haskell.Liquid.Bare (
   -- * Creating a TargetSpec
   -- $creatingTargetSpecs
     makeTargetSpec
-
-  -- * Loading and Saving lifted specs from/to disk
-  , loadLiftedSpec
-  , saveLiftedSpec
   ) where
 
 import           Control.Monad                              (forM, mplus, when)
 import qualified Control.Exception                          as Ex
-import qualified Data.Binary                                as B
 import           Data.IORef (newIORef)
 import qualified Data.Maybe                                 as Mb
 import qualified Data.List                                  as L
@@ -32,8 +27,6 @@ import qualified Data.HashMap.Strict                        as M
 import qualified Data.HashSet                               as S
 import           Text.PrettyPrint.HughesPJ                  hiding (first, (<>)) -- (text, (<+>))
 import           System.FilePath                            (dropExtension)
-import           System.Directory                           (doesFileExist)
-import           System.Console.CmdArgs.Verbosity           (whenLoud)
 import           Language.Fixpoint.Utils.Files              as Files
 import           Language.Fixpoint.Misc                     as Misc
 import           Language.Fixpoint.Types                    hiding (dcFields, DataDecl, Error, panic)
@@ -71,35 +64,6 @@ import Data.Hashable (Hashable)
 import Data.Bifunctor (bimap, first)
 import Data.Function (on)
 
---------------------------------------------------------------------------------
--- | De/Serializing Spec files
---------------------------------------------------------------------------------
-
-loadLiftedSpec :: Config -> FilePath -> IO (Maybe Ms.BareSpec)
-loadLiftedSpec cfg srcF
-  | noLiftedImport cfg = putStrLn "No LIFTED Import" >> return Nothing
-  | otherwise          = do
-      let specF = extFileName BinSpec srcF
-      ex  <- doesFileExist specF
-      whenLoud $ putStrLn $ "Loading Binary Lifted Spec: " ++ specF ++ " " ++ "for source-file: " ++ show srcF ++ " " ++ show ex
-      lSp <- if ex
-               then Just <$> B.decodeFile specF
-               else {- warnMissingLiftedSpec srcF specF >> -} return Nothing
-      Ex.evaluate lSp
-
--- warnMissingLiftedSpec :: FilePath -> FilePath -> IO ()
--- warnMissingLiftedSpec srcF specF = do
---   incDir <- Misc.getIncludeDir
---   unless (Misc.isIncludeFile incDir srcF)
---     $ Ex.throw (errMissingSpec srcF specF)
-
-saveLiftedSpec :: FilePath -> Ms.BareSpec -> IO ()
-saveLiftedSpec srcF lspec = do
-  ensurePath specF
-  B.encodeFile specF lspec
-  -- print (errorP "DIE" "HERE" :: String)
-  where
-    specF = extFileName BinSpec srcF
 
 {- $creatingTargetSpecs
 
