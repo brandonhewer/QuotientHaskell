@@ -407,7 +407,6 @@ data Spec ty = Spec
   , axeqs      :: ![F.Equation]                                       -- ^ Equalities used for Proof-By-Evaluation
   } deriving (Data, Generic, Show)
 
-instance Binary (Spec LocBareType)
 
 instance (Show ty, F.PPrint ty) => F.PPrint (Spec ty) where
     pprintTidy k sp = text "dataDecls = " <+> pprintTidy k  (dataDecls sp)
