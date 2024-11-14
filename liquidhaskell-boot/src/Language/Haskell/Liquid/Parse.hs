@@ -1026,7 +1026,7 @@ ppPspec k (AssmRel (lxl, lxr, tl, tr, q, p))
 -- signatues) are being qualified, i.e., the binding occurrences are prefixed
 -- with the module name.
 --
-mkSpec :: [BPspec] -> Measure.Spec LocBareType LocSymbol
+mkSpec :: [BPspec] -> Measure.Spec LocBareType
 mkSpec xs         = Measure.Spec
   { Measure.measures   = [m | Meas   m <- xs]
   , Measure.asmSigs    = [a | Assm   a <- xs]
