@@ -53,6 +53,7 @@ module Language.Haskell.Liquid.Types.Specs (
   , SpecMeasure
   , VarOrLocSymbol
   , emapSpecTyM
+  , mapSpecLName
   , mapSpecTy
   -- * Legacy data structures
   -- $legacyDataStructures
@@ -496,6 +497,13 @@ mapSpecTy f Spec {..} =
       }
   where
     mapRelationalTy f1 (n0, n1, a, b, e0, e1) = (n0, n1, fmap f1 a, fmap f1 b, e0, e1)
+
+mapSpecLName :: (lname0 -> lname1) -> Spec lname0 ty -> Spec lname1 ty
+mapSpecLName f Spec {..} =
+    Spec
+      { expSigs = map (first f) expSigs
+      , ..
+      }
 
 -- /NOTA BENE/: These instances below are considered legacy, because merging two 'Spec's together doesn't
 -- really make sense, and we provide this only for legacy purposes.

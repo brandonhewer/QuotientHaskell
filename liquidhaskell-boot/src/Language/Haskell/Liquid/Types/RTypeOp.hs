@@ -24,6 +24,7 @@ module Language.Haskell.Liquid.Types.RTypeOp (
   -- * Traversing `RType`
   , efoldReft, foldReft, foldReft'
   , emapReft, mapReft, mapReftM, mapPropM
+  , emapReftM, emapRefM
   , mapExprReft
   , mapBot, mapBind, mapRFInfo
   , foldRType
@@ -280,6 +281,25 @@ emapReft f γ (RHole r)         = RHole (f γ r)
 emapRef :: ([Symbol] -> t -> s) ->  [Symbol] -> RTProp c tv t -> RTProp c tv s
 emapRef  f γ (RProp s (RHole r))  = RProp s $ RHole (f γ r)
 emapRef  f γ (RProp s t)         = RProp s $ emapReft f γ t
+
+emapReftM :: Monad m => ([Symbol] -> r1 -> m r2) -> [Symbol] -> RType c tv r1 -> m (RType c tv r2)
+emapReftM f γ (RVar α r)        = RVar  α <$> f γ r
+emapReftM f γ (RAllT α t r)     = RAllT α <$> emapReftM f γ t <*> f γ r
+emapReftM f γ (RAllP π t)       = RAllP π <$> emapReftM f γ t
+emapReftM f γ (RFun x i t t' r) = RFun  x i <$> emapReftM f (x:γ) t <*> emapReftM f (x:γ) t' <*> f (x:γ) r
+emapReftM f γ (RApp c ts rs r)  = RApp  c <$> mapM (emapReftM f γ) ts <*> mapM (emapRefM f γ) rs <*> f γ r
+emapReftM f γ (RAllE z t t')    = RAllE z <$> emapReftM f γ t <*> emapReftM f γ t'
+emapReftM f γ (REx z t t')      = REx   z <$> emapReftM f γ t <*> emapReftM f γ t'
+emapReftM _ _ (RExprArg e)      = pure (RExprArg e)
+emapReftM f γ (RAppTy t t' r)   = RAppTy <$> emapReftM f γ t <*> emapReftM f γ t' <*> f γ r
+emapReftM f γ (RRTy e r o t)    =
+    RRTy <$> mapM (traverse (emapReftM f (map fst e ++ γ))) e <*> f γ r <*> pure o <*> emapReftM f γ t
+emapReftM f γ (RHole r)         = RHole <$> f γ r
+
+emapRefM :: Monad m => ([Symbol] -> t -> m s) ->  [Symbol] -> RTProp c tv t -> m (RTProp c tv s)
+emapRefM  f γ (RProp s (RHole r)) = RProp s . RHole <$> f γ r
+emapRefM  f γ (RProp s t) = RProp s <$> emapReftM f γ t
+
 
 emapExprArg :: ([Symbol] -> Expr -> Expr) -> [Symbol] -> RType c tv r -> RType c tv r
 emapExprArg f = go

@@ -9,6 +9,8 @@
 {-# LANGUAGE RecordWildCards            #-}
 {-# LANGUAGE ConstraintKinds            #-}
 {-# LANGUAGE DerivingVia                #-}
+{-# LANGUAGE LambdaCase                 #-}
+{-# LANGUAGE NamedFieldPuns             #-}
 
 {-# OPTIONS_GHC -Wno-orphans #-}
 
@@ -51,11 +53,19 @@ module Language.Haskell.Liquid.Types.RType (
   , PredicateV (..)
 
   -- * Manipulating `Predicates`
+  , emapExprVM
+  , mapPredicateV
+  , emapPredicateVM
+  , mapPVarV
+  , emapPVarVM
+  , emapSubstVM
   , pvars, pappSym, pApp
 
   -- * Refinements
   , UReft
   , UReftV(..)
+  , mapUReftV
+  , emapUReftVM
 
   -- * Parse-time entities describing refined data types
   , SizeFun  (..), szFun
@@ -123,10 +133,12 @@ import           GHC.Generics
 import           Prelude                          hiding  (error)
 
 import           Control.DeepSeq
+import           Data.Traversable                       (forAccumM)
 import           Data.Typeable                          (Typeable)
 import           Data.Generics                          (Data)
 import qualified Data.Binary                            as B
 import           Data.Hashable
+import qualified Data.HashMap.Strict                    as M
 import qualified Data.List                              as L
 import           Data.Maybe                             (mapMaybe)
 import           Data.List                              as L (nub)
@@ -134,7 +146,7 @@ import           Text.PrettyPrint.HughesPJ              hiding (first, (<>))
 import           Language.Fixpoint.Misc
 
 import qualified Language.Fixpoint.Types as F
-import           Language.Fixpoint.Types (Expr, Symbol)
+import           Language.Fixpoint.Types (Expr, ExprV(..), SubstV(..), Symbol)
 
 import           Language.Haskell.Liquid.GHC.Misc
 import           Language.Haskell.Liquid.Types.Names
@@ -254,6 +266,24 @@ data PVarV v t = PV
   , pargs :: ![(t, Symbol, F.ExprV v)]
   } deriving (Generic, Data, Typeable, Show, Functor)
 
+mapPVarV :: (v -> v') -> (t -> t') -> PVarV v t -> PVarV v' t'
+mapPVarV f g PV {..} =
+    PV
+      { ptype = g ptype
+      , pargs = [ (g t, s, fmap f e) | (t, s, e) <- pargs ]
+      , ..
+      }
+
+-- | A map traversal that collects the local variables in scope
+emapPVarVM :: Monad m => ([Symbol] -> v -> m v') -> ([Symbol] -> t -> m t') -> PVarV v t -> m (PVarV v' t')
+emapPVarVM f g pv = do
+    ptype <- g (argSyms (pargs pv)) (ptype pv)
+    (_, pargs) <- forAccumM [] (pargs pv) $ \ss (t, s, e) -> do
+      fmap ((,) (s:ss)) $ (,,) <$> g (s:ss) t <*> pure s <*> emapExprVM (f . ((s:ss) ++)) e
+    return pv{ptype, pargs}
+  where
+    argSyms = map (\(_, s, _) -> s)
+
 instance Eq (PVarV v t) where
   pv == pv' = pname pv == pname pv' {- UNIFY: What about: && eqArgs pv pv' -}
 
@@ -277,6 +307,39 @@ pprPvar (PV s _ _ xts) = F.pprint s <+> hsep (F.pprint <$> dargs xts)
   where
     dargs              = map thd3 . takeWhile (\(_, x, y) -> F.EVar x /= y)
 
+-- | A map traversal that collects the local variables in scope
+emapExprVM :: Monad m => ([Symbol] -> v -> m v') -> ExprV v -> m (ExprV v')
+emapExprVM f = go []
+  where
+    go acc = \case
+      ESym c -> return $ ESym c
+      ECon c -> return $ ECon c
+      EVar v -> EVar <$> f acc v
+      EApp e0 e1 -> EApp <$> go acc e0 <*> go acc e1
+      ENeg e -> ENeg <$> go acc e
+      EBin bop e0 e1 -> EBin bop <$> go acc e0 <*> go acc e1
+      EIte e0 e1 e2 -> EIte <$> go acc e0 <*> go acc e1 <*> go acc e2
+      ECst e s -> flip ECst s <$> go acc e
+      ELam (s,srt) e -> ELam (s, srt) <$> go (s:acc) e
+      ETApp e s -> flip ETApp s <$> go acc e
+      ETAbs e s -> flip ETAbs s <$> go acc e
+      PAnd xs -> PAnd <$> mapM (go acc) xs
+      POr xs -> POr <$> mapM (go acc) xs
+      PNot e -> PNot <$> go acc e
+      PImp e0 e1 -> PImp <$> go acc e0 <*> go acc e1
+      PIff e0 e1 -> PIff <$> go acc e0 <*> go acc e1
+      PAtom brel e0 e1 -> PAtom brel <$> go acc e0 <*> go acc e1
+      PKVar k su -> PKVar k <$> emapSubstVM (f . (domain su ++) . (acc ++)) su
+      PAll bnds e -> PAll bnds <$> go (map fst bnds ++ acc) e
+      PExist bnds e -> PExist bnds <$> go (map fst bnds ++ acc) e
+      PGrad k su gi e ->
+        PGrad k <$> emapSubstVM (f . (acc ++)) su <*> pure gi <*> go (domain su ++ acc) e
+      ECoerc srt0 srt1 e -> ECoerc srt0 srt1 <$> go acc e
+
+    domain (Su m) = M.keys m
+
+emapSubstVM :: Monad m => ([Symbol] -> v -> m v') -> SubstV v -> m (SubstV v')
+emapSubstVM f (Su m) = Su . M.fromList <$> mapM (traverse (emapExprVM f)) (M.toList m)
 
 --------------------------------------------------------------------------------
 -- | Predicates ----------------------------------------------------------------
@@ -289,6 +352,13 @@ type Predicate = PredicateV Symbol
 newtype PredicateV v = Pr [UsedPVarV v]
   deriving (Generic, Data, Typeable)
   deriving Hashable via Generically (PredicateV v)
+
+mapPredicateV :: (v -> v') -> PredicateV v -> PredicateV v'
+mapPredicateV f (Pr xs) = Pr (map (mapPVarV f (\_ -> ())) xs)
+
+-- | A map traversal that collects the local variables in scope
+emapPredicateVM :: Monad m => ([Symbol] -> v -> m v') -> PredicateV v -> m (PredicateV v')
+emapPredicateVM f (Pr xs) = Pr <$> mapM (emapPVarVM f (\_ _ -> pure ())) xs
 
 instance Ord v => Eq (PredicateV v) where
   (Pr vs) == (Pr ws)
@@ -778,6 +848,14 @@ data UReftV v r = MkUReft
   , ur_pred   :: !(PredicateV v)
   }
   deriving (Eq, Generic, Data, Typeable, Functor, Foldable, Traversable)
+
+mapUReftV :: (v -> v') -> (r -> r') -> UReftV v r -> UReftV v' r'
+mapUReftV f g (MkUReft r p) = MkUReft (g r) (mapPredicateV f p)
+
+emapUReftVM
+  :: Monad m
+  => ([Symbol] -> v -> m v') -> (r -> m r') -> UReftV v r -> m (UReftV v' r')
+emapUReftVM f g (MkUReft r p) = MkUReft <$> g r <*> emapPredicateVM f p
 
 instance (Ord v, Hashable v, Hashable r) => Hashable (UReftV v r)
 instance (B.Binary v, B.Binary r) => B.Binary (UReftV v r)
