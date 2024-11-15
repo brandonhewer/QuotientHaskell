@@ -8,8 +8,7 @@
 {-# LANGUAGE LambdaCase                 #-}
 
 module Language.Haskell.Liquid.LHNameResolution
-  ( collectTypeAliases
-  , resolveLHNames
+  ( resolveLHNames
   , exprArg
   ) where
 
@@ -48,14 +47,13 @@ import qualified Text.Printf               as Printf
 collectTypeAliases
   :: Module
   -> BareSpec
-  -> [(StableModule, LiftedSpec)]
+  -> TargetDependencies
   -> HM.HashMap Symbol (GHC.Module, RTAlias Symbol BareType)
-collectTypeAliases m bs deps =
-    let spec = getBareSpec bs
-        bsAliases = [ (rtName a, (m, a)) | a <- map val (aliases spec) ]
+collectTypeAliases m spec deps =
+    let bsAliases = [ (rtName a, (m, a)) | a <- map val (aliases spec) ]
         depAliases =
           [ (rtName a, (unStableModule sm, a))
-          | (sm, lspec) <- deps
+          | (sm, lspec) <- HM.toList (getDependencies deps)
           , a <- map val (HS.toList $ liftedAliases lspec)
           ]
      in
@@ -64,17 +62,24 @@ collectTypeAliases m bs deps =
 -- | Converts occurrences of LHNUnresolved to LHNResolved using the provided
 -- type aliases and GlobalRdrEnv.
 resolveLHNames
-  :: LocalVars
-  -> HM.HashMap Symbol (Module, RTAlias Symbol BareType)
+  :: Module
+  -> LocalVars
   -> GlobalRdrEnv
   -> BareSpec
+  -> TargetDependencies
   -> Either [Error] BareSpec
-resolveLHNames localVars taliases globalRdrEnv =
-    (\(bs, es) -> if null es then Right bs else Left es) .
-    runWriter .
-    mapMLocLHNames (\l -> (<$ l) <$> resolveLHName l) .
-    fixExpressionArgsOfTypeAliases taliases
+resolveLHNames thisModule localVars globalRdrEnv bareSpec0 dependencies =
+    let (bs, es) =
+          runWriter $
+          mapMLocLHNames (\l -> (<$ l) <$> resolveLHName l) $
+          fixExpressionArgsOfTypeAliases taliases bareSpec0
+     in if null es then
+          Right bs
+        else
+          Left es
   where
+    taliases = collectTypeAliases thisModule bareSpec0 dependencies
+
     resolveLHName lname = case val lname of
       LHNUnresolved LHTcName s
         | isTuple s ->
@@ -87,10 +92,10 @@ resolveLHNames localVars taliases globalRdrEnv =
           case HM.lookup s taliases of
             Just (m, _) -> pure $ LHNResolved (LHRLogic $ LogicName s m) s
             Nothing -> lookupGRELHName LHTcName lname s listToMaybe
-      LHNUnresolved LHVarName s
-        | isDataCon s -> lookupGRELHName LHDataConName lname s listToMaybe
+      LHNUnresolved ns@(LHVarName lcl) s
+        | isDataCon s -> lookupGRELHName (LHDataConName lcl) lname s listToMaybe
         | otherwise ->
-            lookupGRELHName LHVarName lname s
+            lookupGRELHName ns lname s
               (fmap (either id GHC.getName) . lookupLocalVar localVars (atLoc lname s))
       LHNUnresolved ns s -> lookupGRELHName ns lname s listToMaybe
       n@(LHNResolved (LHRLocal _) _) -> pure n
@@ -99,7 +104,7 @@ resolveLHNames localVars taliases globalRdrEnv =
          in panic sp $ "resolveLHNames: Unexpected resolved name: " ++ show n
 
     lookupGRELHName ns lname s localNameLookup =
-      case GHC.lookupGRE globalRdrEnv (mkLookupGRE ns s) of
+      case maybeDropImported ns $ GHC.lookupGRE globalRdrEnv (mkLookupGRE ns s) of
         [e] -> do
           let n = GHC.greName e
               n' = fromMaybe n $ localNameLookup [n]
@@ -127,11 +132,22 @@ resolveLHNames localVars taliases globalRdrEnv =
     errResolve :: PJ.Doc -> String -> LocSymbol -> Error
     errResolve k msg lx = ErrResolve (LH.fSrcSpan lx) k (pprint (val lx)) (PJ.text msg)
 
+    maybeDropImported ns es
+      | localNameSpace ns = filter GHC.isLocalGRE es
+      | otherwise = es
+
+    localNameSpace = \case
+      LHDataConName lcl -> lcl == LHThisModuleNameF
+      LHVarName lcl -> lcl == LHThisModuleNameF
+      LHTcName -> False
+
     nameSpaceKind :: LHNameSpace -> PJ.Doc
     nameSpaceKind = \case
       LHTcName -> "type constructor"
-      LHDataConName -> "data constructor"
-      LHVarName -> "variable"
+      LHDataConName LHAnyModuleNameF -> "data constructor"
+      LHDataConName LHThisModuleNameF -> "locally-defined data constructor"
+      LHVarName LHAnyModuleNameF -> "variable"
+      LHVarName LHThisModuleNameF -> "variable from the current module"
 
     mkLookupGRE ns s =
       let m = LH.takeModuleNames s
@@ -148,8 +164,8 @@ resolveLHNames localVars taliases globalRdrEnv =
     mkWhichGREs :: LHNameSpace -> WhichGREs GHC.GREInfo
     mkWhichGREs = \case
       LHTcName -> GHC.SameNameSpace
-      LHDataConName -> GHC.SameNameSpace
-      LHVarName -> GHC.RelevantGREs
+      LHDataConName _ -> GHC.SameNameSpace
+      LHVarName _ -> GHC.RelevantGREs
         { GHC.includeFieldSelectors = GHC.WantNormal
         , GHC.lookupVariablesForFields = True
         , GHC.lookupTyConsAsWell = False
@@ -157,8 +173,8 @@ resolveLHNames localVars taliases globalRdrEnv =
 
     mkGHCNameSpace = \case
       LHTcName -> GHC.tcName
-      LHDataConName -> GHC.dataName
-      LHVarName -> GHC.Types.Name.Occurrence.varName
+      LHDataConName _ -> GHC.dataName
+      LHVarName _ -> GHC.Types.Name.Occurrence.varName
 
     tupleArity s =
       let a = read $ drop 5 $ symbolString s
@@ -187,9 +203,8 @@ resolveBoundVarsInTypeAliases = updateAliases resolveBoundVars
 
     -- Applies a function to the body of type aliases, passes to every call the
     -- arguments of the alias.
-    updateAliases f bs =
-      let spec = getBareSpec bs
-       in MkBareSpec spec
+    updateAliases f spec =
+       spec
             { aliases = [ Loc sp0 sp1 (a { rtBody = mapLHNames (f args) (rtBody a) })
                         | Loc sp0 sp1 a <- aliases spec
                         , let args = rtTArgs a ++ rtVArgs a

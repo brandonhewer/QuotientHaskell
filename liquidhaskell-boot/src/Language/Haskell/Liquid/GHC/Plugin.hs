@@ -22,7 +22,7 @@ import qualified Language.Fixpoint.Types                 as F
 import qualified  Language.Haskell.Liquid.GHC.Misc        as LH
 import qualified Language.Haskell.Liquid.UX.CmdLine      as LH
 import qualified Language.Haskell.Liquid.GHC.Interface   as LH
-import           Language.Haskell.Liquid.LHNameResolution (collectTypeAliases, resolveLHNames)
+import           Language.Haskell.Liquid.LHNameResolution (resolveLHNames)
 import qualified Language.Haskell.Liquid.Liquid          as LH
 import qualified Language.Haskell.Liquid.Types.PrettyPrint as LH ( filterReportErrors
                                                                  , filterReportErrorsWith
@@ -400,7 +400,7 @@ liquidHaskellCheckWithConfig
   :: Config -> PipelineData -> ModSummary -> TcM (Either LiquidCheckException LiquidLib)
 liquidHaskellCheckWithConfig cfg pipelineData modSummary = do
   -- Parse the spec comments stored in the pipeline data.
-  let inputSpec = toBareSpec . snd $
+  let inputSpec = snd $
         hsSpecificationP (moduleName thisModule) (pdSpecComments pipelineData)
 
   processInputSpec cfg pipelineData modSummary inputSpec
@@ -430,7 +430,7 @@ checkLiquidHaskellContext lhContext = do
       let bareSpec = lhInputSpec lhContext
           file = LH.modSummaryHsFile $ lhModuleSummary lhContext
 
-      withPragmas (lhGlobalCfg lhContext) file (Ms.pragmas $ fromBareSpec bareSpec) $ \moduleCfg ->  do
+      withPragmas (lhGlobalCfg lhContext) file (Ms.pragmas bareSpec) $ \moduleCfg ->  do
         let filters = getFilters moduleCfg
         -- Report the outcome of the checking
         LH.reportResult (errorLogger file filters) moduleCfg [giTarget (giSrc pmrTargetInfo)] out
@@ -458,7 +458,7 @@ errorLogger file filters outputResult = do
     (LH.orMessages outputResult)
 
 isIgnore :: BareSpec -> Bool
-isIgnore (MkBareSpec sp) = any ((== "--skip-module") . F.val) (pragmas sp)
+isIgnore sp = any ((== "--skip-module") . F.val) (pragmas sp)
 
 --------------------------------------------------------------------------------
 -- | Working with bare & lifted specs ------------------------------------------
@@ -521,9 +521,9 @@ processModule LiquidHaskellContext{..} = do
   -- (cfr. 'allowExtResolution').
   let file            = LH.modSummaryHsFile lhModuleSummary
 
-  _                   <- liftIO $ LH.checkFilePragmas $ Ms.pragmas (fromBareSpec bareSpec0)
+  _                   <- liftIO $ LH.checkFilePragmas $ Ms.pragmas bareSpec0
 
-  withPragmas lhGlobalCfg file (Ms.pragmas $ fromBareSpec bareSpec0) $ \moduleCfg -> do
+  withPragmas lhGlobalCfg file (Ms.pragmas bareSpec0) $ \moduleCfg -> do
     dependencies <- loadDependencies moduleCfg (S.toList lhRelevantModules)
 
     debugLog $ "Found " <> show (HM.size $ getDependencies dependencies) <> " dependencies:"
@@ -544,13 +544,13 @@ processModule LiquidHaskellContext{..} = do
     -- call 'evaluate' to force any exception and catch it, if we can.
 
     tcg <- getGblEnv
-    let rtAliases = collectTypeAliases thisModule bareSpec0 (HM.toList $ getDependencies dependencies)
-        localVars = makeLocalVars preNormalizedCore
+    let localVars = makeLocalVars preNormalizedCore
         eBareSpec = resolveLHNames
+          thisModule
           localVars
-          rtAliases
           (tcg_rdr_env tcg)
           bareSpec0
+          dependencies
     result <-
       case eBareSpec of
         Left errors -> pure $ Left $ mkDiagnostics [] errors

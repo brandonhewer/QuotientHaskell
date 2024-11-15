@@ -27,7 +27,6 @@ module Language.Haskell.Liquid.Types.RType (
   , RTyCon (RTyCon, rtc_tc, rtc_info)
   , TyConInfo(..), defaultTyConInfo
   , rTyConPVs
-  , rTyConPropVs
   -- , isClassRTyCon
   , isClassType, isEqType, isRVar, isBool, isEmbeddedClass
 
@@ -46,8 +45,7 @@ module Language.Haskell.Liquid.Types.RType (
   , setRtvPol
 
   -- * Predicate Variables
-  , PVar (PV, pname, parg, ptype, pargs), isPropPV, pvType
-  , PVKind (..)
+  , PVar (PV, pname, parg, ptype, pargs), pvType
   , Predicate (..)
 
   -- * Manipulating `Predicates`
@@ -119,7 +117,6 @@ import           Control.DeepSeq
 import           Data.Typeable                          (Typeable)
 import           Data.Generics                          (Data)
 import qualified Data.Binary                            as B
-import qualified Data.Foldable                          as F
 import           Data.Hashable
 import qualified Data.List                              as L
 import           Data.Maybe                             (mapMaybe)
@@ -242,7 +239,7 @@ instance F.PPrint SizeFun where
 
 data PVar t = PV
   { pname :: !Symbol
-  , ptype :: !(PVKind t)
+  , ptype :: !t
   , parg  :: !Symbol
   , pargs :: ![(t, Symbol, Expr)]
   } deriving (Generic, Data, Typeable, Show, Functor)
@@ -260,17 +257,7 @@ instance Hashable (PVar a) where
   hashWithSalt i (PV n _ _ _) = hashWithSalt i n
 
 pvType :: PVar t -> t
-pvType p = case ptype p of
-             PVProp t -> t
-             PVHProp  -> panic Nothing "pvType on HProp-PVar"
-
-data PVKind t
-  = PVProp t
-  | PVHProp
-  deriving (Generic, Data, Typeable, Functor, F.Foldable, Traversable, Show)
-
-instance B.Binary a => B.Binary (PVKind a)
-instance NFData a   => NFData   (PVKind a)
+pvType = ptype
 
 instance F.PPrint (PVar a) where
   pprintTidy _ = pprPvar
@@ -423,12 +410,6 @@ isClassBTyCon = btc_class
 
 rTyConPVs :: RTyCon -> [RPVar]
 rTyConPVs     = rtc_pvars
-
-rTyConPropVs :: RTyCon -> [PVar RSort]
-rTyConPropVs  = filter isPropPV . rtc_pvars
-
-isPropPV :: PVar t -> Bool
-isPropPV      = isProp . ptype
 
 isEqType :: TyConable c => RType c t t1 -> Bool
 isEqType (RApp c _ _ _) = isEqual c
@@ -596,15 +577,6 @@ instance Show BTyCon where
 
 instance F.Loc BTyCon where
   srcSpan = F.srcSpan . btc_tc
-
-
--- rTyConPVHPs = filter isHPropPV . rtc_pvars
--- isHPropPV   = not . isPropPV
-
-isProp :: PVKind t -> Bool
-isProp (PVProp _) = True
-isProp _          = False
-
 
 defaultTyConInfo :: TyConInfo
 defaultTyConInfo = TyConInfo [] [] Nothing

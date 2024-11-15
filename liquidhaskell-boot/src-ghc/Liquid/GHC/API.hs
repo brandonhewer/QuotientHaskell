@@ -670,6 +670,7 @@ import GHC.Types.Name.Reader          as Ghc
     , getRdrName
     , globalRdrEnvElts
     , greName
+    , isLocalGRE
     , lookupGRE
     , lookupGRE_Name
     , mkQual

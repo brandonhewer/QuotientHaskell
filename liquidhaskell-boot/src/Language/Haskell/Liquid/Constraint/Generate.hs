@@ -976,17 +976,13 @@ varAnn γ x t
 -- | Helpers: Creating Fresh Refinement -------------------------------
 -----------------------------------------------------------------------
 freshPredRef :: CGEnv -> CoreExpr -> PVar RSort -> CG SpecProp
-freshPredRef γ e (PV _ (PVProp rsort) _ as)
+freshPredRef γ e (PV _ rsort _ as)
   = do t    <- freshTyType (typeclass (getConfig γ))  PredInstE e (toType False rsort)
        args <- mapM (const fresh) as
        let targs = [(x, s) | (x, (s, y, z)) <- zip args as, F.EVar y == z ]
        γ' <- foldM (+=) γ [("freshPredRef", x, ofRSort τ) | (x, τ) <- targs]
        addW $ WfC γ' t
        return $ RProp targs t
-
-freshPredRef _ _ (PV _ PVHProp _ _)
-  = todo Nothing "EFFECTS:freshPredRef"
-
 
 --------------------------------------------------------------------------------
 -- | Helpers: Creating Refinement Types For Various Things ---------------------

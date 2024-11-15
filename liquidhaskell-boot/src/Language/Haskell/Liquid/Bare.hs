@@ -16,15 +16,10 @@ module Language.Haskell.Liquid.Bare (
   -- * Creating a TargetSpec
   -- $creatingTargetSpecs
     makeTargetSpec
-
-  -- * Loading and Saving lifted specs from/to disk
-  , loadLiftedSpec
-  , saveLiftedSpec
   ) where
 
 import           Control.Monad                              (forM, mplus, when)
 import qualified Control.Exception                          as Ex
-import qualified Data.Binary                                as B
 import           Data.IORef (newIORef)
 import qualified Data.Maybe                                 as Mb
 import qualified Data.List                                  as L
@@ -32,8 +27,6 @@ import qualified Data.HashMap.Strict                        as M
 import qualified Data.HashSet                               as S
 import           Text.PrettyPrint.HughesPJ                  hiding (first, (<>)) -- (text, (<+>))
 import           System.FilePath                            (dropExtension)
-import           System.Directory                           (doesFileExist)
-import           System.Console.CmdArgs.Verbosity           (whenLoud)
 import           Language.Fixpoint.Utils.Files              as Files
 import           Language.Fixpoint.Misc                     as Misc
 import           Language.Fixpoint.Types                    hiding (dcFields, DataDecl, Error, panic)
@@ -71,35 +64,6 @@ import Data.Hashable (Hashable)
 import Data.Bifunctor (bimap, first)
 import Data.Function (on)
 
---------------------------------------------------------------------------------
--- | De/Serializing Spec files
---------------------------------------------------------------------------------
-
-loadLiftedSpec :: Config -> FilePath -> IO (Maybe Ms.BareSpec)
-loadLiftedSpec cfg srcF
-  | noLiftedImport cfg = putStrLn "No LIFTED Import" >> return Nothing
-  | otherwise          = do
-      let specF = extFileName BinSpec srcF
-      ex  <- doesFileExist specF
-      whenLoud $ putStrLn $ "Loading Binary Lifted Spec: " ++ specF ++ " " ++ "for source-file: " ++ show srcF ++ " " ++ show ex
-      lSp <- if ex
-               then Just <$> B.decodeFile specF
-               else {- warnMissingLiftedSpec srcF specF >> -} return Nothing
-      Ex.evaluate lSp
-
--- warnMissingLiftedSpec :: FilePath -> FilePath -> IO ()
--- warnMissingLiftedSpec srcF specF = do
---   incDir <- Misc.getIncludeDir
---   unless (Misc.isIncludeFile incDir srcF)
---     $ Ex.throw (errMissingSpec srcF specF)
-
-saveLiftedSpec :: FilePath -> Ms.BareSpec -> IO ()
-saveLiftedSpec srcF lspec = do
-  ensurePath specF
-  B.encodeFile specF lspec
-  -- print (errorP "DIE" "HERE" :: String)
-  where
-    specF = extFileName BinSpec srcF
 
 {- $creatingTargetSpecs
 
@@ -128,7 +92,7 @@ makeTargetSpec :: Config
 makeTargetSpec cfg localVars lmap targetSrc bareSpec dependencies = do
   let targDiagnostics     = Bare.checkTargetSrc cfg targetSrc
   let depsDiagnostics     = mapM (Bare.checkBareSpec . snd) legacyDependencies
-  let bareSpecDiagnostics = Bare.checkBareSpec legacyBareSpec
+  let bareSpecDiagnostics = Bare.checkBareSpec bareSpec
   case targDiagnostics >> depsDiagnostics >> bareSpecDiagnostics of
    Left d | noErrors d -> secondPhase (allWarnings d)
    Left d              -> return $ Left d
@@ -136,35 +100,7 @@ makeTargetSpec cfg localVars lmap targetSrc bareSpec dependencies = do
   where
     secondPhase :: [Warning] -> Ghc.TcRn (Either Diagnostics ([Warning], TargetSpec, LiftedSpec))
     secondPhase phaseOneWarns = do
-
-      -- we should be able to setContext regardless of whether
-      -- we use the ghc api. However, ghc will complain
-      -- if the filename does not match the module name
-      -- when (typeclass cfg) $ do
-      --   Ghc.setContext [iimport |(modName, _) <- allSpecs legacyBareSpec,
-      --                   let iimport = if isTarget modName
-      --                                 then Ghc.IIModule (getModName modName)
-      --                                 else Ghc.IIDecl (Ghc.simpleImportDecl (getModName modName))]
-      --   void $ Ghc.execStmt
-      --     "let {infixr 1 ==>; True ==> False = False; _ ==> _ = True}"
-      --     Ghc.execOptions
-      --   void $ Ghc.execStmt
-      --     "let {infixr 1 <=>; True <=> False = False; _ <=> _ = True}"
-      --     Ghc.execOptions
-      --   void $ Ghc.execStmt
-      --     "let {infix 4 ==; (==) :: a -> a -> Bool; _ == _ = undefined}"
-      --     Ghc.execOptions
-      --   void $ Ghc.execStmt
-      --     "let {infix 4 /=; (/=) :: a -> a -> Bool; _ /= _ = undefined}"
-      --     Ghc.execOptions
-      --   void $ Ghc.execStmt
-      --     "let {infixl 7 /; (/) :: Num a => a -> a -> a; _ / _ = undefined}"
-      --     Ghc.execOptions
-      --   void $ Ghc.execStmt
-      --     "let {len :: [a] -> Int; len _ = undefined}"
-      --     Ghc.execOptions
-
-      diagOrSpec <- makeGhcSpec cfg localVars (fromTargetSrc targetSrc) lmap legacyBareSpec legacyDependencies
+      diagOrSpec <- makeGhcSpec cfg localVars (fromTargetSrc targetSrc) lmap bareSpec legacyDependencies
       case diagOrSpec of
         Left d -> return $ Left d
         Right (warns, ghcSpec) -> do
@@ -177,9 +113,6 @@ makeTargetSpec cfg localVars lmap targetSrc bareSpec dependencies = do
 
     legacyDependencies :: [(ModName, Ms.BareSpec)]
     legacyDependencies = map toLegacyDep . M.toList . getDependencies $ dependencies
-
-    legacyBareSpec :: Ms.BareSpec
-    legacyBareSpec = fromBareSpec bareSpec
 
     -- Assumptions about local functions that are not exported aren't useful for
     -- other modules.
@@ -329,6 +262,9 @@ makeGhcSpec0 cfg session tcg instEnvs localVars src lmap targetSpec dependencySp
                 , rinstance = specInstances
                   -- Preserve rinstances.
                 , asmReflectSigs = Ms.asmReflectSigs mySpec
+                , reflects = Ms.reflects mySpec0
+                , cmeasures = Ms.cmeasures targetSpec
+                , embeds = Ms.embeds targetSpec
                 }
     })
   where
@@ -434,16 +370,7 @@ makeLiftedSpec0 :: Config -> GhcSrc -> F.TCEmb Ghc.TyCon -> LogicMap -> Ms.BareS
                 -> Ms.BareSpec
 makeLiftedSpec0 cfg src embs lmap mySpec = mempty
   { Ms.ealiases  = lmapEAlias . snd <$> Bare.makeHaskellInlines (typeclass cfg) src embs lmap mySpec
-  , Ms.reflects  = Ms.reflects mySpec
   , Ms.dataDecls = Bare.makeHaskellDataDecls cfg name mySpec tcs
-  , Ms.embeds    = Ms.embeds mySpec
-  -- We do want 'embeds' to survive and to be present into the final 'LiftedSpec'. The
-  -- caveat is to decide which format is more appropriate. We obviously cannot store
-  -- them as a 'TCEmb TyCon' as serialising a 'TyCon' would be fairly exponsive. This
-  -- needs more thinking.
-  , Ms.cmeasures = Ms.cmeasures mySpec
-  -- We do want 'cmeasures' to survive and to be present into the final 'LiftedSpec'. The
-  -- caveat is to decide which format is more appropriate. This needs more thinking.
   }
   where
     tcs          = uniqNub (_gsTcs src ++ refTcs)
@@ -549,7 +476,7 @@ makeSpecQual _cfg env tycEnv measEnv _rtEnv specs = SpQual
                    ++ (fst <$> Bare.meSyms measEnv)
                    ++ (fst <$> Bare.meClassSyms measEnv)
 
-makeQualifiers :: Bare.Env -> Bare.TycEnv -> (ModName, Ms.Spec ty bndr) -> [F.Qualifier]
+makeQualifiers :: Bare.Env -> Bare.TycEnv -> (ModName, Ms.Spec ty) -> [F.Qualifier]
 makeQualifiers env tycEnv (modn, spec)
   = fmap        (Bare.qualifyTopDummy env        modn)
   . Mb.mapMaybe (resolveQParams       env tycEnv modn)
@@ -647,7 +574,7 @@ makeRewrite env spec =
 makeRewriteWith :: Bare.Env -> Ms.BareSpec -> Bare.Lookup (M.HashMap Ghc.Var [Ghc.Var])
 makeRewriteWith env spec = M.fromList <$> makeRewriteWith' env spec
 
-makeRewriteWith' :: Bare.Env -> Spec ty bndr -> Bare.Lookup [(Ghc.Var, [Ghc.Var])]
+makeRewriteWith' :: Bare.Env -> Spec ty -> Bare.Lookup [(Ghc.Var, [Ghc.Var])]
 makeRewriteWith' env spec =
   forM (M.toList $ Ms.rewriteWith spec) $ \(x, xs) -> do
     xv  <- Bare.lookupGhcIdLHName env x

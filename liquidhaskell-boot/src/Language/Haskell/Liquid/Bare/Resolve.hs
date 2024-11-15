@@ -1054,11 +1054,7 @@ addSymSort _ _ _ t
   = t
 
 addSymSortRef :: (PPrint s) => Ghc.SrcSpan -> s -> RPVar -> SpecProp -> Int -> SpecProp
-addSymSortRef sp rc p r i
-  | isPropPV p
-  = addSymSortRef' sp rc i p r
-  | otherwise
-  = panic Nothing "addSymSortRef: malformed ref application"
+addSymSortRef sp rc p r i = addSymSortRef' sp rc i p r
 
 addSymSortRef' :: (PPrint s) => Ghc.SrcSpan -> s -> Int -> RPVar -> SpecProp -> SpecProp
 addSymSortRef' _ _ _ p (RProp s (RVar v r)) | isDummy v
