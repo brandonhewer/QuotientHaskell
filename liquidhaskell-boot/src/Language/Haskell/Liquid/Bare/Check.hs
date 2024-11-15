@@ -23,7 +23,6 @@ import           Liquid.GHC.API                   as Ghc hiding ( Located
                                                                                  , empty
                                                                                  )
 import           Control.Applicative                       ((<|>))
-import           Control.Arrow                             ((&&&))
 import           Data.Maybe
 import           Data.Function                             (on)
 import           Text.PrettyPrint.HughesPJ                 hiding ((<>))
@@ -41,7 +40,6 @@ import           Language.Haskell.Liquid.Types.DataDecl
 import           Language.Haskell.Liquid.Types.Errors
 import           Language.Haskell.Liquid.Types.Names
 import           Language.Haskell.Liquid.Types.PredType
-import           Language.Haskell.Liquid.Types.PrettyPrint
 import           Language.Haskell.Liquid.Types.RType
 import           Language.Haskell.Liquid.Types.RefType
 import           Language.Haskell.Liquid.Types.RTypeOp
@@ -249,15 +247,6 @@ checkSigTExpr allowHO bsc emb tcEnv env (x, (t, es))
     mbErr2 = maybe emptyDiagnostics (checkTerminationExpr emb env . (x, t,)) es
     -- mbErr2 = checkTerminationExpr emb env . (x, t,) =<< es
 
-_checkQualifiers :: F.SEnv F.SortedReft -> [F.Qualifier] -> [Error]
-_checkQualifiers = mapMaybe . checkQualifier
-
-checkQualifier       :: F.SEnv F.SortedReft -> F.Qualifier -> Maybe Error
-checkQualifier env q =  mkE <$> checkSortFull (F.srcSpan q) γ F.boolSort  (F.qBody q)
-  where
-    γ                = L.foldl' (\e (x, s) -> F.insertSEnv x (F.RR s mempty) e) env (F.qualBinds q ++ wiredSortedSyms)
-    mkE              = ErrBadQual (GM.fSrcSpan q) (pprint $ F.qName q)
-
 -- | Used for termination checking. If we have no \"len\" defined /yet/ (for example we are checking
 -- 'GHC.Prim') then we want to skip this check.
 checkSizeFun :: F.TCEmb TyCon -> F.SEnv F.SortedReft -> [TyConP] -> Diagnostics
@@ -282,41 +271,6 @@ checkSizeFun emb env tys = mkDiagnostics mempty (map mkError (mapMaybe go tys))
     isWiredInLenFn :: SizeFun -> Bool
     isWiredInLenFn IdSizeFun           = False
     isWiredInLenFn (SymSizeFun locSym) = isWiredIn locSym
-
-_checkRefinedClasses :: [RClass LocBareType] -> [RInstance LocBareType] -> [Error]
-_checkRefinedClasses definitions instances
-  = mkError <$> duplicates
-  where
-    duplicates
-      = mapMaybe (checkCls . rcName) definitions
-    checkCls cls
-      = case findConflicts cls of
-          []        -> Nothing
-          conflicts -> Just (cls, conflicts)
-    findConflicts cls
-      = filter ((== cls) . riclass) instances
-    mkError (cls, conflicts)
-      = ErrRClass (GM.sourcePosSrcSpan $ loc $ btc_tc cls)
-                  (pprint cls) (ofConflict <$> conflicts)
-    ofConflict
-      = GM.sourcePosSrcSpan . loc . btc_tc . riclass &&& pprint . ritype
-
-_checkDuplicateFieldNames :: [(DataCon, DataConP)]  -> [Error]
-_checkDuplicateFieldNames = mapMaybe go
-  where
-    go (d, dts)          = checkNoDups (dcpLoc dts) d (fst <$> dcpTyArgs dts)
-    checkNoDups l d xs   = mkError l d <$> _firstDuplicate xs
-
-    mkError l d x = ErrBadData (GM.sourcePosSrcSpan l)
-                             (pprint d)
-                             (text "Multiple declarations of record selector" <+> pprintSymbol x)
-
-_firstDuplicate :: Ord a => [a] -> Maybe a
-_firstDuplicate = go . L.sort
-  where
-    go (y:x:xs) | x == y    = Just x
-                | otherwise = go (x:xs)
-    go _                    = Nothing
 
 checkInv :: Bool
          -> BScope
