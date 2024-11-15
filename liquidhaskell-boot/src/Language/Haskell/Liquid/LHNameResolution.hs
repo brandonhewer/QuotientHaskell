@@ -8,8 +8,7 @@
 {-# LANGUAGE LambdaCase                 #-}
 
 module Language.Haskell.Liquid.LHNameResolution
-  ( collectTypeAliases
-  , resolveLHNames
+  ( resolveLHNames
   , exprArg
   ) where
 
@@ -48,13 +47,13 @@ import qualified Text.Printf               as Printf
 collectTypeAliases
   :: Module
   -> BareSpec
-  -> [(StableModule, LiftedSpec)]
+  -> TargetDependencies
   -> HM.HashMap Symbol (GHC.Module, RTAlias Symbol BareType)
 collectTypeAliases m spec deps =
     let bsAliases = [ (rtName a, (m, a)) | a <- map val (aliases spec) ]
         depAliases =
           [ (rtName a, (unStableModule sm, a))
-          | (sm, lspec) <- deps
+          | (sm, lspec) <- HM.toList (getDependencies deps)
           , a <- map val (HS.toList $ liftedAliases lspec)
           ]
      in
@@ -63,17 +62,24 @@ collectTypeAliases m spec deps =
 -- | Converts occurrences of LHNUnresolved to LHNResolved using the provided
 -- type aliases and GlobalRdrEnv.
 resolveLHNames
-  :: LocalVars
-  -> HM.HashMap Symbol (Module, RTAlias Symbol BareType)
+  :: Module
+  -> LocalVars
   -> GlobalRdrEnv
   -> BareSpec
+  -> TargetDependencies
   -> Either [Error] BareSpec
-resolveLHNames localVars taliases globalRdrEnv =
-    (\(bs, es) -> if null es then Right bs else Left es) .
-    runWriter .
-    mapMLocLHNames (\l -> (<$ l) <$> resolveLHName l) .
-    fixExpressionArgsOfTypeAliases taliases
+resolveLHNames thisModule localVars globalRdrEnv bareSpec0 dependencies =
+    let (bs, es) =
+          runWriter $
+          mapMLocLHNames (\l -> (<$ l) <$> resolveLHName l) $
+          fixExpressionArgsOfTypeAliases taliases bareSpec0
+     in if null es then
+          Right bs
+        else
+          Left es
   where
+    taliases = collectTypeAliases thisModule bareSpec0 dependencies
+
     resolveLHName lname = case val lname of
       LHNUnresolved LHTcName s
         | isTuple s ->

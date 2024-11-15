@@ -22,7 +22,7 @@ import qualified Language.Fixpoint.Types                 as F
 import qualified  Language.Haskell.Liquid.GHC.Misc        as LH
 import qualified Language.Haskell.Liquid.UX.CmdLine      as LH
 import qualified Language.Haskell.Liquid.GHC.Interface   as LH
-import           Language.Haskell.Liquid.LHNameResolution (collectTypeAliases, resolveLHNames)
+import           Language.Haskell.Liquid.LHNameResolution (resolveLHNames)
 import qualified Language.Haskell.Liquid.Liquid          as LH
 import qualified Language.Haskell.Liquid.Types.PrettyPrint as LH ( filterReportErrors
                                                                  , filterReportErrorsWith
@@ -544,13 +544,13 @@ processModule LiquidHaskellContext{..} = do
     -- call 'evaluate' to force any exception and catch it, if we can.
 
     tcg <- getGblEnv
-    let rtAliases = collectTypeAliases thisModule bareSpec0 (HM.toList $ getDependencies dependencies)
-        localVars = makeLocalVars preNormalizedCore
+    let localVars = makeLocalVars preNormalizedCore
         eBareSpec = resolveLHNames
+          thisModule
           localVars
-          rtAliases
           (tcg_rdr_env tcg)
           bareSpec0
+          dependencies
     result <-
       case eBareSpec of
         Left errors -> pure $ Left $ mkDiagnostics [] errors
