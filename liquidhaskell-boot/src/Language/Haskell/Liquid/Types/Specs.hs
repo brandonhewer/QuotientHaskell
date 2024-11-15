@@ -1,4 +1,3 @@
-{-# LANGUAGE DeriveAnyClass #-}
 -- | This module contains the top-level structures that hold
 --   information about specifications.
 
