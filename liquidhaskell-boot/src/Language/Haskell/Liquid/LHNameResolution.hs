@@ -109,7 +109,7 @@ resolveLHNames thisModule localVars impMods globalRdrEnv lmap bareSpec0 dependen
           pure $ LHNResolved (LHRGHC GHC.liftedTypeKindTyConName) s
         | otherwise ->
           case HM.lookup s taliases of
-            Just (m, _) -> pure $ LHNResolved (LHRLogic $ LogicName s m) s
+            Just (m, _) -> pure $ LHNResolved (LHRLogic $ LogicName s m Nothing) s
             Nothing -> lookupGRELHName LHTcName lname s listToMaybe
       LHNUnresolved ns@(LHVarName lcl) s
         | isDataCon s -> lookupGRELHName (LHDataConName lcl) lname s listToMaybe
@@ -394,7 +394,7 @@ makeInScopeExprEnv impAvails thisModule spec dependencies =
       let aliases = moduleAliases m
        in fromListSEnv
             [ (s,  map (,lhname) aliases)
-            | lhname@(LHNResolved (LHRLogic (LogicName s _))_) <- lhnames
+            | lhname@(LHNResolved (LHRLogic (LogicName s _ _))_) <- lhnames
             ]
 
     unionAliasEnvs :: [InScopeExprEnv] -> InScopeExprEnv

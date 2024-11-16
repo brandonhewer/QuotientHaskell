@@ -968,7 +968,7 @@ lookupTyThingMaybe env lc@(Loc _ _ c0) = unsafePerformIO $ do
       LHNResolved rn _ -> case rn of
         LHRLocal _ -> panic (Just $ GM.fSrcSpan lc) $ "cannot resolve a local name: " ++ show c0
         LHRIndex i -> panic (Just $ GM.fSrcSpan lc) $ "cannot resolve a LHRIndex " ++ show i
-        LHRLogic (LogicName s _) -> panic (Just $ GM.fSrcSpan lc) $ "lookupTyThing: cannot resolve a LHRLogic name " ++ show s
+        LHRLogic (LogicName s _ _) -> panic (Just $ GM.fSrcSpan lc) $ "lookupTyThing: cannot resolve a LHRLogic name " ++ show s
         LHRGHC n ->
           Ghc.reflectGhc (Interface.lookupTyThing (reTypeEnv env) n) (reSession env)
 

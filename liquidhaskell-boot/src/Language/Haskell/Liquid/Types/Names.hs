@@ -68,7 +68,10 @@ selfSymbol = symbol ("liquid_internal_this" :: String)
 -- or uninterpreted functions.
 data LogicName = LogicName
     { lnSymbol :: !Symbol
+      -- | Module where the entity was defined
     , lnModule :: !GHC.Module
+      -- | If the named entity is the reflection of some Haskell name
+    , lnReflected :: !(Maybe GHC.Name)
     }
   deriving (Data, Eq, Generic)
 
@@ -133,7 +136,7 @@ instance NFData LHThisModuleNameFlag
 instance Hashable LHThisModuleNameFlag
 
 instance Ord LogicName where
-  compare (LogicName s1 m1) (LogicName s2 m2) =
+  compare (LogicName s1 m1 _) (LogicName s2 m2 _) =
     case compare s1 s2 of
       EQ -> GHC.stableModuleCmp m1 m2
       x -> x
@@ -154,7 +157,7 @@ instance Hashable LHResolvedName where
   hashWithSalt s (LHRIndex w) = s `hashWithSalt` (3::Int) `hashWithSalt` w
 
 instance Hashable LogicName where
-  hashWithSalt s (LogicName sym m) =
+  hashWithSalt s (LogicName sym m _) =
         s `hashWithSalt` sym
           `hashWithSalt` GHC.moduleStableString m
 
@@ -185,8 +188,9 @@ instance GHC.Binary LHResolvedName where
   put_ _bh (LHRIndex _n) = error "GHC.Binary: cannot serialize LHRIndex"
 
 instance GHC.Binary LogicName where
-  get bh = LogicName . fromString <$> GHC.get bh <*> GHC.get bh
-  put_ bh (LogicName s m) = GHC.put_ bh (symbolString s) >> GHC.put_ bh m
+  get bh = LogicName . fromString <$> GHC.get bh <*> GHC.get bh <*> GHC.get bh
+  put_ bh (LogicName s m r) =
+    GHC.put_ bh (symbolString s) >> GHC.put_ bh m >> GHC.put_ bh r
 
 instance PPrint LHName where
   pprintTidy _ = text . show
@@ -208,8 +212,8 @@ makeGHCLHNameFromId x =
 makeLocalLHName :: Symbol -> LHName
 makeLocalLHName s = LHNResolved (LHRLocal s) s
 
-makeLogicLHName :: Symbol -> GHC.Module -> LHName
-makeLogicLHName s m = LHNResolved (LHRLogic (LogicName s m)) s
+makeLogicLHName :: Symbol -> GHC.Module -> Maybe GHC.Name -> LHName
+makeLogicLHName s m r = LHNResolved (LHRLogic (LogicName s m r)) s
 
 makeGHCLHNameLocated :: (GHC.NamedThing a, Symbolic a) => a -> Located LHName
 makeGHCLHNameLocated x =
@@ -252,7 +256,7 @@ updateLHNameSymbol f (LHNResolved n s) = LHNResolved n (f s)
 updateLHNameSymbol f (LHNUnresolved n s) = LHNUnresolved n (f s)
 
 logicNameToSymbol :: LHName -> Symbol
-logicNameToSymbol (LHNResolved (LHRLogic (LogicName s m)) _) =
+logicNameToSymbol (LHNResolved (LHRLogic (LogicName s m _)) _) =
     let msymbol = Text.pack $ GHC.moduleNameString $ GHC.moduleName m
         munique =
           Text.dropEnd 2 $ -- Remove padding of two characters "=="
