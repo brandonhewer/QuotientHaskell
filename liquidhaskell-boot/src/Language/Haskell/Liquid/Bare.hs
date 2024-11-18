@@ -923,7 +923,9 @@ allAsmSigs env myName specs = do
       -- constraints should account instead for what logic functions are used in
       -- the constraints, which should be easier to do when precise renaming has
       -- been implemented for expressions and reflected functions.
-    , isUsedExternalVar v || isInScope v || isLocalVar v
+    , isUsedExternalVar v ||
+      isInScope v ||
+      isNonTopLevelVar v -- Keep assumptions about non-top-level bindings
     ]
   where
     isUsedExternalVar :: Ghc.Var -> Bool
@@ -948,7 +950,7 @@ allAsmSigs env myName specs = do
             Ghc.DataConWorkId dc -> inScope dc
             _ -> inScope v0
 
-    isLocalVar = Mb.isNothing . Ghc.nameModule_maybe . Ghc.getName
+    isNonTopLevelVar = Mb.isNothing . Ghc.nameModule_maybe . Ghc.getName
 
 getAsmSigs :: ModName -> ModName -> Ms.BareSpec -> [(Bool, Located LHName, LocBareType)]
 getAsmSigs myName name spec
