@@ -90,7 +90,6 @@ import           Language.Haskell.Liquid.Measure       (BareSpec)
 import           Language.Haskell.Liquid.Types.Specs   hiding (BareSpec)
 import           Language.Haskell.Liquid.Types.Visitors
 import           Language.Haskell.Liquid.Bare.Types
-import           Language.Haskell.Liquid.Bare.Misc
 import           Language.Haskell.Liquid.UX.Config
 import           Language.Haskell.Liquid.WiredIn
 import           System.IO.Unsafe (unsafePerformIO)
@@ -118,7 +117,6 @@ makeEnv cfg session tcg instEnv localVars src lmap specs = RE
   , reUsedExternals = usedExternals
   , reLMap      = lmap
   , reSyms      = syms
-  , _reSubst    = makeVarSubst   src
   , _reTyThings = makeTyThingMap src
   , reQualImps  = _gsQualImps     src
   , reAllImps   = _gsAllImps      src
@@ -186,37 +184,6 @@ localKey v
   | otherwise = Nothing
   where
     (m, x)    = splitModuleNameExact . GM.dropModuleUnique . F.symbol $ v
-
-makeVarSubst :: GhcSrc -> F.Subst
-makeVarSubst src = F.mkSubst unqualSyms
-  where
-    unqualSyms   = [ (x, mkVarExpr v)
-                       | (x, mxs) <- M.toList (makeSymMap src)
-                       , not (isWiredInName x)
-                       , v <- Mb.maybeToList (okUnqualified me mxs)
-                   ]
-    me           = F.symbol (_giTargetMod src)
-
--- | @okUnqualified mod mxs@ takes @mxs@ which is a list of modulenames-var
---   pairs all of which have the same unqualified symbol representation.
---   The function returns @Just v@ if
---   1. that list is a singleton i.e. there is a UNIQUE unqualified version, OR
---   2. there is a version whose module equals @me@.
-
-okUnqualified :: F.Symbol -> [(F.Symbol, a)] -> Maybe a
-okUnqualified _ [(_, x)] = Just x
-okUnqualified me mxs     = go mxs
-  where
-    go []                = Nothing
-    go ((m,x) : rest)
-      | me == m          = Just x
-      | otherwise        = go rest
-
-
-makeSymMap :: GhcSrc -> M.HashMap F.Symbol [(F.Symbol, Ghc.Var)]
-makeSymMap src = Misc.group [ (sym, (m, x))
-                                | x           <- srcVars src
-                                , let (m, sym) = qualifiedSymbol x ]
 
 makeTyThingMap :: GhcSrc -> TyThingMap
 makeTyThingMap src =

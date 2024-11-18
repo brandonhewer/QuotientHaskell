@@ -77,7 +77,6 @@ data Env = RE
   , reUsedExternals :: Ghc.NameSet
   , reLMap      :: LogicMap
   , reSyms      :: [(F.Symbol, Ghc.Var)]    -- ^ see "syms" in old makeGhcSpec'
-  , _reSubst    :: F.Subst                  -- ^ see "su"   in old makeGhcSpec'
   , _reTyThings :: TyThingMap
   , reCfg       :: Config
   , reQualImps  :: QImports                 -- ^ qualified imports
