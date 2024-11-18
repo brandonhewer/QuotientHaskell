@@ -297,8 +297,8 @@ emapReftM f γ (RRTy e r o t)    =
 emapReftM f γ (RHole r)         = RHole <$> f γ r
 
 emapRefM :: Monad m => ([Symbol] -> t -> m s) ->  [Symbol] -> RTProp c tv t -> m (RTProp c tv s)
-emapRefM  f γ (RProp s (RHole r)) = RProp s . RHole <$> f γ r
-emapRefM  f γ (RProp s t) = RProp s <$> emapReftM f γ t
+emapRefM  f γ (RProp s (RHole r)) = RProp s . RHole <$> f (map fst s ++ γ) r
+emapRefM  f γ (RProp s t) = RProp s <$> emapReftM f (map fst s ++ γ) t
 
 
 emapExprArg :: ([Symbol] -> Expr -> Expr) -> [Symbol] -> RType c tv r -> RType c tv r
