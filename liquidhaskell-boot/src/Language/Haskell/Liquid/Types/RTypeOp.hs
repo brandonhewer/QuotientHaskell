@@ -284,7 +284,7 @@ emapRef  f γ (RProp s t)         = RProp s $ emapReft f γ t
 
 -- The first parameter corresponds to the bscope config setting
 emapReftM
-  :: (Monad m, Reftable r1)
+  :: (Monad m, Reftable r1, F.Symbolic tv)
   => Bool
   -> ([Symbol] -> r1 -> m r2)
   -> [Symbol]
@@ -293,7 +293,7 @@ emapReftM
 emapReftM bscp f = go
   where
     go γ (RVar α r)        = RVar  α <$> f γ r
-    go γ (RAllT α t r)     = RAllT α <$> go γ t <*> f γ r
+    go γ (RAllT α t r)     = RAllT α <$> go (F.symbol (ty_var_value α) : γ) t <*> f γ r
     go γ (RAllP π t)       = RAllP π <$> go γ t
     go γ (RFun x i t t' r) = RFun  x i <$> go (x:γ) t <*> go (x:γ) t' <*> f (x:γ) r
     go γ (RApp c ts rs r)  =
@@ -308,7 +308,7 @@ emapReftM bscp f = go
     go γ (RHole r)         = RHole <$> f γ r
 
 emapRefM
-  :: (Monad m, Reftable t)
+  :: (Monad m, Reftable t, F.Symbolic tv)
   => Bool
   -> ([Symbol] -> t -> m s)
   -> [Symbol]
