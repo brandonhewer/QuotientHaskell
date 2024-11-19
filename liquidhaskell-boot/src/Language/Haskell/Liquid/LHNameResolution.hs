@@ -46,6 +46,7 @@ import qualified Language.Haskell.Liquid.Types.DataDecl as DataDecl
 import           Language.Haskell.Liquid.Types.Errors (TError(ErrDupNames, ErrResolve), panic)
 import           Language.Haskell.Liquid.Types.Specs as Specs
 import           Language.Haskell.Liquid.Types.Types
+import           Language.Haskell.Liquid.UX.Config
 import           Language.Haskell.Liquid.WiredIn
 
 import qualified Text.PrettyPrint.HughesPJ as PJ
@@ -74,7 +75,8 @@ collectTypeAliases m spec deps =
 -- | Converts occurrences of LHNUnresolved to LHNResolved using the provided
 -- type aliases and GlobalRdrEnv.
 resolveLHNames
-  :: Module
+  :: Config
+  -> Module
   -> LocalVars
   -> GHC.ImportedMods
   -> GlobalRdrEnv
@@ -82,14 +84,15 @@ resolveLHNames
   -> BareSpec
   -> TargetDependencies
   -> Either [Error] (BareSpec, LogicNameEnv)
-resolveLHNames thisModule localVars impMods globalRdrEnv lmap bareSpec0 dependencies =
+resolveLHNames cfg thisModule localVars impMods globalRdrEnv lmap bareSpec0 dependencies =
     let (inScopeEnv, logicNameEnv, unhandledNames) =
           makeInScopeExprEnv impMods thisModule bareSpec0 dependencies
         (bs, (es, ns)) =
           flip runState mempty $ do
             sp1 <- mapMLocLHNames (\l -> (<$ l) <$> resolveLHName l) $
                      fixExpressionArgsOfTypeAliases taliases bareSpec0
-            fromBareSpecLHName <$> resolveExprNames inScopeEnv globalRdrEnv unhandledNames lmap sp1
+            fromBareSpecLHName <$>
+              resolveExprNames cfg inScopeEnv globalRdrEnv unhandledNames lmap sp1
         logicNameEnv' =
           foldr (uncurry insertSEnv) logicNameEnv [ (logicNameToSymbol n, n) | n <- ns]
      in if null es then
@@ -426,16 +429,17 @@ collectLiftedSpecLogicNames sp =
       ]
 
 resolveExprNames
-  :: InScopeExprEnv
+  :: Config
+  -> InScopeExprEnv
   -> GHC.GlobalRdrEnv
   -> HS.HashSet Symbol
   -> LogicMap
   -> BareSpec
   -> State RenameOutput BareSpecLHName
-resolveExprNames env globalRdrEnv unhandledNames lmap sp =
+resolveExprNames cfg env globalRdrEnv unhandledNames lmap sp =
     emapSpecTyM
       (\ss0 ->
-        flip emapReftM ss0 $ \ss1 ->
+        flip (emapReftM (bscope cfg)) ss0 $ \ss1 ->
           emapUReftVM
             (resolveName . (ss1 ++))
             (emapFReftM (resolveName . (ss1 ++)))
@@ -533,8 +537,8 @@ resolveExprNames env globalRdrEnv unhandledNames lmap sp =
               )
             return $ makeLocalLHName s
 
-toBareSpecLHName :: LogicNameEnv -> BareSpec -> BareSpecLHName
-toBareSpecLHName env sp0 = runIdentity $ go sp0
+toBareSpecLHName :: Config -> LogicNameEnv -> BareSpec -> BareSpecLHName
+toBareSpecLHName cfg env sp0 = runIdentity $ go sp0
   where
     -- This is implemented with a monadic traversal to reuse the logic
     -- that collects the local symbols in scope.
@@ -542,7 +546,7 @@ toBareSpecLHName env sp0 = runIdentity $ go sp0
     go sp =
       emapSpecTyM
         (\ss0 ->
-          flip emapReftM ss0 $ \ss1 ->
+          flip (emapReftM (bscope cfg)) ss0 $ \ss1 ->
             emapUReftVM
               (resolveName . (ss1 ++))
               (emapFReftM (resolveName . (ss1 ++)))

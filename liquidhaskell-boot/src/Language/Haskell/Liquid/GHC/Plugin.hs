@@ -546,6 +546,7 @@ processModule LiquidHaskellContext{..} = do
     tcg <- getGblEnv
     let localVars = makeLocalVars preNormalizedCore
         eBareSpec = resolveLHNames
+          moduleCfg
           thisModule
           localVars
           (imp_mods $ tcg_imports tcg)

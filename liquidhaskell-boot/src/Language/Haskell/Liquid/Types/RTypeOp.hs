@@ -282,23 +282,40 @@ emapRef :: ([Symbol] -> t -> s) ->  [Symbol] -> RTProp c tv t -> RTProp c tv s
 emapRef  f γ (RProp s (RHole r))  = RProp s $ RHole (f γ r)
 emapRef  f γ (RProp s t)         = RProp s $ emapReft f γ t
 
-emapReftM :: Monad m => ([Symbol] -> r1 -> m r2) -> [Symbol] -> RType c tv r1 -> m (RType c tv r2)
-emapReftM f γ (RVar α r)        = RVar  α <$> f γ r
-emapReftM f γ (RAllT α t r)     = RAllT α <$> emapReftM f γ t <*> f γ r
-emapReftM f γ (RAllP π t)       = RAllP π <$> emapReftM f γ t
-emapReftM f γ (RFun x i t t' r) = RFun  x i <$> emapReftM f (x:γ) t <*> emapReftM f (x:γ) t' <*> f (x:γ) r
-emapReftM f γ (RApp c ts rs r)  = RApp  c <$> mapM (emapReftM f γ) ts <*> mapM (emapRefM f γ) rs <*> f γ r
-emapReftM f γ (RAllE z t t')    = RAllE z <$> emapReftM f γ t <*> emapReftM f γ t'
-emapReftM f γ (REx z t t')      = REx   z <$> emapReftM f γ t <*> emapReftM f γ t'
-emapReftM _ _ (RExprArg e)      = pure (RExprArg e)
-emapReftM f γ (RAppTy t t' r)   = RAppTy <$> emapReftM f γ t <*> emapReftM f γ t' <*> f γ r
-emapReftM f γ (RRTy e r o t)    =
-    RRTy <$> mapM (traverse (emapReftM f (map fst e ++ γ))) e <*> f γ r <*> pure o <*> emapReftM f γ t
-emapReftM f γ (RHole r)         = RHole <$> f γ r
+-- The first parameter corresponds to the bscope config setting
+emapReftM
+  :: (Monad m, Reftable r1)
+  => Bool
+  -> ([Symbol] -> r1 -> m r2)
+  -> [Symbol]
+  -> RType c tv r1
+  -> m (RType c tv r2)
+emapReftM bscp f = go
+  where
+    go γ (RVar α r)        = RVar  α <$> f γ r
+    go γ (RAllT α t r)     = RAllT α <$> go γ t <*> f γ r
+    go γ (RAllP π t)       = RAllP π <$> go γ t
+    go γ (RFun x i t t' r) = RFun  x i <$> go (x:γ) t <*> go (x:γ) t' <*> f (x:γ) r
+    go γ (RApp c ts rs r)  =
+      let γ' = if bscp then F.reftBind (toReft r) : γ  else γ
+       in RApp  c <$> mapM (go γ') ts <*> mapM (emapRefM bscp f γ) rs <*> f γ r
+    go γ (RAllE z t t')    = RAllE z <$> go γ t <*> go γ t'
+    go γ (REx z t t')      = REx   z <$> go γ t <*> go γ t'
+    go _ (RExprArg e)      = pure (RExprArg e)
+    go γ (RAppTy t t' r)   = RAppTy <$> go γ t <*> go γ t' <*> f γ r
+    go γ (RRTy e r o t)    =
+      RRTy <$> mapM (traverse (go (map fst e ++ γ))) e <*> f γ r <*> pure o <*> go γ t
+    go γ (RHole r)         = RHole <$> f γ r
 
-emapRefM :: Monad m => ([Symbol] -> t -> m s) ->  [Symbol] -> RTProp c tv t -> m (RTProp c tv s)
-emapRefM  f γ (RProp s (RHole r)) = RProp s . RHole <$> f (map fst s ++ γ) r
-emapRefM  f γ (RProp s t) = RProp s <$> emapReftM f (map fst s ++ γ) t
+emapRefM
+  :: (Monad m, Reftable t)
+  => Bool
+  -> ([Symbol] -> t -> m s)
+  -> [Symbol]
+  -> RTProp c tv t
+  -> m (RTProp c tv s)
+emapRefM _bscp f γ (RProp s (RHole r)) = RProp s . RHole <$> f (map fst s ++ γ) r
+emapRefM bscp f γ (RProp s t) = RProp s <$> emapReftM bscp f (map fst s ++ γ) t
 
 
 emapExprArg :: ([Symbol] -> Expr -> Expr) -> [Symbol] -> RType c tv r -> RType c tv r
