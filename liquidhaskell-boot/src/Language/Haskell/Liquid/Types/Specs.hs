@@ -331,7 +331,6 @@ data GhcSpecRefl = SpRefl
   , gsMyAxioms     :: ![F.Equation]                     -- ^ Axioms from my reflected functions
   , gsReflects     :: ![Var]                            -- ^ Binders for reflected functions
   , gsLogicMap     :: !LogicMap
-  , gsWiredReft    :: ![Var]
   , gsRewrites     :: S.HashSet (F.Located Var)
   , gsRewritesWith :: M.HashMap Var [Var]
   }
@@ -345,7 +344,6 @@ instance Semigroup GhcSpecRefl where
     , gsMyAxioms = gsMyAxioms x <> gsMyAxioms y
     , gsReflects = gsReflects x <> gsReflects y
     , gsLogicMap = gsLogicMap x <> gsLogicMap y
-    , gsWiredReft = gsWiredReft x <> gsWiredReft y
     , gsRewrites = gsRewrites x <> gsRewrites y
     , gsRewritesWith = gsRewritesWith x <> gsRewritesWith y
     }
@@ -353,7 +351,7 @@ instance Semigroup GhcSpecRefl where
 instance Monoid GhcSpecRefl where
   mempty = SpRefl mempty mempty mempty
                   mempty mempty mempty
-                  mempty mempty mempty
+                  mempty mempty
 
 type VarOrLocSymbol = Either Var LocSymbol
 type BareMeasure   = Measure LocBareType F.LocSymbol
