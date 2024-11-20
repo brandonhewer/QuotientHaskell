@@ -850,13 +850,13 @@ maybeResolveSym env name kind x = case resolveLocSym env name kind x of
 -------------------------------------------------------------------------------
 -- | @ofBareType@ and @ofBareTypeE@ should be the _only_ @SpecType@ constructors
 -------------------------------------------------------------------------------
-ofBareType :: Env -> ModName -> F.SourcePos -> Maybe [PVar BSort] -> BareType -> SpecType
+ofBareType :: HasCallStack => Env -> ModName -> F.SourcePos -> Maybe [PVar BSort] -> BareType -> SpecType
 ofBareType env name l ps t = either fail' id (ofBareTypeE env name l ps t)
   where
     fail'                  = Ex.throw
     -- fail                   = Misc.errorP "error-ofBareType" . F.showpp
 
-ofBareTypeE :: Env -> ModName -> F.SourcePos -> Maybe [PVar BSort] -> BareType -> Lookup SpecType
+ofBareTypeE :: HasCallStack => Env -> ModName -> F.SourcePos -> Maybe [PVar BSort] -> BareType -> Lookup SpecType
 ofBareTypeE env name l ps t = ofBRType env name (resolveReft env name l ps t) l t
 
 resolveReft :: Env -> ModName -> F.SourcePos -> Maybe [PVar BSort] -> BareType -> [F.Symbol] -> RReft -> RReft
@@ -882,10 +882,10 @@ coSubReft :: F.CoSub -> F.Reft -> F.Reft
 coSubReft su (F.Reft (x, e)) = F.Reft (x, F.applyCoSub su e)
 
 
-ofBSort :: Env -> ModName -> F.SourcePos -> BSort -> RSort
+ofBSort :: HasCallStack => Env -> ModName -> F.SourcePos -> BSort -> RSort
 ofBSort env name l t = either (Misc.errorP "error-ofBSort" . F.showpp) id (ofBSortE env name l t)
 
-ofBSortE :: Env -> ModName -> F.SourcePos -> BSort -> Lookup RSort
+ofBSortE :: HasCallStack => Env -> ModName -> F.SourcePos -> BSort -> Lookup RSort
 ofBSortE env name l t = ofBRType env name (const id) l t
 
 ofBPVar :: Env -> ModName -> F.SourcePos -> BPVar -> RPVar
@@ -916,7 +916,8 @@ rtypePredBinds = map RT.uPVar . ty_preds . toRTypeRep
 type Expandable r = ( PPrint r
                     , Reftable r
                     , SubsTy RTyVar (RType RTyCon RTyVar ()) r
-                    , Reftable (RTProp RTyCon RTyVar r))
+                    , Reftable (RTProp RTyCon RTyVar r)
+                    , HasCallStack)
 
 ofBRType :: (Expandable r) => Env -> ModName -> ([F.Symbol] -> r -> r) -> F.SourcePos -> BRType r
          -> Lookup (RRType r)
@@ -947,7 +948,7 @@ ofBRType env name f l = go []
         lc'                    = F.atLoc lc <$> lookupGhcTyConLHName env lc
         lc                     = btc_tc tc
 
-lookupGhcTyConLHName :: Env -> Located LHName -> Lookup Ghc.TyCon
+lookupGhcTyConLHName :: HasCallStack => Env -> Located LHName -> Lookup Ghc.TyCon
 lookupGhcTyConLHName env lc = do
     case lookupTyThing env lc of
       Ghc.ATyCon tc -> Right tc
@@ -961,7 +962,7 @@ lookupGhcTyConLHName env lc = do
 -- This should be benign because the result doesn't depend of when exactly this is
 -- called. Since this code is intended to be used inside a GHC plugin, there is no
 -- danger that GHC is finalized before the result is evaluated.
-lookupTyThingMaybe :: Env -> Located LHName -> Maybe Ghc.TyThing
+lookupTyThingMaybe :: HasCallStack => Env -> Located LHName -> Maybe Ghc.TyThing
 lookupTyThingMaybe env lc@(Loc _ _ c0) = unsafePerformIO $ do
     case c0 of
       LHNUnresolved _ _ -> panic (Just $ GM.fSrcSpan lc) $ "unresolved name: " ++ show c0
@@ -972,7 +973,7 @@ lookupTyThingMaybe env lc@(Loc _ _ c0) = unsafePerformIO $ do
         LHRGHC n ->
           Ghc.reflectGhc (Interface.lookupTyThing (reTypeEnv env) n) (reSession env)
 
-lookupTyThing :: Env -> Located LHName -> Ghc.TyThing
+lookupTyThing :: HasCallStack => Env -> Located LHName -> Ghc.TyThing
 lookupTyThing env lc =
     Mb.fromMaybe (panic (Just $ GM.fSrcSpan lc) $ "not found: " ++ show (val lc)) $
       lookupTyThingMaybe env lc
