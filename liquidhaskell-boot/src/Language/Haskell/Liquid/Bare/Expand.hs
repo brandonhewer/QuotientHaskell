@@ -327,6 +327,16 @@ instance Expand BareType where
     = expandReft     rtEnv l -- apply expression aliases
     . expandBareType rtEnv l -- apply type       aliases
 
+instance Expand () where
+  expand _ _ = id
+
+instance Expand (BRType ()) where
+  expand rtEnv l
+    = expandReft     rtEnv l -- apply expression aliases
+    . void
+    . expandBareType rtEnv l -- apply type       aliases
+    . fmap (const mempty)
+
 instance Expand (RTAlias F.Symbol Expr) where
   expand rtEnv l x = x { rtBody = expand rtEnv l (rtBody x) }
 
@@ -395,7 +405,7 @@ expandBareSpec rtEnv l sp = sp
   where f      = expand rtEnv l
 
 expandBareType :: BareRTEnv -> F.SourcePos -> BareType -> BareType
-expandBareType rtEnv _ = go
+expandBareType rtEnv l = go
   where
     go (RApp c ts rs r)  = case lookupRTEnv c rtEnv of
                              Just rta -> expandRTAliasApp (GM.fSourcePos c) rta (go <$> ts) r
@@ -410,7 +420,7 @@ expandBareType rtEnv _ = go
     go t@RHole{}         = t
     go t@RVar{}          = t
     go t@RExprArg{}      = t
-    goRef (RProp ss t)   = RProp ss (go t)
+    goRef (RProp ss t)   = RProp (map (expand rtEnv l <$>) ss) (go t)
 
 lookupRTEnv :: BTyCon -> BareRTEnv -> Maybe (Located BareRTAlias)
 lookupRTEnv c rtEnv = M.lookup (getLHNameSymbol $ val $ btc_tc c) (typeAliases rtEnv)
