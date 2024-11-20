@@ -785,6 +785,7 @@ executable names-pos
                     , Capture01
                     , Capture02
                     , ClojurVector
+                    , ExpandsDependentPairs
                     , HideName00
                     , HidePrelude
                     , List00
