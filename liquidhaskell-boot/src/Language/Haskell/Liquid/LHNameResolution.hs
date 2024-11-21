@@ -23,7 +23,7 @@ import           Language.Haskell.Liquid.Types.Names
 import           Language.Haskell.Liquid.Types.RType
 import           Language.Haskell.Liquid.Types.RTypeOp
 
-import           Control.Monad (mplus, unless)
+import           Control.Monad (mplus, unless, void)
 import           Control.Monad.Identity
 import           Control.Monad.State.Strict
 import           Data.Bifunctor (first)
@@ -59,13 +59,13 @@ import qualified Text.Printf               as Printf
 -- names identify them uniquely.
 collectTypeAliases
   :: Module
-  -> BareSpec
+  -> BareSpecParsed
   -> TargetDependencies
-  -> HM.HashMap Symbol (GHC.Module, RTAlias Symbol BareType)
+  -> HM.HashMap Symbol (GHC.Module, RTAlias Symbol ())
 collectTypeAliases m spec deps =
-    let bsAliases = [ (rtName a, (m, a)) | a <- map val (aliases spec) ]
+    let bsAliases = [ (rtName a, (m, void a)) | a <- map val (aliases spec) ]
         depAliases =
-          [ (rtName a, (unStableModule sm, a))
+          [ (rtName a, (unStableModule sm, void a))
           | (sm, lspec) <- HM.toList (getDependencies deps)
           , a <- map val (HS.toList $ liftedAliases lspec)
           ]
@@ -81,7 +81,7 @@ resolveLHNames
   -> GHC.ImportedMods
   -> GlobalRdrEnv
   -> LogicMap
-  -> BareSpec
+  -> BareSpecParsed
   -> TargetDependencies
   -> Either [Error] (BareSpec, LogicNameEnv)
 resolveLHNames cfg thisModule localVars impMods globalRdrEnv lmap bareSpec0 dependencies =
@@ -222,7 +222,7 @@ mkLookupGRE ns s =
 
 -- | Changes unresolved names to local resolved names in the body of type
 -- aliases.
-resolveBoundVarsInTypeAliases :: BareSpec -> BareSpec
+resolveBoundVarsInTypeAliases :: BareSpecParsed -> BareSpecParsed
 resolveBoundVarsInTypeAliases = updateAliases resolveBoundVars
   where
     resolveBoundVars boundVars = \case
@@ -254,13 +254,13 @@ resolveBoundVarsInTypeAliases = updateAliases resolveBoundVars
 -- the parser builds a type for @Ev (plus n n)@.
 --
 fixExpressionArgsOfTypeAliases
-  :: HM.HashMap Symbol (Module, RTAlias Symbol BareType)
-  -> BareSpec
-  -> BareSpec
+  :: HM.HashMap Symbol (Module, RTAlias Symbol ())
+  -> BareSpecParsed
+  -> BareSpecParsed
 fixExpressionArgsOfTypeAliases taliases =
     mapBareTypes go . resolveBoundVarsInTypeAliases
   where
-    go :: BareType -> BareType
+    go :: BareTypeParsed -> BareTypeParsed
     go (RApp c@(BTyCon { btc_tc = Loc _ _ (LHNUnresolved LHTcName s) }) ts rs r)
       | Just (_, rta) <- HM.lookup s taliases =
         RApp c (fixExprArgs (btc_tc c) rta (map go ts)) (map goRef rs) r
@@ -285,7 +285,7 @@ fixExpressionArgsOfTypeAliases taliases =
           toExprArg = exprArg (LH.fSourcePos lname) msg
        in targs ++ [ RExprArg $ toExprArg e <$ lname | e <- eargs ]
 
-mapBareTypes :: (BareType -> BareType) -> BareSpec -> BareSpec
+mapBareTypes :: (BareTypeParsed -> BareTypeParsed) -> BareSpecParsed -> BareSpecParsed
 mapBareTypes f  = go
   where
     go :: Data a => a -> a
@@ -300,16 +300,16 @@ mapBareTypes f  = go
 --     {-@ type Prop E = {v:_ | prop v = E} @-}
 --   the parser will chomp in `Ev (plus n n)` as a `BareType` and so
 --   `exprArg` converts that `BareType` into an `Expr`.
-exprArg :: SourcePos -> String -> BareType -> Expr
+exprArg :: SourcePos -> String -> BareTypeParsed -> ExprV LocSymbol
 exprArg l msg = notracepp ("exprArg: " ++ msg) . go
   where
-    go :: BareType -> Expr
+    go :: BareTypeParsed -> ExprV LocSymbol
     go (RExprArg e)     = val e
-    go (RVar x _)       = EVar (symbol x)
-    go (RApp x [] [] _) = EVar (getLHNameSymbol $ val $ btc_tc x)
-    go (RApp f ts [] _) = mkEApp (getLHNameSymbol <$> btc_tc f) (go <$> ts)
+    go (RVar (BTV x) _)       = EVar x
+    go (RApp x [] [] _) = EVar (getLHNameSymbol <$> btc_tc x)
+    go (RApp f ts [] _) = eApps (EVar (getLHNameSymbol <$> btc_tc f)) (go <$> ts)
     go (RAppTy t1 t2 _) = EApp (go t1) (go t2)
-    go z                = panic sp $ Printf.printf "Unexpected expression parameter: %s in %s" (show z) msg
+    go z                = panic sp $ Printf.printf "Unexpected expression parameter: %s in %s" (show $ parsedToBareType z) msg
     sp                  = Just (LH.sourcePosSrcSpan l)
 
 -- | An environment of names in scope
@@ -350,7 +350,7 @@ type LogicNameEnv = SEnv LHName
 makeInScopeExprEnv
   :: GHC.ImportedMods
   -> GHC.Module
-  -> BareSpec
+  -> BareSpecParsed
   -> TargetDependencies
   -> ( InScopeExprEnv
      , LogicNameEnv
@@ -381,6 +381,7 @@ makeInScopeExprEnv impAvails thisModule spec dependencies =
              concatMap DataDecl.dcFields $ concat $
              mapMaybe DataDecl.tycDCons $
              dataDecls spec
+          , map fst wiredSortedSyms
           ] ++ map (map getLHNameSymbol . snd) logicNames
         logicNames =
           (thisModule, []) :
@@ -434,41 +435,49 @@ resolveExprNames
   -> GHC.GlobalRdrEnv
   -> HS.HashSet Symbol
   -> LogicMap
-  -> BareSpec
+  -> BareSpecParsed
   -> State RenameOutput BareSpecLHName
 resolveExprNames cfg env globalRdrEnv unhandledNames lmap sp =
-    emapSpecTyM
+    emapSpecM
+      (bscope cfg)
+      resolveName
       (\ss0 ->
-        flip (emapReftM (bscope cfg)) ss0 $ \ss1 ->
-          emapUReftVM
-            (resolveName . (ss1 ++))
-            (emapFReftM (resolveName . (ss1 ++)))
-      ) $
-      mapSpecLName (const (error "toBareSpecLHName: unexpected name")) sp
+        emapReftM (bscope cfg)
+          resolveName
+          (\ss1 ->
+            emapUReftVM
+              (resolveName . (ss1 ++))
+              (emapFReftM (resolveName . (ss1 ++)))
+          )
+          ss0
+      )
+      sp
   where
-    resolveName :: [Symbol] -> Symbol -> State RenameOutput LHName
-    resolveName ss s
+    resolveName :: [Symbol] -> LocSymbol -> State RenameOutput LHName
+    resolveName ss ls
       | elem s ss = return $ makeLocalLHName s
       | otherwise =
         case lookupInScopeExprEnv env s of
           Left alts ->
-            case resolveDataConName s `mplus` resolveVarName s of
+            case resolveDataConName ls `mplus` resolveVarName ls of
               Just m -> m
               Nothing -> do
                 unless (HS.member s unhandledNames) $
-                  addError (errResolveLogicName s alts)
+                  addError (errResolveLogicName ls alts)
                 return $ makeLocalLHName s
           Right [lhname] ->
             return lhname
           Right names -> do
-            addError (ErrDupNames noSrcSpan (pprint s) (map pprint names))
+            addError (ErrDupNames (LH.fSrcSpan ls) (pprint s) (map pprint names))
             return $ makeLocalLHName s
+      where
+        s = val ls
 
     errResolveLogicName s alts =
       ErrResolve
-        noSrcSpan
+        (LH.fSrcSpan s)
         (PJ.text "logic name")
-        (pprint s)
+        (pprint $ val s)
         (if null alts then
            PJ.text "Cannot resolve name"
          else
@@ -476,44 +485,47 @@ resolveExprNames cfg env globalRdrEnv unhandledNames lmap sp =
            PJ.sep (PJ.text "Maybe you meant one of:" : map pprint alts)
         )
 
-    resolveDataConName s
-      | LH.dropModuleNames s == ":" = Just $ do
+    resolveDataConName ls
+      | LH.dropModuleNames s == ":" = Just $
         return $ makeLocalLHName s
-      | LH.dropModuleNames s == "[]" = Just $ do
+      | LH.dropModuleNames s == "[]" = Just $
         return $ makeLocalLHName s
-      | isTupleDC (symbolText s) = Just $ do
+      | isTupleDC (symbolText s) = Just $
+        return $ makeLocalLHName s
+        -- TODO: Remove this case when qualified names are handled
+      | LH.takeModuleNames s /= "" = Just $
         return $ makeLocalLHName s
       where
+        s = val ls
         isTupleDC t =
           Text.isPrefixOf "(" t && Text.isSuffixOf ")" t &&
           Text.all (== ',') (Text.init $ Text.tail t)
     resolveDataConName s =
-      case GHC.lookupGRE globalRdrEnv (mkLookupGRE (LHDataConName LHAnyModuleNameF) s) of
+      case GHC.lookupGRE globalRdrEnv (mkLookupGRE (LHDataConName LHAnyModuleNameF) $ val s) of
         [e] -> do
           let n = GHC.greName e
           Just $ do
             let lhName = makeLogicLHName (symbol n) (GHC.nameModule n)  (Just n)
             addName lhName
             -- return lhName
-            return $ makeLocalLHName s
+            return $ makeLocalLHName $ val s
         [] ->
           Nothing
         es ->
           Just $ do
             addError
               (ErrDupNames
-                 GHC.noSrcSpan -- TODO: Need to add locations to expressions
-                               -- in order to improve the error message.
-                 (pprint s)
+                 (LH.fSrcSpan s)
+                 (pprint $ val s)
                  (map (PJ.text . showPprUnsafe) es)
               )
-            return $ makeLocalLHName s
+            return $ makeLocalLHName $ val s
 
     resolveVarName s
-      | s == "GHC.Internal.Base.." = Just $ do
-        return $ makeLocalLHName s
+      | val s == "GHC.Internal.Base.." = Just $ do
+        return $ makeLocalLHName $ val s
     resolveVarName s =
-      case GHC.lookupGRE globalRdrEnv (mkLookupGRE (LHVarName LHAnyModuleNameF) s) of
+      case GHC.lookupGRE globalRdrEnv (mkLookupGRE (LHVarName LHAnyModuleNameF) (val s)) of
         [e] -> do
           let n = GHC.greName e
           if HM.member (symbol n) (lmSymDefs lmap) then
@@ -521,7 +533,7 @@ resolveExprNames cfg env globalRdrEnv unhandledNames lmap sp =
               let lhName = makeLogicLHName (symbol n) (GHC.nameModule n) (Just n)
               addName lhName
               -- return lhName
-              return $ makeLocalLHName s
+              return $ makeLocalLHName $ val s
           else
             Nothing
         [] ->
@@ -530,12 +542,11 @@ resolveExprNames cfg env globalRdrEnv unhandledNames lmap sp =
           Just $ do
             addError
               (ErrDupNames
-                 GHC.noSrcSpan -- TODO: Need to add locations to expressions
-                               -- in order to improve the error message.
-                 (pprint s)
+                 (LH.fSrcSpan s)
+                 (pprint $ val s)
                  (map (PJ.text . showPprUnsafe) es)
               )
-            return $ makeLocalLHName s
+            return $ makeLocalLHName $ val s
 
 toBareSpecLHName :: Config -> LogicNameEnv -> BareSpec -> BareSpecLHName
 toBareSpecLHName cfg env sp0 = runIdentity $ go sp0
@@ -544,15 +555,20 @@ toBareSpecLHName cfg env sp0 = runIdentity $ go sp0
     -- that collects the local symbols in scope.
     go :: BareSpec -> Identity BareSpecLHName
     go sp =
-      emapSpecTyM
+      emapSpecM
+        (bscope cfg)
+        resolveName
         (\ss0 ->
-          flip (emapReftM (bscope cfg)) ss0 $ \ss1 ->
-            emapUReftVM
-              (resolveName . (ss1 ++))
-              (emapFReftM (resolveName . (ss1 ++)))
+          emapReftM (bscope cfg)
+            resolveName
+            (\ss1 ->
+              emapUReftVM
+                (resolveName . (ss1 ++))
+                (emapFReftM (resolveName . (ss1 ++)))
+            )
+            ss0
         )
-        sp >>=
-        mapSpecLNameM (resolveName [])
+        sp
 
     unhandledNames = HS.fromList $ map fst $ expSigs sp0
 
@@ -566,6 +582,3 @@ toBareSpecLHName cfg env sp0 = runIdentity $ go sp0
               panic Nothing $ "toBareSpecLHName: cannot find " ++ show s
             return $ makeLocalLHName s
           Just lhname -> return lhname
-
-emapFReftM :: Monad m => ([Symbol] -> v -> m v') -> ReftV v -> m (ReftV v')
-emapFReftM f (Reft (v, e)) = reft v <$> emapExprVM (f . (v:)) e

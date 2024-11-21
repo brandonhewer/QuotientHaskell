@@ -40,10 +40,9 @@ import qualified Text.PrettyPrint.HughesPJ as PJ
 import qualified Language.Fixpoint.Types               as F
 -- import qualified Language.Fixpoint.Types.Visitor       as F
 import qualified Language.Fixpoint.Misc                as Misc
-import           Language.Fixpoint.Types (Expr, ExprV(..)) -- , Symbol, symbol)
+import           Language.Fixpoint.Types (Expr, ExprV(..), SourcePos) -- , Symbol, symbol)
 import qualified Language.Haskell.Liquid.GHC.Misc      as GM
 import qualified Liquid.GHC.API       as Ghc
-import           Language.Haskell.Liquid.LHNameResolution (exprArg)
 import           Language.Haskell.Liquid.Types.Errors
 import           Language.Haskell.Liquid.Types.DataDecl
 import           Language.Haskell.Liquid.Types.Names
@@ -58,6 +57,7 @@ import qualified Language.Haskell.Liquid.Bare.Resolve  as Bare
 import qualified Language.Haskell.Liquid.Bare.Types    as Bare
 import qualified Language.Haskell.Liquid.Bare.Plugged  as Bare
 import           Language.Haskell.Liquid.UX.Config
+import qualified Text.Printf                           as Printf
 
 --------------------------------------------------------------------------------
 -- | `makeRTEnv` initializes the env needed to `expand` refinements and types,
@@ -422,9 +422,9 @@ expandRTAliasApp l (Loc la _ rta) args r = case isOK of
   where
     tsu       = zipWith (\α t -> (α, toRSort t, t)) αs ts
     esu       = F.mkSubst $ zip (F.symbol <$> εs) es
-    es        = exprArg l msg <$> es0
+    es        = exprArgFromBareType l msg <$> es0
     (ts, es0) = splitAt nαs args
-    (αs, εs)  = (BTV <$> rtTArgs rta, rtVArgs rta)
+    (αs, εs)  = (BTV . dummyLoc <$> rtTArgs rta, rtVArgs rta)
     targs     = takeWhile (not . isRExprArg) args
     eargs     = dropWhile (not . isRExprArg) args
 
@@ -446,6 +446,20 @@ expandRTAliasApp l (Loc la _ rta) args r = case isOK of
       = err $ PJ.hsep ["Expects", pprint nαs, "type arguments before expression arguments"]
       | otherwise
       = Nothing
+
+-- | A copy of 'LHNameResolution.exprArg' tailored to the types needed in this
+-- module.
+exprArgFromBareType :: SourcePos -> String -> BareType -> Expr
+exprArgFromBareType l msg = go
+  where
+    go :: BareType -> Expr
+    go (RExprArg e)     = val e
+    go (RVar x _)       = EVar $ F.symbol x
+    go (RApp x [] [] _) = EVar (getLHNameSymbol $ val $ btc_tc x)
+    go (RApp f ts [] _) = F.eApps (EVar (getLHNameSymbol $ val $ btc_tc f)) (go <$> ts)
+    go (RAppTy t1 t2 _) = EApp (go t1) (go t2)
+    go z                = panic sp $ Printf.printf "Unexpected expression parameter: %s in %s" (show z) msg
+    sp                  = Just (GM.sourcePosSrcSpan l)
 
 isRExprArg :: RType c tv r -> Bool
 isRExprArg (RExprArg _) = True

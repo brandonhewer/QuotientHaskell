@@ -429,7 +429,7 @@ ppRefSym s  = pprint s
 dot :: Doc
 dot                = char '.'
 
-instance (PPrint r, Reftable r) => PPrint (UReft r) where
+instance (PPrint (PredicateV v), Reftable (PredicateV v), PPrint r, Reftable r) => PPrint (UReftV v r) where
   pprintTidy k (MkUReft r p)
     | isTauto r  = pprintTidy k p
     | isTauto p  = pprintTidy k r

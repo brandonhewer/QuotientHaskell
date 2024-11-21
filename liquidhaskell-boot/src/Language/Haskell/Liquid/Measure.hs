@@ -47,7 +47,7 @@ import           Language.Haskell.Liquid.Types.Specs
 import           Language.Haskell.Liquid.UX.Tidy
 
 
-mkM ::  LocSymbol -> ty -> [Def ty bndr] -> MeasureKind -> UnSortedExprs -> Measure ty bndr
+mkM ::  LocSymbol -> ty -> [DefV v ty bndr] -> MeasureKind -> UnSortedExprs -> MeasureV v ty bndr
 mkM name typ eqns kind u
   | all ((name ==) . measure) eqns
   = M name typ eqns kind u

@@ -21,7 +21,7 @@ assume error :: {v:_ | false} -> a
 predicate Max V X Y = if X > Y then V = X else V = Y
 predicate Min V X Y = if X < Y then V = X else V = Y
 
-type IncrListD a  = [a]<{\x y -> (x+D) <= y}>
+type IncrListD a D = [a]<{\x y -> (x+D) <= y}>
 
 // BOT: Do not delete EVER!
 

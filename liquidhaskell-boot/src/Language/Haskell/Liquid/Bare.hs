@@ -482,7 +482,7 @@ makeSpecQual _cfg env tycEnv measEnv _rtEnv specs = SpQual
                    ++ (fst <$> Bare.meSyms measEnv)
                    ++ (fst <$> Bare.meClassSyms measEnv)
 
-makeQualifiers :: Bare.Env -> Bare.TycEnv -> (ModName, Ms.Spec lname ty) -> [F.Qualifier]
+makeQualifiers :: Bare.Env -> Bare.TycEnv -> (ModName, Ms.Spec F.Symbol ty) -> [F.Qualifier]
 makeQualifiers env tycEnv (modn, spec)
   = fmap        (Bare.qualifyTopDummy env        modn)
   . Mb.mapMaybe (resolveQParams       env tycEnv modn)

@@ -67,6 +67,7 @@ module Language.Haskell.Liquid.Types.RefType (
 
   -- * Manipulating Refinements in RTypes
   , strengthen
+  , strengthenWith
   , generalize
   , normalizePds
   , dataConMsReft
@@ -163,8 +164,8 @@ dataConArgs trep = unzip [ (x, t) | (x, t) <- zip xs ts, isValTy t]
     isValTy      = not . Ghc.isEvVarType . toType False
 
 
-pdVar :: PVar t -> Predicate
-pdVar v        = Pr [uPVar v]
+pdVar :: PVarV v t -> PredicateV v
+pdVar v  = Pr [uPVar v]
 
 findPVar :: [PVar (RType c tv ())] -> UsedPVar -> PVar (RType c tv ())
 findPVar ps upv = PV name ty v (zipWith (\(_, _, e) (t, s, _) -> (t, s, e)) (pargs upv) args)
@@ -183,14 +184,14 @@ uRType'         = fmap ur_reft
 uRTypeGen       :: Reftable b => RType c tv a -> RType c tv b
 uRTypeGen       = fmap $ const mempty
 
-uPVar           :: PVar t -> UsedPVar
+uPVar           :: PVarV v t -> UsedPVarV v
 uPVar           = void
 
 uReft           :: (Symbol, Expr) -> UReft Reft
 uReft           = uTop . Reft
 
-uTop            ::  r -> UReft r
-uTop r          = MkUReft r mempty
+uTop            ::  r -> UReftV v r
+uTop r          = MkUReft r (Pr [])
 
 --------------------------------------------------------------------
 -------------- (Class) Predicates for Valid Refinement Types -------
@@ -706,20 +707,26 @@ meets rs rs'
   | length rs == length rs' = zipWith meet rs rs'
   | otherwise               = panic Nothing "meets: unbalanced rs"
 
-strengthen :: Reftable r => RType c tv r -> r -> RType c tv r
-strengthen (RApp c ts rs r)   r' = RApp c ts rs   (r `meet` r')
-strengthen (RVar a r)         r' = RVar a         (r `meet` r')
-strengthen (RFun b i t1 t2 r) r' = RFun b i t1 t2 (r `meet` r')
-strengthen (RAppTy t1 t2 r)   r' = RAppTy t1 t2   (r `meet` r')
-strengthen (RAllT a t r)      r' = RAllT a t      (r `meet` r')
-strengthen (RHole r)          r' = RHole          (r `meet` r')
-strengthen t                  _  = t
+strengthen :: Reftable r => RTypeV v c tv r -> r -> RTypeV v c tv r
+strengthen = strengthenWith meet
 
-quantifyRTy :: (Monoid r, Eq tv) => [RTVar tv (RType c tv ())] -> RType c tv r -> RType c tv r
+strengthenWith :: (r -> r -> r) -> RTypeV v c tv r -> r -> RTypeV v c tv r
+strengthenWith mt = go
+  where
+    go (RApp c ts rs r)   r' = RApp c ts rs   (r `mt` r')
+    go (RVar a r)         r' = RVar a         (r `mt` r')
+    go (RFun b i t1 t2 r) r' = RFun b i t1 t2 (r `mt` r')
+    go (RAppTy t1 t2 r)   r' = RAppTy t1 t2   (r `mt` r')
+    go (RAllT a t r)      r' = RAllT a t      (r `mt` r')
+    go (RHole r)          r' = RHole          (r `mt` r')
+    go t                  _  = t
+
+
+quantifyRTy :: (Monoid r, Eq tv) => [RTVar tv (RTypeV v c tv ())] -> RTypeV v c tv r -> RTypeV v c tv r
 quantifyRTy tvs ty = foldr rAllT ty tvs
   where rAllT a t = RAllT a t mempty
 
-quantifyFreeRTy :: (Monoid r, Eq tv) => RType c tv r -> RType c tv r
+quantifyFreeRTy :: (Monoid r, Eq tv) => RTypeV v c tv r -> RTypeV v c tv r
 quantifyFreeRTy ty = quantifyRTy (freeTyVars ty) ty
 
 
@@ -917,7 +924,7 @@ allTyVars' t = fmap ty_var_value $ vs ++ vs'
     vs'     = freeTyVars t
 
 
-freeTyVars :: Eq tv => RType c tv r -> [RTVar tv (RType c tv ())]
+freeTyVars :: Eq tv => RTypeV v c tv r -> [RTVar tv (RTypeV v c tv ())]
 freeTyVars (RAllP _ t)       = freeTyVars t
 freeTyVars (RAllT α t _)     = freeTyVars t L.\\ [α]
 freeTyVars (RFun _ _ t t' _) = freeTyVars t `L.union` freeTyVars t'

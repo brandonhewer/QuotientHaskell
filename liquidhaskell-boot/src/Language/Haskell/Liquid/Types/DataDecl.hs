@@ -20,9 +20,11 @@ module Language.Haskell.Liquid.Types.DataDecl (
   -- * Parse-time entities describing refined data types
     DataDecl
   , DataDeclLHName
+  , DataDeclParsed
   , DataDeclP (..)
   , DataName (..), dataNameSymbol
   , DataCtor
+  , DataCtorParsed
   , DataCtorP (..)
   , DataConP (..)
   , HasDataDecl (..), hasDecl
@@ -54,20 +56,21 @@ import           Language.Haskell.Liquid.Types.RType
 --------------------------------------------------------------------------------
 -- | Data type refinements
 --------------------------------------------------------------------------------
-type DataDecl = DataDeclP BareType
-type DataDeclLHName = DataDeclP BareTypeLHName
-data DataDeclP ty  = DataDecl
+type DataDecl = DataDeclP F.Symbol BareType
+type DataDeclParsed = DataDeclP F.LocSymbol BareTypeParsed
+type DataDeclLHName = DataDeclP LHName BareTypeLHName
+data DataDeclP v ty  = DataDecl
   { tycName   :: DataName              -- ^ Type  Constructor Name
   , tycTyVars :: [F.Symbol]            -- ^ Tyvar Parameters
-  , tycPVars  :: [PVar BSort]          -- ^ PVar  Parameters
+  , tycPVars  :: [PVarV v (BSortV v)]  -- ^ PVar  Parameters
   , tycDCons  :: Maybe [DataCtorP ty]  -- ^ Data Constructors (Nothing is reserved for non-GADT style empty data declarations)
   , tycSrcPos :: !F.SourcePos          -- ^ Source Position
   , tycSFun   :: Maybe SizeFun         -- ^ Default termination measure
   , tycPropTy :: Maybe ty              -- ^ Type of Ind-Prop
   , tycKind   :: !DataDeclKind         -- ^ User-defined or Auto-lifted
   } deriving (Data, Typeable, Generic, Functor, Foldable, Traversable)
-
-instance Hashable ty => Hashable (DataDeclP ty)
+  deriving Hashable via Generically (DataDeclP v ty)
+  deriving B.Binary via Generically (DataDeclP v ty)
 
 -- | The name of the `TyCon` corresponding to a `DataDecl`
 data DataName
@@ -79,6 +82,7 @@ instance Hashable DataName
 
 -- | Data Constructor
 type DataCtor = DataCtorP BareType
+type DataCtorParsed = DataCtorP BareTypeParsed
 data DataCtorP ty = DataCtor
   { dcName   :: F.Located LHName       -- ^ DataCon name
   , dcTyVars :: [F.Symbol]             -- ^ Type parameters
@@ -118,9 +122,8 @@ instance NFData   DataDeclKind
 instance B.Binary DataDeclKind
 instance B.Binary DataName
 instance B.Binary ty => B.Binary (DataCtorP ty)
-instance B.Binary ty => B.Binary (DataDeclP ty)
 
-instance Eq (DataDeclP ty) where
+instance Eq (DataDeclP v ty) where
   d1 == d2 = tycName d1 == tycName d2
 
 instance Ord DataDecl where
@@ -129,7 +132,7 @@ instance Ord DataDecl where
 instance F.Loc (DataCtorP ty) where
   srcSpan = F.srcSpan . dcName
 
-instance F.Loc DataDecl where
+instance F.Loc (DataDeclP v ty) where
   srcSpan = srcSpanFSrcSpan . sourcePosSrcSpan . tycSrcPos
 
 instance F.Loc DataName where
@@ -138,7 +141,7 @@ instance F.Loc DataName where
 
 
 -- | For debugging.
-instance Show ty => Show (DataDeclP ty) where
+instance Show ty => Show (DataDeclP v ty) where
   show dd = printf "DataDecl: data = %s, tyvars = %s, sizeFun = %s, kind = %s" -- [at: %s]"
               (show $ tycName   dd)
               (show $ tycTyVars dd)
@@ -193,7 +196,7 @@ data DataConP = DataConP
 instance F.Loc DataConP where
   srcSpan d = F.SS (dcpLoc d) (dcpLocE d)
 
-instance F.PPrint ty => F.PPrint (DataDeclP ty) where
+instance F.PPrint ty => F.PPrint (DataDeclP v ty) where
   pprintTidy k dd =
     let
       prefix = "data" <+> F.pprint (tycName dd) <+> ppMbSizeFun (tycSFun dd) <+> F.pprint (tycTyVars dd)

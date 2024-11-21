@@ -11,6 +11,7 @@
 {-# LANGUAGE DerivingVia                #-}
 {-# LANGUAGE LambdaCase                 #-}
 {-# LANGUAGE NamedFieldPuns             #-}
+{-# LANGUAGE TypeFamilies               #-}
 
 {-# OPTIONS_GHC -Wno-orphans #-}
 
@@ -33,7 +34,7 @@ module Language.Haskell.Liquid.Types.RType (
   , isClassType, isEqType, isRVar, isBool, isEmbeddedClass
 
   -- * Refinement Types
-  , RType (..), Ref(..), RTProp, rPropP
+  , RType, RTypeV (..), Ref(..), RTProp, RTPropV, rPropP
   , RTyVar (..)
   , OkRT
 
@@ -73,22 +74,24 @@ module Language.Haskell.Liquid.Types.RType (
 
   -- * Pre-instantiated RType
   , RRType, RRProp
-  , BRType, BRProp
-  , BSort, BPVar
+  , BRType, BRProp, BRPropV
+  , BSort, BSortV, BPVar
   , RTVU, PVU
 
   -- * Instantiated RType
   , BareType
   , BareTypeLHName
+  , BareTypeParsed
   , BareTypeV
   , SpecType, SpecProp, SpecRTVar
   , LocBareType
   , LocBareTypeLHName
+  , LocBareTypeParsed
   , LocSpecType
   , RSort
   , UsedPVar
   , UsedPVarV
-  , RPVar, RReft
+  , RPVar, RReft, RReftV
 
   -- * Printer Configuration
   , PPEnv (..)
@@ -101,6 +104,7 @@ module Language.Haskell.Liquid.Types.RType (
   -- * Reftable/UReftable Instances
   , Reftable(..)
   , UReftable(..)
+  , ToReftV(..)
   )
   where
 
@@ -493,16 +497,16 @@ isClassBTyCon = btc_class
 rTyConPVs :: RTyCon -> [RPVar]
 rTyConPVs     = rtc_pvars
 
-isEqType :: TyConable c => RType c t t1 -> Bool
+isEqType :: TyConable c => RTypeV v c t t1 -> Bool
 isEqType (RApp c _ _ _) = isEqual c
 isEqType _              = False
 
 
-isClassType :: TyConable c => RType c t t1 -> Bool
+isClassType :: TyConable c => RTypeV v c t t1 -> Bool
 isClassType (RApp c _ _ _) = isClass c
 isClassType _              = False
 
-isEmbeddedClass :: TyConable c => RType c t t1 -> Bool
+isEmbeddedClass :: TyConable c => RTypeV v c t t1 -> Bool
 isEmbeddedClass (RApp c _ _ _) = isEmbeddedDict c
 isEmbeddedClass _              = False
 
@@ -695,13 +699,16 @@ instance Show TyConInfo where
 -- | Unified Representation of Refinement Types --------------------------------
 --------------------------------------------------------------------------------
 
-type RTVU c tv = RTVar tv (RType c tv ())
-type PVU  c tv = PVar     (RType c tv ())
+type RTVU c tv = RTVUV Symbol c tv
+type RTVUV v c tv = RTVar tv (RTypeV v c tv ())
+type PVU c tv = PVUV Symbol c tv
+type PVUV v c tv = PVarV v (RTypeV v c tv ())
 
 instance Show tv => Show (RTVU c tv) where
   show (RTVar t _) = show t
 
-data RType c tv r
+type RType c tv r = RTypeV Symbol c tv r
+data RTypeV v c tv r
   = RVar {
       rt_var    :: !tv
     , rt_reft   :: !r
@@ -710,22 +717,22 @@ data RType c tv r
   | RFun  {
       rt_bind   :: !Symbol
     , rt_rinfo  :: !RFInfo
-    , rt_in     :: !(RType c tv r)
-    , rt_out    :: !(RType c tv r)
+    , rt_in     :: !(RTypeV v c tv r)
+    , rt_out    :: !(RTypeV v c tv r)
     , rt_reft   :: !r
     }
 
   | RAllT {
-      rt_tvbind :: !(RTVU c tv) -- RTVar tv (RType c tv ()))
-    , rt_ty     :: !(RType c tv r)
+      rt_tvbind :: !(RTVUV v c tv) -- RTVar tv (RType c tv ()))
+    , rt_ty     :: !(RTypeV v c tv r)
     , rt_ref    :: !r
     }
 
   -- | "forall x y <z :: Nat, w :: Int> . TYPE"
   --               ^^^^^^^^^^^^^^^^^^^ (rt_pvbind)
   | RAllP {
-      rt_pvbind :: !(PVU c tv)
-    , rt_ty     :: !(RType c tv r)
+      rt_pvbind :: !(PVUV v c tv)
+    , rt_ty     :: !(RTypeV v c tv r)
     }
 
   -- | For example, in [a]<{\h -> v > h}>, we apply (via `RApp`)
@@ -733,44 +740,44 @@ data RType c tv r
   --   * the `RTyCon` denoted by `[]`.
   | RApp  {
       rt_tycon  :: !c
-    , rt_args   :: ![RType  c tv r]
-    , rt_pargs  :: ![RTProp c tv r]
+    , rt_args   :: ![RTypeV v c tv r]
+    , rt_pargs  :: ![RTPropV v c tv r]
     , rt_reft   :: !r
     }
 
   | RAllE {
       rt_bind   :: !Symbol
-    , rt_allarg :: !(RType c tv r)
-    , rt_ty     :: !(RType c tv r)
+    , rt_allarg :: !(RTypeV v c tv r)
+    , rt_ty     :: !(RTypeV v c tv r)
     }
 
   | REx {
       rt_bind   :: !Symbol
-    , rt_exarg  :: !(RType c tv r)
-    , rt_ty     :: !(RType c tv r)
+    , rt_exarg  :: !(RTypeV v c tv r)
+    , rt_ty     :: !(RTypeV v c tv r)
     }
 
-  | RExprArg (F.Located Expr)                   -- ^ For expression arguments to type aliases
+  | RExprArg (F.Located (ExprV v))              -- ^ For expression arguments to type aliases
                                                 --   see tests/pos/vector2.hs
   | RAppTy{
-      rt_arg   :: !(RType c tv r)
-    , rt_res   :: !(RType c tv r)
+      rt_arg   :: !(RTypeV v c tv r)
+    , rt_res   :: !(RTypeV v c tv r)
     , rt_reft  :: !r
     }
 
   | RRTy  {
-      rt_env   :: ![(Symbol, RType c tv r)]
+      rt_env   :: ![(Symbol, RTypeV v c tv r)]
     , rt_ref   :: !r
     , rt_obl   :: !Oblig
-    , rt_ty    :: !(RType c tv r)
+    , rt_ty    :: !(RTypeV v c tv r)
     }
 
   | RHole r -- ^ let LH match against the Haskell type and add k-vars, e.g. `x:_`
             --   see tests/pos/Holes.hs
-  deriving (Eq, Generic, Data, Typeable, Functor)
-  deriving Hashable via Generically (RType c tv r)
+  deriving (Eq, Generic, Data, Typeable, Functor, Foldable, Traversable)
+  deriving Hashable via Generically (RTypeV v c tv r)
 
-instance (B.Binary c, B.Binary tv, B.Binary r) => B.Binary (RType c tv r)
+instance (B.Binary v, B.Binary c, B.Binary tv, B.Binary r) => B.Binary (RTypeV v c tv r)
 instance (NFData c, NFData tv, NFData r)       => NFData (RType c tv r)
 
 makeRTVar :: tv -> RTVar tv s
@@ -782,7 +789,7 @@ instance (Eq tv) => Eq (RTVar tv s) where
 data RTVar tv s = RTVar
   { ty_var_value :: tv
   , ty_var_info  :: RTVInfo s
-  } deriving (Generic, Data, Typeable)
+  } deriving (Generic, Data, Typeable, Functor, Foldable, Traversable)
     deriving Hashable via Generically (RTVar tv s)
 
 mapTyVarValue :: (tv1 -> tv2) -> RTVar tv1 s -> RTVar tv2 s
@@ -799,7 +806,7 @@ data RTVInfo s
             , rtv_is_pol :: Bool -- true iff the type variable gets instantiated with
                                  -- any refinement (ie is polymorphic on refinements),
                                  -- false iff instantiation is with true refinement
-            } deriving (Generic, Data, Typeable, Functor, Eq)
+            } deriving (Generic, Data, Typeable, Functor, Eq, Foldable, Traversable)
               deriving Hashable via Generically (RTVInfo s)
 
 
@@ -829,18 +836,19 @@ instance (B.Binary s)              => B.Binary (RTVInfo s)
 data Ref τ t = RProp
   { rf_args :: [(Symbol, τ)] -- ^ arguments. e.g. @h@ in the above example
   , rf_body :: t -- ^ Abstract refinement associated with `RTyCon`. e.g. @v > h@ in the above example
-  } deriving (Eq, Generic, Data, Typeable, Functor)
+  } deriving (Eq, Generic, Data, Typeable, Functor, Foldable, Traversable)
     deriving Hashable via Generically (Ref τ t)
 
 instance (B.Binary τ, B.Binary t) => B.Binary (Ref τ t)
 instance (NFData τ,   NFData t)   => NFData   (Ref τ t)
 
-rPropP :: [(Symbol, τ)] -> r -> Ref τ (RType c tv r)
+rPropP :: [(Symbol, τ)] -> r -> Ref τ (RTypeV v c tv r)
 rPropP τ r = RProp τ (RHole r)
 
 -- | @RTProp@ is a convenient alias for @Ref@ that will save a bunch of typing.
 --   In general, perhaps we need not expose @Ref@ directly at all.
-type RTProp c tv r = Ref (RType c tv ()) (RType c tv r)
+type RTProp c tv r = RTPropV Symbol c tv r
+type RTPropV v c tv r = Ref (RTypeV v c tv ()) (RTypeV v c tv r)
 
 type UReft r = UReftV F.Symbol r
 data UReftV v r = MkUReft
@@ -860,27 +868,32 @@ emapUReftVM f g (MkUReft r p) = MkUReft <$> g r <*> emapPredicateVM f p
 instance (Ord v, Hashable v, Hashable r) => Hashable (UReftV v r)
 instance (B.Binary v, B.Binary r) => B.Binary (UReftV v r)
 
-type BRType      = RType BTyCon BTyVar       -- ^ "Bare" parsed version
-type RRType      = RType RTyCon RTyVar       -- ^ "Resolved" version
+type BRType      = RTypeV Symbol BTyCon BTyVar    -- ^ "Bare" parsed version
+type BRTypeV v   = RTypeV v BTyCon BTyVar         -- ^ "Bare" parsed version
+type RRType      = RTypeV Symbol RTyCon RTyVar    -- ^ "Resolved" version
 type BSort       = BRType    ()
+type BSortV v    = BRTypeV v ()
 type RSort       = RRType    ()
 type BPVar       = PVar      BSort
 type RPVar       = PVar      RSort
 type RReft       = RReftV    F.Symbol
 type RReftV v    = UReftV v (F.ReftV v)
 type BareType    = BareTypeV F.Symbol
+type BareTypeParsed = BareTypeV F.LocSymbol
 type BareTypeLHName = BareTypeV LHName
-type BareTypeV v = BRType    (RReftV v)
+type BareTypeV v = BRTypeV v (RReftV v)
 type SpecType    = RRType    RReft
 type SpecProp    = RRProp    RReft
 type RRProp r    = Ref       RSort (RRType r)
-type BRProp r    = Ref       BSort (BRType r)
+type BRProp r    = BRPropV Symbol r
+type BRPropV v r = Ref       (BSortV v) (BRTypeV v r)
 type SpecRTVar   = RTVar     RTyVar RSort
 
 
 
 type LocBareType = F.Located BareType
 type LocBareTypeLHName = F.Located BareTypeLHName
+type LocBareTypeParsed = F.Located BareTypeParsed
 type LocSpecType = F.Located SpecType
 
 
@@ -944,6 +957,22 @@ instance UReftable (UReft F.Reft) where
 
 instance UReftable () where
    ofUReft _ = mempty
+
+class ToReftV r where
+  type ReftVar r
+  toReftV  :: r -> F.ReftV (ReftVar r)
+
+instance ToReftV r => ToReftV (UReftV v r) where
+  type ReftVar (UReftV v r) = ReftVar r
+  toReftV = toReftV . ur_reft
+
+instance ToReftV (F.ReftV v) where
+  type ReftVar (F.ReftV v) = v
+  toReftV = id
+
+instance ToReftV () where
+  type ReftVar () = Symbol
+  toReftV _ = F.trueReft
 
 class (Monoid r, F.Subable r) => Reftable r where
   isTauto :: r -> Bool

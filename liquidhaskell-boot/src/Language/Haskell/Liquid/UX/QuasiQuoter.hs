@@ -34,6 +34,7 @@ import Language.Haskell.Liquid.Parse
 import Language.Haskell.Liquid.Types.Errors
 import Language.Haskell.Liquid.Types.Names
 import Language.Haskell.Liquid.Types.RType
+import Language.Haskell.Liquid.Types.RTypeOp
 import Language.Haskell.Liquid.Types.RefType
 import Language.Haskell.Liquid.Types.Types
 
@@ -84,12 +85,12 @@ throwErrorInQ uerr =
 mkSpecDecs :: BPspec -> Either UserError [Dec]
 mkSpecDecs (Asrt (name, ty)) =
   return . SigD (lhNameToName name)
-    <$> simplifyBareType name (quantifyFreeRTy $ val ty)
+    <$> simplifyBareType id name (quantifyFreeRTy $ parsedToBareType $ val ty)
 mkSpecDecs (Asrts (names, (ty, _))) =
   (\t -> (`SigD` t) . lhNameToName <$> names)
-    <$> simplifyBareType (head names) (quantifyFreeRTy $ val ty)
+    <$> simplifyBareType id (head names) (quantifyFreeRTy $ parsedToBareType $ val ty)
 mkSpecDecs (Alias rta) =
-  return . TySynD name tvs <$> simplifyBareType lsym (rtBody (val rta))
+  return . TySynD name tvs <$> simplifyBareType parsedToBareType lsym (rtBody (val rta))
   where
     lsym = F.atLoc rta n
     name = symbolName n
@@ -132,21 +133,22 @@ lhNameToName lname = case val lname of
 
 -- BareType to TH Type ---------------------------------------------------------
 
-simplifyBareType :: PPrint a => Located a -> BareType -> Either UserError Type
-simplifyBareType s t = case simplifyBareType' t of
+simplifyBareType
+  :: PPrint a => (BareTypeV v -> BareType) -> Located a -> BareTypeV v -> Either UserError Type
+simplifyBareType toBareType s t = case simplifyBareType' t of
   Simplified t' ->
     Right t'
   FoundExprArg l ->
-    Left $ ErrTySpec l Nothing (pprint $ val s) (pprint t)
+    Left $ ErrTySpec l Nothing (pprint $ val s) (pprint $ toBareType t)
       "Found expression argument in bad location in type"
   FoundHole ->
-    Left $ ErrTySpec (fSrcSpan s) Nothing (pprint $ val s) (pprint t)
+    Left $ ErrTySpec (fSrcSpan s) Nothing (pprint $ val s) (pprint $ toBareType t)
       "Can't write LiquidHaskell type with hole in a quasiquoter"
 
-simplifyBareType' :: BareType -> Simpl Type
+simplifyBareType' :: BareTypeV v -> Simpl Type
 simplifyBareType' = simplifyBareType'' ([], [])
 
-simplifyBareType'' :: ([BTyVar], [BareType]) -> BareType -> Simpl Type
+simplifyBareType'' :: ([BTyVar], [BareTypeV v]) -> BareTypeV v -> Simpl Type
 
 simplifyBareType'' ([], []) (RVar v _) =
   return $ VarT $ symbolName v
