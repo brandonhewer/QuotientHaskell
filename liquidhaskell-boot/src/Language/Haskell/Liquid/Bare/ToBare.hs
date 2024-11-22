@@ -47,7 +47,7 @@ specToBareTC :: RTyCon -> BTyCon
 specToBareTC = tyConBTyCon . rtc_tc
 
 specToBareTV :: RTyVar -> BTyVar
-specToBareTV (RTV α) = BTV (F.symbol α)
+specToBareTV (RTV α) = BTV (F.symbol <$> locNamedThing α)
 
 txRType :: (c1 -> c2) -> (tv1 -> tv2) -> RType c1 tv1 r -> RType c2 tv2 r
 txRType cF vF = go

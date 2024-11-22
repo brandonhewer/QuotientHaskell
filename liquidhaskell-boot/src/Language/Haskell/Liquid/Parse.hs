@@ -305,7 +305,7 @@ namedCircleP = do
      PC (PcExplicit b) <$> bareArgP b
     <|> do
       b <- dummyBindP
-      PC (PcImplicit b) <$> dummyP (lowerIdTail (val lb))
+      PC (PcImplicit b) <$> dummyP (lowerIdTail lb)
 
 unnamedCircleP :: Parser ParamComp
 unnamedCircleP = do
@@ -461,7 +461,7 @@ bbaseP
  <?> "bbaseP"
  where
    parseHelper = do
-     l <- lowerIdP
+     l <- located lowerIdP
      lowerIdTail l
 
 maybeBind :: Parser a -> Parser (Maybe Symbol, a)
@@ -470,7 +470,7 @@ maybeBind parser = do {bd <- maybeP' bbindP; ty <- parser ; return (bd, ty)}
     maybeP' p = try (Just <$> p)
              <|> return Nothing
 
-lowerIdTail :: Symbol -> Parser (ReftV LocSymbol -> BareTypeParsed)
+lowerIdTail :: LocSymbol -> Parser (ReftV LocSymbol -> BareTypeParsed)
 lowerIdTail l =
           fmap (bAppTy (bTyVar l)) (some bareTyArgP)
       <|> fmap (bRVar (bTyVar l)) monoPredicateP
@@ -502,7 +502,7 @@ bbaseNoAppP
  <|> liftM2 bLst (brackets (optional bareTypeP)) predicatesP
  <|> liftM2 bTup (parens $ sepBy (maybeBind bareTypeP) comma) predicatesP
  <|> try (liftM4 bCon bTyConP predicatesP (return []) (return $ Pr []))
- <|> liftM2 bRVar (bTyVar <$> lowerIdP) monoPredicateP
+ <|> liftM2 bRVar (bTyVar <$> located lowerIdP) monoPredicateP
  <?> "bbaseNoAppP"
 
 bareTyArgP :: Parser BareTypeParsed
@@ -576,8 +576,8 @@ rAllP sp p t = RAllP p' ({- F.tracepp "rAllP" $ -} substPVar p p' t)
 
 tyVarDefsP :: Parser [BTyVar]
 tyVarDefsP
-  = parens (many (bTyVar <$> tyKindVarIdP))
- <|> many (bTyVar <$> tyVarIdP)
+  = parens (many (bTyVar <$> located tyKindVarIdP))
+ <|> many (bTyVar <$> located tyVarIdP)
  <?> "tyVarDefsP"
 
 tyKindVarIdP :: Parser Symbol
@@ -734,7 +734,9 @@ boundP = do
            <|> return []
            <?> "bargsP"
     bvsP   =     ( do reserved "forall"
-                      xs <- many (fmap bTyVar <$> locSymbolP)
+                      xs <- many $ do
+                        ls <- locSymbolP
+                        pure $ bTyVar ls <$ ls
                       reservedOp  "."
                       return (fmap (`RVar` trueURef) <$> xs)
                  )
@@ -768,7 +770,7 @@ maybeDigit
 bRProp :: [((Symbol, τ), Symbol)]
        -> (ExprV LocSymbol) -> Ref τ (RTypeV LocSymbol c BTyVar (UReftV LocSymbol (ReftV LocSymbol)))
 bRProp []    _    = panic Nothing "Parse.bRProp empty list"
-bRProp syms' epr  = RProp ss $ bRVar (BTV dummyName) (Pr []) r
+bRProp syms' epr  = RProp ss $ bRVar (BTV $ dummyLoc dummyName) (Pr []) r
   where
     (ss, (v, _))  = (init symsf, last symsf)
     symsf         = [(y, s) | ((_, s), y) <- syms']
@@ -1356,7 +1358,7 @@ oneClassArg
   where
     rit t as    = RApp t ((`RVar` trueURef) <$> as) [] trueURef
     classParams =  (reserved "where" >> return [])
-               <|> ((:) <$> (fmap bTyVar <$> locLowerIdP) <*> classParams)
+               <|> ((:) <$> ((\ls -> bTyVar ls <$ ls) <$> locLowerIdP) <*> classParams)
     sing x      = [x]
 
 
@@ -1376,7 +1378,7 @@ instanceP
                        <* reservedOp "=>")
                <|> return []
 
-    iargsP   =   (mkVar . bTyVar <$> tyVarIdP)
+    iargsP   =   (mkVar . bTyVar <$> located tyVarIdP)
             <|> parens (located bareTypeP)
 
 
@@ -1396,7 +1398,7 @@ classP :: Parser (RClass (Located BareTypeParsed))
 classP
   = do sups <- supersP
        c    <- classBTyConP
-       tvs  <- manyTill (bTyVar <$> tyVarIdP) (try $ reserved "where")
+       tvs  <- manyTill (bTyVar <$> located tyVarIdP) (try $ reserved "where")
        ms   <- block tyBindLHNameP -- <|> sepBy tyBindP semi
        return $ RClass c sups tvs ms
   where

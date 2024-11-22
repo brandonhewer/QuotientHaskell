@@ -421,7 +421,7 @@ instance F.Subable Predicate where
 
 instance NFData r => NFData (UReft r)
 
-newtype BTyVar = BTV Symbol deriving (Show, Generic, Data, Typeable)
+newtype BTyVar = BTV F.LocSymbol deriving (Show, Generic, Data, Typeable)
 
 newtype RTyVar = RTV TyVar deriving (Generic, Data, Typeable)
 
@@ -437,7 +437,7 @@ instance NFData   BTyVar
 instance NFData   RTyVar
 
 instance F.Symbolic BTyVar where
-  symbol (BTV tv) = tv
+  symbol (BTV tv) = F.symbol tv
 
 instance F.Symbolic RTyVar where
   symbol (RTV tv) = F.symbol tv -- tyVarUniqueSymbol tv
@@ -914,7 +914,7 @@ instance F.PPrint (RTProp c tv r) => Show (RTProp c tv r) where
   show = F.showpp
 
 instance F.PPrint BTyVar where
-  pprintTidy _ (BTV α) = text (F.symbolString α)
+  pprintTidy _ (BTV α) = text (F.symbolString $ F.val α)
 
 instance F.PPrint RTyVar where
   pprintTidy k (RTV α)

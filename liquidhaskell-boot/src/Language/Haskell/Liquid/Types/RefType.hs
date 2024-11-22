@@ -469,7 +469,7 @@ rTVar :: Monoid r => TyVar -> RTVar RTyVar (RRType r)
 rTVar a = RTVar (RTV a) (rTVarInfo a)
 
 bTVar :: Monoid r => TyVar -> RTVar BTyVar (BRType r)
-bTVar a = RTVar (BTV (symbol a)) (bTVarInfo a)
+bTVar a = RTVar (BTV (symbol <$> GM.locNamedThing a)) (bTVarInfo a)
 
 bTVarInfo :: Monoid r => TyVar -> RTVInfo (BRType r)
 bTVarInfo = mkTVarInfo kindToBRType
@@ -504,14 +504,14 @@ isValKind x0 =
     let x = expandTypeSynonyms x0
      in x == naturalTy || x == typeSymbolKind
 
-bTyVar :: Symbol -> BTyVar
+bTyVar :: LocSymbol -> BTyVar
 bTyVar      = BTV
 
 symbolRTyVar :: Symbol -> RTyVar
 symbolRTyVar = rTyVar . GM.symbolTyVar
 
 bareRTyVar :: BTyVar -> RTyVar
-bareRTyVar (BTV tv) = symbolRTyVar tv
+bareRTyVar (BTV tv) = symbolRTyVar $ val tv
 
 normalizePds :: (OkRT c tv r) => RType c tv r -> RType c tv r
 normalizePds t = addPds ps t'
@@ -1229,12 +1229,12 @@ instance (SubsTy tv ty Expr) => SubsTy tv ty Reft where
   subt su (Reft (x, e)) = Reft (x, subt su e)
 
 instance SubsTy Symbol Symbol (BRType r) where
-  subt (x,y) (RVar v r)
-    | BTV x == v = RVar (BTV y) r
-    | otherwise  = RVar v r
-  subt (x, y) (RAllT (RTVar v i) t r)
-    | BTV x == v = RAllT (RTVar v i) t r
-    | otherwise  = RAllT (RTVar v i) (subt (x,y) t) r
+  subt (x,y) (RVar (BTV v) r)
+    | x == val v = RVar (BTV (y <$ v)) r
+    | otherwise  = RVar (BTV v) r
+  subt (x, y) (RAllT (RTVar (BTV v) i) t r)
+    | x == val v = RAllT (RTVar (BTV v) i) t r
+    | otherwise  = RAllT (RTVar (BTV v) i) (subt (x,y) t) r
   subt su (RFun x i t1 t2 r)  = RFun x i (subt su t1) (subt su t2) r
   subt su (RAllP p t)       = RAllP p (subt su t)
   subt su (RApp c ts ps r)  = RApp c (subt su <$> ts) (subt su <$> ps) r
@@ -1352,7 +1352,7 @@ ofType      = ofType_ $ TyConv
 bareOfType :: Monoid r => Type -> BRType r
 --------------------------------------------------------------------------------
 bareOfType  = ofType_ $ TyConv
-  { tcFVar  = (`RVar` mempty) . BTV . symbol
+  { tcFVar  = (`RVar` mempty) . BTV . fmap symbol . GM.locNamedThing
   , tcFTVar = bTVar
   , tcFApp  = \c ts -> bApp c ts [] mempty
   , tcFLit  = ofLitType bApp
