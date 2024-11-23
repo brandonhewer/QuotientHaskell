@@ -642,6 +642,11 @@ import GHC.Types.Name                 as Ghc
     , occNameString
     , stableNameCmp
     )
+import GHC.Types.Name.Env             as Ghc
+    ( NameEnv
+    , lookupNameEnv
+    , mkNameEnvWith
+    )
 import GHC.Types.Name.Set             as Ghc
     ( NameSet
     , elemNameSet

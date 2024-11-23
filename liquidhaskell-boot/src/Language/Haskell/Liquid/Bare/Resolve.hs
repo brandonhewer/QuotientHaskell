@@ -147,36 +147,40 @@ makeLocalVars = localVarMap . localBinds
 
 -- TODO: rewrite using CoreVisitor
 localBinds :: [Ghc.CoreBind] -> [LocalVarDetails]
-localBinds                    = concatMap bgoT
+localBinds                    = concatMap (bgoT [])
   where
-    bgoT (Ghc.NonRec _ e)   = go e
-    bgoT (Ghc.Rec xes)      = concatMap (go . snd) xes
-    pgo isRec (x, e)        = mkLocalVarDetails isRec x : go e
-    bgo (Ghc.NonRec x e)    = pgo False (x, e)
-    bgo (Ghc.Rec xes)       = concatMap (pgo True) xes
-    go  (Ghc.App e a)       = concatMap go [e, a]
-    go  (Ghc.Lam _ e)       = go e
-    go  (Ghc.Let b e)       = bgo b ++ go e
-    go  (Ghc.Tick _ e)      = go e
-    go  (Ghc.Cast e _)      = go e
-    go  (Ghc.Case e _ _ cs) = go e ++ concatMap (go . (\(Ghc.Alt _ _ e') -> e')) cs
-    go  (Ghc.Var _)         = []
-    go  _                   = []
+    bgoT g (Ghc.NonRec _ e) = go g e
+    bgoT g (Ghc.Rec xes)    = concatMap (go g . snd) xes
+    pgo g isRec (x, e)      = mkLocalVarDetails g isRec x : go g e
+    bgo g (Ghc.NonRec x e)  = pgo g False (x, e)
+    bgo g (Ghc.Rec xes)     = concatMap (pgo g True) xes
+    go g (Ghc.App e a)       = concatMap (go g) [e, a]
+    go g (Ghc.Lam x e)       = go (x:g) e
+    go g (Ghc.Let b e)       = bgo g b ++ go (Ghc.bindersOf b ++ g) e
+    go g (Ghc.Tick _ e)      = go g e
+    go g (Ghc.Cast e _)      = go g e
+    go g (Ghc.Case e _ _ cs) = go g e ++ concatMap (\(Ghc.Alt _ bs e') -> go (bs ++ g) e') cs
+    go _ (Ghc.Var _)         = []
+    go _ _                   = []
 
-    mkLocalVarDetails isRec v = LocalVarDetails
+    mkLocalVarDetails g isRec v = LocalVarDetails
       { lvdSourcePos = F.sp_start $ F.srcSpan v
       , lvdVar = v
+      , lvdLclEnv = g
       , lvdIsRec = isRec
       }
 
 localVarMap :: [LocalVarDetails] -> LocalVars
 localVarMap lvds =
-    Misc.group
-      [ (x, lvd)
-      | lvd <- lvds
-      , let v = lvdVar lvd
-            x = F.symbol $ Ghc.occNameString $ Ghc.nameOccName $ Ghc.varName v
-      ]
+    LocalVars
+      { lvSymbols = Misc.group
+          [ (x, lvd)
+          | lvd <- lvds
+          , let v = lvdVar lvd
+                x = F.symbol $ Ghc.occNameString $ Ghc.nameOccName $ Ghc.varName v
+          ]
+      , lvNames = Ghc.mkNameEnvWith (Ghc.getName . lvdVar) lvds
+      }
 
 localKey   :: Ghc.Var -> Maybe F.Symbol
 localKey v
@@ -483,7 +487,7 @@ lookupGhcVar env name kind lx = case resolveLocSym env name kind lx of
 lookupLocalVar :: F.Loc a => LocalVars -> LocSymbol -> [a] -> Maybe (Either a Ghc.Var)
 lookupLocalVar localVars lx gvs = findNearest lxn kvs
   where
-    kvs                   = prioritizeRecBinds (M.lookupDefault [] x localVars) ++ gs
+    kvs                   = prioritizeRecBinds (M.lookupDefault [] x (lvSymbols localVars)) ++ gs
     gs                    = [(F.sp_start $ F.srcSpan v, Left v) | v <- gvs]
     lxn                   = F.sp_start $ F.srcSpan lx
     (_, x)                = unQualifySymbol (F.val lx)

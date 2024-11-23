@@ -436,32 +436,36 @@ deriving instance Show BareSpec
 
 -- | A function to resolve names in the ty parameter of Spec
 --
--- The first Bool is the bscope setting, which affects which names
--- are considered to be in scope in refinment types.
 --
--- The first parameter of the function argument are the variables in scope.
--- This is necessary for bounds and aliases.
 emapSpecM
   :: Monad m
-  => Bool
+  =>
+     -- | The bscope setting, which affects which names
+     -- are considered to be in scope in refinment types.
+     Bool
+     -- | For names that have a local environment return the names in scope.
+  -> (LHName -> [F.Symbol])
+     -- | The first parameter of the function argument are the variables in scope.
   -> ([F.Symbol] -> lname0 -> m lname1)
   -> ([F.Symbol] -> ty0 -> m ty1)
   -> Spec lname0 ty0
   -> m (Spec lname1 ty1)
-emapSpecM bscp vf f sp = do
+emapSpecM bscp lenv vf f sp = do
     measures <- mapM (emapMeasureM vf (traverse . f)) (measures sp)
     expSigs <- sequence [ (,s) <$> vf [] n | (n, s) <- expSigs sp ]
-    asmSigs <- mapM (traverse (traverse (f []))) (asmSigs sp)
+    asmSigs <- mapM (\p -> traverse (traverse (f $ lenv $ val $ fst p)) p) (asmSigs sp)
     sigs <-
       mapM
-        ( traverse (traverse (
+        (\p ->
+          traverse (traverse (
             emapReftM
               bscp
               vf
               (\e ->
                 emapUReftVM (vf . (++ e)) (emapFReftM (vf . (++ e))))
-              []
+              (lenv $ val $ fst p)
           ))
+          p
         )
         (sigs sp)
     invariants <- mapM (traverse (traverse fnull)) (invariants sp)
@@ -492,9 +496,10 @@ emapSpecM bscp vf f sp = do
     termexprs <-
       mapM
         (\p -> do
-          let mbs = M.findWithDefault [] (val $ fst p) mbinds
+          let bs0 = lenv $ val $ fst p
+              mbs = M.findWithDefault [] (val $ fst p) mbinds
           traverse
-            (mapM (traverse (emapExprVM (vf . (++ mbs)))))
+            (mapM (traverse (emapExprVM (vf . (++ (mbs ++ bs0))))))
             p
         )
         (termexprs sp)

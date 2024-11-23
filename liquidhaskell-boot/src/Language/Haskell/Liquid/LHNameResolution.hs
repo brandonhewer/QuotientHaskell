@@ -23,7 +23,7 @@ import           Language.Haskell.Liquid.Types.Names
 import           Language.Haskell.Liquid.Types.RType
 import           Language.Haskell.Liquid.Types.RTypeOp
 
-import           Control.Monad (mplus, unless, void)
+import           Control.Monad ((<=<), mplus, unless, void)
 import           Control.Monad.Identity
 import           Control.Monad.State.Strict
 import           Data.Bifunctor (first)
@@ -41,7 +41,7 @@ import qualified GHC.Types.Name.Occurrence
 
 import           Language.Fixpoint.Types as F hiding (Error, panic)
 import           Language.Haskell.Liquid.Bare.Resolve (lookupLocalVar)
-import           Language.Haskell.Liquid.Bare.Types (LocalVars)
+import           Language.Haskell.Liquid.Bare.Types (LocalVars(lvNames), LocalVarDetails(lvdLclEnv))
 import qualified Language.Haskell.Liquid.Types.DataDecl as DataDecl
 import           Language.Haskell.Liquid.Types.Errors (TError(ErrDupNames, ErrResolve), panic)
 import           Language.Haskell.Liquid.Types.Specs as Specs
@@ -92,7 +92,7 @@ resolveLHNames cfg thisModule localVars impMods globalRdrEnv lmap bareSpec0 depe
             sp1 <- mapMLocLHNames (\l -> (<$ l) <$> resolveLHName l) $
                      fixExpressionArgsOfTypeAliases taliases bareSpec0
             fromBareSpecLHName <$>
-              resolveExprNames cfg inScopeEnv globalRdrEnv unhandledNames lmap sp1
+              resolveExprNames cfg inScopeEnv globalRdrEnv unhandledNames lmap localVars sp1
         logicNameEnv' =
           foldr (uncurry insertSEnv) logicNameEnv [ (logicNameToSymbol n, n) | n <- ns]
      in if null es then
@@ -435,11 +435,13 @@ resolveExprNames
   -> GHC.GlobalRdrEnv
   -> HS.HashSet Symbol
   -> LogicMap
+  -> LocalVars
   -> BareSpecParsed
   -> State RenameOutput BareSpecLHName
-resolveExprNames cfg env globalRdrEnv unhandledNames lmap sp =
+resolveExprNames cfg env globalRdrEnv unhandledNames lmap localVars sp =
     emapSpecM
       (bscope cfg)
+      (map localVarToSymbol . maybe [] lvdLclEnv . (GHC.lookupNameEnv (lvNames localVars) <=< getLHGHCName))
       resolveName
       (\ss0 ->
         emapReftM (bscope cfg)
@@ -453,6 +455,8 @@ resolveExprNames cfg env globalRdrEnv unhandledNames lmap sp =
       )
       sp
   where
+    localVarToSymbol = F.symbol . GHC.occNameString . GHC.nameOccName . GHC.varName
+
     resolveName :: [Symbol] -> LocSymbol -> State RenameOutput LHName
     resolveName ss ls
       | elem s ss = return $ makeLocalLHName s
@@ -557,6 +561,7 @@ toBareSpecLHName cfg env sp0 = runIdentity $ go sp0
     go sp =
       emapSpecM
         (bscope cfg)
+        (const [])
         resolveName
         (\ss0 ->
           emapReftM (bscope cfg)

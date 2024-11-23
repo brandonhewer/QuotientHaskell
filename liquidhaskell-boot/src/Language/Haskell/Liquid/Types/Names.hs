@@ -13,6 +13,7 @@ module Language.Haskell.Liquid.Types.Names
   , LHNameSpace (..)
   , LHThisModuleNameFlag (..)
   , makeResolvedLHName
+  , getLHGHCName
   , getLHNameResolved
   , getLHNameSymbol
   , logicNameToSymbol
@@ -238,6 +239,10 @@ getLHNameSymbol (LHNUnresolved _ s) = s
 getLHNameResolved :: HasCallStack => LHName -> LHResolvedName
 getLHNameResolved (LHNResolved n _) = n
 getLHNameResolved n@LHNUnresolved{} = error $ "getLHNameResolved: unresolved name: " ++ show n
+
+getLHGHCName :: LHName -> Maybe GHC.Name
+getLHGHCName (LHNResolved (LHRGHC n) _) = Just n
+getLHGHCName _ = Nothing
 
 mapLHNames :: Data a => (LHName -> LHName) -> a -> a
 mapLHNames f = go
