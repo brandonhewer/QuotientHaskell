@@ -1,5 +1,42 @@
--- | This module provides a GHC 'Plugin' that allows LiquidHaskell to be hooked directly into GHC's
--- compilation pipeline, facilitating its usage and adoption.
+-- | This module provides functions to resolve names in specs.
+--
+-- There are two major namespaces in LH:
+--
+-- 1) The names of Haskell entities
+-- 2) The names of logic entities
+--
+-- At the moment LH resolves names to Haskell entities, while resolving logic
+-- entities remains work in progress.
+--
+-- Haskell entities include all functions that LH might reflect, or types that
+-- might be referred in refinment types, type aliases or other annotations.
+--
+-- Logic entities include the names of reflected functions, inlined functions,
+-- uninterpreted functions, predefined functions, local bindings, reflected data
+-- constructors and parameters of Haskell functions in specs of other local
+-- bindings.
+--
+-- The resolution pipeline goes as follows.
+--
+-- * First the module specs are parsed into a 'BareSpecParsed'.
+--   Here all names are unresolved.
+-- * Next the names of Haskell entities are resolved by 'resolveLHNames'.
+--   For now, this pass doesn't change the type of the names.
+-- * Next the names of logic entities are resolved. This pass produces
+--   a 'BareSpecLHName', where 'Symbol's are replaced with 'LHName'. At
+--   the moment most LHNames are just wrappers over the symbols. As name
+--   resolution is implemented for logic names, the wrappers will be
+--   replaced with the actual result of name resolution.
+--
+-- 'BareSpecLHName' has a bijection to 'BareSpec' via a 'LogicNameEnv'
+-- which allows to convert 'LHName' to an unambiguous form of 'Symbol'
+-- and back. The bijection is implemented with the functions 'toBareSpecLHName'
+-- and 'fromBareSpecLHName'. This allows to use liquid-fixpoint functions
+-- unmodified as they will continue to operate on (now unambiguous) Symbols.
+--
+-- At the same time, the 'BareSpecLHName' form is kept to serialize and to
+-- resolve names of modules that import the specs.
+--
 
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE FlexibleInstances          #-}
@@ -89,10 +126,12 @@ resolveLHNames cfg thisModule localVars impMods globalRdrEnv lmap bareSpec0 depe
           makeInScopeExprEnv impMods thisModule bareSpec0 dependencies
         (bs, (es, ns)) =
           flip runState mempty $ do
+            -- A generic traversal that resolves names of Haskell entities
             sp1 <- mapMLocLHNames (\l -> (<$ l) <$> resolveLHName l) $
                      fixExpressionArgsOfTypeAliases taliases bareSpec0
+            -- Now we do a second traversal to resolve logic names
             fromBareSpecLHName <$>
-              resolveExprNames cfg inScopeEnv globalRdrEnv unhandledNames lmap localVars sp1
+              resolveLogicNames cfg inScopeEnv globalRdrEnv unhandledNames lmap localVars sp1
         logicNameEnv' =
           foldr (uncurry insertSEnv) logicNameEnv [ (logicNameToSymbol n, n) | n <- ns]
      in if null es then
@@ -184,6 +223,9 @@ resolveLHNames cfg thisModule localVars impMods globalRdrEnv lmap bareSpec0 depe
       Just (c, _) -> Char.isUpper c || c == ':'
       Nothing -> False
 
+-- | Resolving logic names can produce errors and new names to add to the
+-- environment. New names might be produced when encountering data constructors
+-- or functions from the logic map.
 type RenameOutput = ([Error], [LHName])
 
 addError :: Error -> State RenameOutput ()
@@ -429,7 +471,7 @@ collectLiftedSpecLogicNames sp =
       , map (makeLocalLHName . LH.dropModuleNames . eqName) $ HS.toList $ liftedAxeqs sp
       ]
 
-resolveExprNames
+resolveLogicNames
   :: Config
   -> InScopeExprEnv
   -> GHC.GlobalRdrEnv
@@ -438,23 +480,25 @@ resolveExprNames
   -> LocalVars
   -> BareSpecParsed
   -> State RenameOutput BareSpecLHName
-resolveExprNames cfg env globalRdrEnv unhandledNames lmap localVars sp =
+resolveLogicNames cfg env globalRdrEnv unhandledNames lmap0 localVars sp =
     emapSpecM
       (bscope cfg)
       (map localVarToSymbol . maybe [] lvdLclEnv . (GHC.lookupNameEnv (lvNames localVars) <=< getLHGHCName))
-      resolveName
-      (emapBareTypeVM (bscope cfg) resolveName)
+      resolveLogicName
+      (emapBareTypeVM (bscope cfg) resolveLogicName)
       sp
   where
     localVarToSymbol = F.symbol . GHC.occNameString . GHC.nameOccName . GHC.varName
 
-    resolveName :: [Symbol] -> LocSymbol -> State RenameOutput LHName
-    resolveName ss ls
+    resolveLogicName :: [Symbol] -> LocSymbol -> State RenameOutput LHName
+    resolveLogicName ss ls
       | elem s ss = return $ makeLocalLHName s
       | otherwise =
         case lookupInScopeExprEnv env s of
           Left alts ->
-            case resolveDataConName ls `mplus` resolveVarName ls of
+            -- If names are not in the environment, they must be data constructors,
+            -- or they must be in the logicmap.
+            case resolveDataConName ls `mplus` resolveVarName lmap0 ls of
               Just m -> m
               Nothing -> do
                 unless (HS.member s unhandledNames) $
@@ -516,10 +560,10 @@ resolveExprNames cfg env globalRdrEnv unhandledNames lmap localVars sp =
               )
             return $ makeLocalLHName $ val s
 
-    resolveVarName s
+    resolveVarName _ s
       | val s == "GHC.Internal.Base.." = Just $ do
         return $ makeLocalLHName $ val s
-    resolveVarName s =
+    resolveVarName lmap s =
       case GHC.lookupGRE globalRdrEnv (mkLookupGRE (LHVarName LHAnyModuleNameF) (val s)) of
         [e] -> do
           let n = GHC.greName e
@@ -553,14 +597,14 @@ toBareSpecLHName cfg env sp0 = runIdentity $ go sp0
       emapSpecM
         (bscope cfg)
         (const [])
-        resolveName
-        (emapBareTypeVM (bscope cfg) resolveName)
+        symbolToLHName
+        (emapBareTypeVM (bscope cfg) symbolToLHName)
         sp
 
     unhandledNames = HS.fromList $ map fst $ expSigs sp0
 
-    resolveName :: [Symbol] -> Symbol -> Identity LHName
-    resolveName ss s
+    symbolToLHName :: [Symbol] -> Symbol -> Identity LHName
+    symbolToLHName ss s
       | elem s ss = return $ makeLocalLHName s
       | otherwise =
         case lookupSEnv s env of
