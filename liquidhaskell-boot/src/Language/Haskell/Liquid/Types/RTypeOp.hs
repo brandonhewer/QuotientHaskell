@@ -37,6 +37,7 @@ module Language.Haskell.Liquid.Types.RTypeOp (
   , mapDataDeclVM
   , emapDataDeclM
   , emapDataCtorTyM
+  , emapBareTypeVM
   , parsedToBareType
 
   -- * Converting To and From Sort
@@ -368,6 +369,19 @@ emapRefM bscp vf f γ0 (RProp ss t0) =
         γ0
         ss
       <*> emapReftM bscp vf f (map fst ss ++ γ0) t0
+
+emapBareTypeVM
+  :: Monad m
+  => Bool
+  -> ([Symbol] -> v1 -> m v2)
+  -> [Symbol]
+  -> BareTypeV v1
+  -> m (BareTypeV v2)
+emapBareTypeVM bscp f =
+    emapReftM
+      bscp
+      f
+      (\e -> emapUReftVM (f . (++ e)) (emapFReftM (f . (++ e))))
 
 mapDataDeclV :: (v -> v') -> DataDeclP v ty -> DataDeclP v' ty
 mapDataDeclV f DataDecl {..} =

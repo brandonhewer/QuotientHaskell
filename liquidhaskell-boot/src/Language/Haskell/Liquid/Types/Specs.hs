@@ -456,34 +456,13 @@ emapSpecM bscp lenv vf f sp = do
     asmSigs <- mapM (\p -> traverse (traverse (f $ lenv $ val $ fst p)) p) (asmSigs sp)
     sigs <-
       mapM
-        (\p ->
-          traverse (traverse (
-            emapReftM
-              bscp
-              vf
-              (\e ->
-                emapUReftVM (vf . (++ e)) (emapFReftM (vf . (++ e))))
-              (lenv $ val $ fst p)
-          ))
-          p
-        )
+        (\p -> traverse (traverse (emapBareTypeVM bscp vf (lenv $ val $ fst p))) p)
         (sigs sp)
     invariants <- mapM (traverse (traverse fnull)) (invariants sp)
     ialiases <- mapM (bimapM (traverse fnull) (traverse fnull)) (ialiases sp)
     dataDecls <- mapM (emapDataDeclM bscp vf f) (dataDecls sp)
     newtyDecls <- mapM (emapDataDeclM bscp vf f) (newtyDecls sp)
-    aliases <-
-      mapM
-        (traverse
-            (emapRTAlias (
-              emapReftM
-                bscp
-                vf
-                (\e ->
-                  emapUReftVM (vf . (++ e)) (emapFReftM (vf . (++ e))))
-            ))
-        )
-        (aliases sp)
+    aliases <- mapM (traverse (emapRTAlias (emapBareTypeVM bscp vf))) (aliases sp)
     ealiases <- mapM (traverse (emapRTAlias (\e -> emapExprVM (vf . (++ e))))) $ ealiases sp
     qualifiers <- mapM (emapQualifierM vf) $ qualifiers sp
     cmeasures <- mapM (emapMeasureM vf (traverse . f)) (cmeasures sp)
@@ -537,8 +516,8 @@ emapSpecM bscp lenv vf f sp = do
   where
     fnull = f []
     emapRelationalM vf1 (n0, n1, t0, t1, e0, e1) = do
-      t0' <- traverse (emapReftM bscp vf1 (\e -> emapUReftVM (vf1 . (++ e)) (emapFReftM (vf1 . (++e)))) []) t0
-      t1' <- traverse (emapReftM bscp vf1 (\e -> emapUReftVM (vf1 . (++ e)) (emapFReftM (vf1 . (++e)))) []) t1
+      t0' <- traverse (emapBareTypeVM bscp vf1 []) t0
+      t1' <- traverse (emapBareTypeVM bscp vf1 []) t1
       let bs = [F.symbol "r1", F.symbol "r2"] ++ tArgs (val t0') ++ tArgs (val t1')
       e0' <- emapRelExprV (vf1 . (++ bs)) e0
       e1' <- emapRelExprV (vf1 . (++ bs)) e1

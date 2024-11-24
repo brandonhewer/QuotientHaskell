@@ -443,16 +443,7 @@ resolveExprNames cfg env globalRdrEnv unhandledNames lmap localVars sp =
       (bscope cfg)
       (map localVarToSymbol . maybe [] lvdLclEnv . (GHC.lookupNameEnv (lvNames localVars) <=< getLHGHCName))
       resolveName
-      (\ss0 ->
-        emapReftM (bscope cfg)
-          resolveName
-          (\ss1 ->
-            emapUReftVM
-              (resolveName . (ss1 ++))
-              (emapFReftM (resolveName . (ss1 ++)))
-          )
-          ss0
-      )
+      (emapBareTypeVM (bscope cfg) resolveName)
       sp
   where
     localVarToSymbol = F.symbol . GHC.occNameString . GHC.nameOccName . GHC.varName
@@ -563,16 +554,7 @@ toBareSpecLHName cfg env sp0 = runIdentity $ go sp0
         (bscope cfg)
         (const [])
         resolveName
-        (\ss0 ->
-          emapReftM (bscope cfg)
-            resolveName
-            (\ss1 ->
-              emapUReftVM
-                (resolveName . (ss1 ++))
-                (emapFReftM (resolveName . (ss1 ++)))
-            )
-            ss0
-        )
+        (emapBareTypeVM (bscope cfg) resolveName)
         sp
 
     unhandledNames = HS.fromList $ map fst $ expSigs sp0
