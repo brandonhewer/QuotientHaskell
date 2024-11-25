@@ -633,9 +633,6 @@ makeSpecRefl cfg src specs env name sig tycEnv = do
         ] ++ otherAxioms
   let asmReflEls = eqName <$> otherAxioms
   let impAxioms  = concatMap (filter ((`notElem` asmReflEls) . eqName) . Ms.axeqs . snd) (M.toList specs)
-  let sigVars  = F.notracepp "SIGVARS" $ (fst3 <$> xtes)            -- reflects
-                                      ++ (fst  <$> gsAsmSigs sig)   -- assumes
-                                      ++ (fst  <$> gsRefSigs sig)
   case anyNonReflFn of
     Just (actSym , preSym) ->
       let preSym' = show (val preSym) in
@@ -650,7 +647,7 @@ makeSpecRefl cfg src specs env name sig tycEnv = do
       , gsAutoInst   = autoInst
       , gsImpAxioms  = impAxioms
       , gsMyAxioms   = myAxioms
-      , gsReflects   = filter (isReflectVar rflSyms) sigVars ++ (fst <$> gsAsmReflects sig) ++ wRefls
+      , gsReflects   = (fst3 <$> xtes) ++ (fst <$> gsAsmReflects sig) ++ wRefls
       , gsHAxioms    = F.notracepp "gsHAxioms" $ xtes ++ asmReflAxioms
       , gsWiredReft  = wRefls
       , gsRewrites   = rwr
@@ -658,19 +655,11 @@ makeSpecRefl cfg src specs env name sig tycEnv = do
       }
   where
     mySpec       = M.lookupDefault mempty name specs
-    -- Collect reflected symbols and fully qualify them
-    rflLocSyms   = Bare.getLocReflects (Just env) specs
-    rflSyms      = S.map val rflLocSyms
     lmap         = Bare.reLMap env
     notInReflOnes (_, a) = not $
       a `S.member` Ms.reflects mySpec ||
       fmap getLHNameSymbol a `S.member` Ms.privateReflects mySpec
     anyNonReflFn = L.find notInReflOnes (Ms.asmReflectSigs mySpec)
-
-isReflectVar :: S.HashSet F.Symbol -> Ghc.Var -> Bool
-isReflectVar reflSyms v = S.member vx reflSyms
-  where
-    vx                  = symbol v
 
 ------------------------------------------------------------------------------------------
 -- | @updateReflSpecSig@ uses the information about reflected functions (included the opaque ones) to update the
