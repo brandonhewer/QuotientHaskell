@@ -768,7 +768,7 @@ maybeDigit
 ------------------------------------------------------------------------
 
 bRProp :: [((Symbol, τ), Symbol)]
-       -> (ExprV LocSymbol) -> Ref τ (RTypeV LocSymbol c BTyVar (UReftV LocSymbol (ReftV LocSymbol)))
+       -> ExprV LocSymbol -> Ref τ (RTypeV LocSymbol c BTyVar (UReftV LocSymbol (ReftV LocSymbol)))
 bRProp []    _    = panic Nothing "Parse.bRProp empty list"
 bRProp syms' epr  = RProp ss $ bRVar (BTV $ dummyLoc dummyName) (Pr []) r
   where
@@ -971,9 +971,9 @@ ppPspec k (Asrt (lx, t))
 ppPspec k (Asrts (lxs, (t, les)))
   = ppAsserts k lxs t les
 ppPspec k (DDecl d)
-  = pprintTidy k $ fmap parsedToBareType $ mapDataDeclV val d
+  = pprintTidy k (parsedToBareType <$> mapDataDeclV val d)
 ppPspec k (NTDecl d)
-  = "newtype" <+> pprintTidy k (fmap parsedToBareType $ mapDataDeclV val d)
+  = "newtype" <+> pprintTidy k (parsedToBareType <$> mapDataDeclV val d)
 ppPspec k (Invt t)
   = "invariant" <+> pprintTidy k t
 ppPspec k (Using (t1, t2))

@@ -11,6 +11,7 @@
 {-# LANGUAGE DerivingVia                #-}
 {-# LANGUAGE LambdaCase                 #-}
 {-# LANGUAGE NamedFieldPuns             #-}
+{-# LANGUAGE TupleSections              #-}
 {-# LANGUAGE TypeFamilies               #-}
 
 {-# OPTIONS_GHC -Wno-orphans #-}
@@ -283,7 +284,7 @@ emapPVarVM :: Monad m => ([Symbol] -> v -> m v') -> ([Symbol] -> t -> m t') -> P
 emapPVarVM f g pv = do
     ptype <- g (argSyms (pargs pv)) (ptype pv)
     (_, pargs) <- forAccumM [] (pargs pv) $ \ss (t, s, e) -> do
-      fmap ((,) (s:ss)) $ (,,) <$> g (s:ss) t <*> pure s <*> emapExprVM (f . ((s:ss) ++)) e
+      (s:ss,) <$> ((,,) <$> g (s:ss) t <*> pure s <*> emapExprVM (f . ((s:ss) ++)) e)
     return pv{ptype, pargs}
   where
     argSyms = map (\(_, s, _) -> s)
@@ -358,7 +359,7 @@ newtype PredicateV v = Pr [UsedPVarV v]
   deriving Hashable via Generically (PredicateV v)
 
 mapPredicateV :: (v -> v') -> PredicateV v -> PredicateV v'
-mapPredicateV f (Pr xs) = Pr (map (mapPVarV f (\_ -> ())) xs)
+mapPredicateV f (Pr xs) = Pr (map (mapPVarV f (const ())) xs)
 
 -- | A map traversal that collects the local variables in scope
 emapPredicateVM :: Monad m => ([Symbol] -> v -> m v') -> PredicateV v -> m (PredicateV v')
