@@ -12,8 +12,7 @@ module Language.Haskell.Liquid.Parse
   ( hsSpecificationP
   , parseSpecComments
   , singleSpecP
-  , BPspec
-  , Pspec(..)
+  , BPspec (..)
   , parseSymbolToLogic
   , parseTest'
   )
@@ -892,23 +891,21 @@ dummyTyId = ""
 --------------------------- Measures -----------------------------
 ------------------------------------------------------------------
 
-type BPspec = Pspec LocBareTypeParsed LocSymbol
-
 -- | The AST for a single parsed spec.
-data Pspec ty ctor
-  = Meas    (MeasureV LocSymbol ty ctor)                  -- ^ 'measure' definition
-  | Assm    (Located LHName, ty)                          -- ^ 'assume' signature (unchecked)
-  | AssmReflect (Located LHName, Located LHName)          -- ^ 'assume reflects' signature (unchecked)
-  | Asrt    (Located LHName, ty)                          -- ^ 'assert' signature (checked)
-  | Asrts   ([Located LHName], (ty, Maybe [Located (ExprV LocSymbol)])) -- ^ sym0, ..., symn :: ty / [m0,..., mn]
+data BPspec
+  = Meas    (MeasureV LocSymbol LocBareTypeParsed LocSymbol) -- ^ 'measure' definition
+  | Assm    (Located LHName, LocBareTypeParsed)              -- ^ 'assume' signature (unchecked)
+  | AssmReflect (Located LHName, Located LHName)             -- ^ 'assume reflects' signature (unchecked)
+  | Asrt    (Located LHName, LocBareTypeParsed)              -- ^ 'assert' signature (checked)
+  | Asrts   ([Located LHName], (LocBareTypeParsed, Maybe [Located (ExprV LocSymbol)])) -- ^ sym0, ..., symn :: ty / [m0,..., mn]
   | DDecl   DataDeclParsed                                -- ^ refined 'data'    declaration
   | NTDecl  DataDeclParsed                                -- ^ refined 'newtype' declaration
-  | Relational (Located LHName, Located LHName, ty, ty, RelExprV LocSymbol, RelExprV LocSymbol) -- ^ relational signature
-  | AssmRel (Located LHName, Located LHName, ty, ty, RelExprV LocSymbol, RelExprV LocSymbol) -- ^ 'assume' relational signature
-  | Class   (RClass ty)                                   -- ^ refined 'class' definition
-  | RInst   (RInstance ty)                                -- ^ refined 'instance' definition
-  | Invt    ty                                            -- ^ 'invariant' specification
-  | Using  (ty, ty)                                       -- ^ 'using' declaration (for local invariants on a type)
+  | Relational (Located LHName, Located LHName, LocBareTypeParsed, LocBareTypeParsed, RelExprV LocSymbol, RelExprV LocSymbol) -- ^ relational signature
+  | AssmRel (Located LHName, Located LHName, LocBareTypeParsed, LocBareTypeParsed, RelExprV LocSymbol, RelExprV LocSymbol) -- ^ 'assume' relational signature
+  | Class   (RClass LocBareTypeParsed)                    -- ^ refined 'class' definition
+  | RInst   (RInstance LocBareTypeParsed)                 -- ^ refined 'instance' definition
+  | Invt    LocBareTypeParsed                             -- ^ 'invariant' specification
+  | Using  (LocBareTypeParsed, LocBareTypeParsed)         -- ^ 'using' declaration (for local invariants on a type)
   | Alias   (Located (RTAlias Symbol BareTypeParsed))     -- ^ 'type' alias declaration
   | EAlias  (Located (RTAlias Symbol (ExprV LocSymbol)))  -- ^ 'predicate' alias declaration
   | Embed   (Located LHName, FTycon, TCArgs)              -- ^ 'embed' declaration
@@ -926,17 +923,17 @@ data Pspec ty ctor
   | Inline  (Located LHName)                              -- ^ 'inline' annotation;  inline (non-recursive) binder as an alias
   | Ignore  (Located LHName)                              -- ^ 'ignore' annotation; skip all checks inside this binder
   | ASize   (Located LHName)                              -- ^ 'autosize' annotation; automatically generate size metric for this type
-  | PBound  (Bound ty (ExprV LocSymbol))                  -- ^ 'bound' definition
+  | PBound  (Bound LocBareTypeParsed (ExprV LocSymbol))   -- ^ 'bound' definition
   | Pragma  (Located String)                              -- ^ 'LIQUID' pragma, used to save configuration options in source files
-  | CMeas   (MeasureV LocSymbol ty ())                    -- ^ 'class measure' definition
-  | IMeas   (MeasureV LocSymbol ty ctor)                  -- ^ 'instance measure' definition
+  | CMeas   (MeasureV LocSymbol LocBareTypeParsed ())     -- ^ 'class measure' definition
+  | IMeas   (MeasureV LocSymbol LocBareTypeParsed LocSymbol) -- ^ 'instance measure' definition
   | Varia   (Located LHName, [Variance])                  -- ^ 'variance' annotations, marking type constructor params as co-, contra-, or in-variant
-  | DSize   ([ty], LocSymbol)                             -- ^ 'data size' annotations, generating fancy termination metric
+  | DSize   ([LocBareTypeParsed], LocSymbol)              -- ^ 'data size' annotations, generating fancy termination metric
   | BFix    ()                                            -- ^ fixity annotation
   | Define  (LocSymbol, Symbol)                           -- ^ 'define' annotation for specifying aliases c.f. `include-CoreToLogic.lg`
   deriving (Data, Typeable)
 
-instance (PPrint ty, PPrint ctor) => PPrint (Pspec ty ctor) where
+instance PPrint BPspec where
   pprintTidy = ppPspec
 
 splice :: PJ.Doc -> [PJ.Doc] -> PJ.Doc
@@ -959,25 +956,25 @@ pprintSymbolWithParens lhname =
       n@(c:_) | not (Char.isAlpha c) -> "(" <> PJ.text n <> ")"
       n -> PJ.text n
 
-ppPspec :: (PPrint t, PPrint c) => Tidy -> Pspec t c -> PJ.Doc
+ppPspec :: Tidy -> BPspec -> PJ.Doc
 ppPspec k (Meas m)
-  = "measure" <+> pprintTidy k m
+  = "measure" <+> pprintTidy k (val <$> unLocMeasureV m)
 ppPspec k (Assm (lx, t))
-  = "assume"  <+> pprintSymbolWithParens (val lx) <+> "::" <+> pprintTidy k t
+  = "assume"  <+> pprintSymbolWithParens (val lx) <+> "::" <+> pprintTidy k (parsedToBareType <$> t)
 ppPspec k (AssmReflect (lx, ly))
   = "assume reflect"  <+> pprintTidy k (val lx) <+> "as" <+> pprintTidy k (val ly)
 ppPspec k (Asrt (lx, t))
-  = "assert"  <+> pprintTidy k (val lx) <+> "::" <+> pprintTidy k t
+  = "assert"  <+> pprintTidy k (val lx) <+> "::" <+> pprintTidy k (parsedToBareType <$> t)
 ppPspec k (Asrts (lxs, (t, les)))
-  = ppAsserts k lxs t les
+  = ppAsserts k lxs (parsedToBareType <$> t) les
 ppPspec k (DDecl d)
   = pprintTidy k (parsedToBareType <$> mapDataDeclV val d)
 ppPspec k (NTDecl d)
   = "newtype" <+> pprintTidy k (parsedToBareType <$> mapDataDeclV val d)
 ppPspec k (Invt t)
-  = "invariant" <+> pprintTidy k t
+  = "invariant" <+> pprintTidy k (parsedToBareType <$> t)
 ppPspec k (Using (t1, t2))
-  = "using" <+> pprintTidy k t1 <+> "as" <+> pprintTidy k t2
+  = "using" <+> pprintTidy k (parsedToBareType <$> t1) <+> "as" <+> pprintTidy k (parsedToBareType <$> t2)
 ppPspec k (Alias   (Loc _ _ rta))
   = "type" <+> pprintTidy k (fmap parsedToBareType rta)
 ppPspec k (EAlias  (Loc _ _ rte))
@@ -1017,36 +1014,38 @@ ppPspec k (Ignore  lx)
 ppPspec k (ASize   lx)
   = "autosize" <+> pprintTidy k (val lx)
 ppPspec k (PBound  bnd)
-  = pprintTidy k bnd
+  = pprintTidy k $ mapBoundTy (fmap parsedToBareType) bnd
 ppPspec _ (Pragma  (Loc _ _ s))
   = "LIQUID" <+> PJ.text s
 ppPspec k (CMeas   m)
-  = "class measure" <+> pprintTidy k m
+  = "class measure" <+> pprintTidy k (unLocMeasureV m)
 ppPspec k (IMeas   m)
-  = "instance  measure" <+> pprintTidy k m
+  = "instance  measure" <+> pprintTidy k (val <$> unLocMeasureV m)
 ppPspec k (Class   cls)
-  = pprintTidy k cls
+  = pprintTidy k $ fmap (fmap parsedToBareType) cls
 ppPspec k (RInst   inst)
-  = pprintTidy k inst
+  = pprintTidy k $ fmap (fmap parsedToBareType) inst
 ppPspec k (Varia   (lx, vs))
   = "data variance" <+> pprintTidy k (val lx) <+> splice " " (pprintTidy k <$> vs)
 ppPspec k (DSize   (ds, ss))
-  = "data size" <+> splice " " (pprintTidy k <$> ds) <+> pprintTidy k (val ss)
+  = "data size" <+> splice " " (pprintTidy k <$> map (fmap parsedToBareType) ds) <+> pprintTidy k (val ss)
 ppPspec _ (BFix    _)           --
   = "fixity"
 ppPspec k (Define  (lx, y))
   = "define" <+> pprintTidy k (val lx) <+> "=" <+> pprintTidy k y
 ppPspec k (Relational (lxl, lxr, tl, tr, q, p))
   = "relational"
-        <+> pprintTidy k (val lxl) <+> "::" <+> pprintTidy k tl <+> "~"
-        <+> pprintTidy k (val lxr) <+> "::" <+> pprintTidy k tr <+> "|"
+        <+> pprintTidy k (val lxl) <+> "::" <+> pprintTidy k (parsedToBareType <$> tl) <+> "~"
+        <+> pprintTidy k (val lxr) <+> "::" <+> pprintTidy k (parsedToBareType <$> tr) <+> "|"
         <+> pprintTidy k (fmap val q) <+> "=>" <+> pprintTidy k (fmap val p)
 ppPspec k (AssmRel (lxl, lxr, tl, tr, q, p))
   = "assume relational"
-        <+> pprintTidy k (val lxl) <+> "::" <+> pprintTidy k tl <+> "~"
-        <+> pprintTidy k (val lxr) <+> "::" <+> pprintTidy k tr <+> "|"
+        <+> pprintTidy k (val lxl) <+> "::" <+> pprintTidy k (parsedToBareType <$> tl) <+> "~"
+        <+> pprintTidy k (val lxr) <+> "::" <+> pprintTidy k (parsedToBareType <$> tr) <+> "|"
         <+> pprintTidy k (fmap val q) <+> "=>" <+> pprintTidy k (fmap val p)
 
+unLocMeasureV :: MeasureV LocSymbol LocBareTypeParsed v -> MeasureV Symbol LocBareType v
+unLocMeasureV = mapMeasureV val . mapMeasureTy (fmap parsedToBareType)
 
 -- | For debugging
 {-instance Show (Pspec a b) where
