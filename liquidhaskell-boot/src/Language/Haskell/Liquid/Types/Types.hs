@@ -211,6 +211,7 @@ data TyConMap = TyConMap
 type RelExpr = RelExprV F.Symbol
 data RelExprV v = ERBasic (F.ExprV v) | ERChecked (F.ExprV v) (RelExprV v) | ERUnChecked (F.ExprV v) (RelExprV v)
   deriving (Eq, Show, Data, Generic, Functor, Foldable, Traversable)
+  deriving B.Binary via Generically (RelExprV v)
 
 emapRelExprV :: Monad m => ([Symbol] -> v0 -> m v1) -> RelExprV v0 -> m (RelExprV v1)
 emapRelExprV f = go
@@ -218,8 +219,6 @@ emapRelExprV f = go
     go (ERBasic e) = ERBasic <$> emapExprVM f e
     go (ERChecked e re) = ERChecked <$> emapExprVM f e <*> go re
     go (ERUnChecked e re) = ERUnChecked <$> emapExprVM f e <*> go re
-
-instance B.Binary v => B.Binary (RelExprV v)
 
 instance F.PPrint RelExpr where
   pprintTidy k (ERBasic e)       = F.pprintTidy k e
@@ -311,10 +310,12 @@ data RInstance t = RI
   , risigs  :: [(F.Located LHName, RISig t)]
   } deriving (Eq, Generic, Functor, Data, Typeable, Foldable, Traversable, Show)
     deriving Hashable via Generically (RInstance t)
+    deriving B.Binary via Generically (RInstance t)
 
 data RISig t = RIAssumed t | RISig t
   deriving (Eq, Generic, Functor, Data, Typeable, Show, Foldable, Traversable)
   deriving Hashable via Generically (RISig t)
+  deriving B.Binary via Generically (RISig t)
 
 instance F.PPrint t => F.PPrint (RISig t) where
   pprintTidy k = ppRISig k (empty :: Doc)
@@ -325,10 +326,6 @@ ppRISig k x (RISig t)     =              F.pprintTidy k x <+> "::" <+> F.pprintT
 
 instance F.PPrint t => F.PPrint (RInstance t) where
   pprintTidy k (RI n _ ts mts) = ppMethods k "instance" n ts mts
-
-
-instance (B.Binary t) => B.Binary (RInstance t)
-instance (B.Binary t) => B.Binary (RISig t)
 
 newtype DEnv x ty = DEnv (M.HashMap x (M.HashMap Symbol (RISig ty)))
                     deriving (Semigroup, Monoid, Show, Functor)
@@ -380,9 +377,8 @@ data RTAlias x a = RTA
   -- , rtMod   :: !ModName           -- ^ module where alias was defined
   } deriving (Eq, Data, Typeable, Generic, Functor, Foldable, Traversable)
     deriving Hashable via Generically (RTAlias x a)
+    deriving B.Binary via Generically (RTAlias x a)
 -- TODO support ghosts in aliases?
-
-instance (B.Binary x, B.Binary a) => B.Binary (RTAlias x a)
 
 mapRTAVars :: (a -> b) -> RTAlias a ty -> RTAlias b ty
 mapRTAVars f rt = rt { rtTArgs = f <$> rtTArgs rt }
@@ -600,8 +596,8 @@ data BodyV v
   | P (F.ExprV v)          -- ^ Measure Refinement: {v | (? v) <=> p }
   | R Symbol (F.ExprV v)   -- ^ Measure Refinement: {v | p}
   deriving (Show, Data, Typeable, Generic, Eq, Functor, Foldable, Traversable)
-
-instance (Eq v, Hashable v) => Hashable (BodyV v)
+  deriving B.Binary via Generically (BodyV v)
+  deriving Hashable via Generically (BodyV v)
 
 emapBody
   :: Monad m
@@ -621,8 +617,8 @@ data DefV v ty ctor = Def
   , binds   :: [(Symbol, Maybe ty)]    -- measure binders: the ADT argument fields
   , body    :: BodyV v
   } deriving (Show, Data, Typeable, Generic, Eq, Functor)
-
-instance (Eq v, Hashable v, Hashable ty, Hashable ctor) => Hashable (DefV v ty ctor)
+  deriving B.Binary via Generically (DefV v ty ctor)
+  deriving Hashable via Generically (DefV v ty ctor)
 
 emapDefM
   :: Monad m
@@ -658,8 +654,8 @@ data MeasureV v ty ctor = M
   , msKind :: !MeasureKind
   , msUnSorted :: !UnSortedExprs -- potential unsorted expressions used at measure denifinitions
   } deriving (Eq, Data, Typeable, Generic, Functor)
-
-instance (Eq v, Hashable v, Hashable ty, Hashable ctor) => Hashable (MeasureV v ty ctor)
+  deriving B.Binary via Generically (MeasureV v ty ctor)
+  deriving Hashable via Generically (MeasureV v ty ctor)
 
 emapMeasureM
   :: Monad m
@@ -699,6 +695,7 @@ data MeasureKind
   | MsSelector    -- ^ due to selector-fields e.g. `data Foo = Foo { fld :: Int }`
   | MsChecker     -- ^ due to checkers  e.g. `is-F` for `data Foo = F ... | G ...`
   deriving (Eq, Ord, Show, Data, Typeable, Generic)
+  deriving B.Binary via Generically MeasureKind
   deriving Hashable via Generically MeasureKind
 
 instance F.Loc (Measure a b) where
@@ -714,11 +711,6 @@ instance Bifunctor (DefV v) where
 instance Bifunctor (MeasureV v) where
   first  f (M n s es k u) = M n (f s) (first f <$> es) k u
   second f (M n s es k u) = M n s (second f <$> es)    k u
-
-instance                             B.Binary MeasureKind
-instance B.Binary v => B.Binary (BodyV v)
-instance (B.Binary v, B.Binary t, B.Binary c) => B.Binary (DefV v t c)
-instance (B.Binary v, B.Binary t, B.Binary c) => B.Binary (MeasureV v t c)
 
 -- NOTE: don't use the TH versions since they seem to cause issues
 -- building on windows :(
@@ -801,6 +793,7 @@ data RClass ty = RClass
   , rcTyVars  :: [BTyVar]
   , rcMethods :: [(F.Located LHName, ty)]
   } deriving (Eq, Show, Functor, Data, Typeable, Generic, Foldable, Traversable)
+    deriving B.Binary via Generically (RClass ty)
     deriving Hashable via Generically (RClass ty)
 
 
@@ -823,9 +816,6 @@ ppMethods k hdr name args mts
       dArgs    = gaps    (F.pprintTidy k      <$> args)
       gaps     = hcat . punctuate " "
       bind m t = ppRISig k m t -- F.pprintTidy k m <+> "::" <+> F.pprintTidy k t
-
-instance B.Binary ty => B.Binary (RClass ty)
-
 
 ------------------------------------------------------------------------
 -- | Var Hole Info -----------------------------------------------------

@@ -270,6 +270,7 @@ data PVarV v t = PV
   , parg  :: !Symbol
   , pargs :: ![(t, Symbol, F.ExprV v)]
   } deriving (Generic, Data, Typeable, Show, Functor)
+  deriving B.Binary via Generically (PVarV v t)
 
 mapPVarV :: (v -> v') -> (t -> t') -> PVarV v t -> PVarV v' t'
 mapPVarV f g PV {..} =
@@ -295,7 +296,6 @@ instance Eq (PVarV v t) where
 instance Ord (PVarV v t) where
   compare (PV n _ _ _)  (PV n' _ _ _) = compare n n'
 
-instance (B.Binary v, B.Binary t) => B.Binary (PVarV v t)
 instance (NFData v, NFData t) => NFData   (PVarV v t)
 
 instance Hashable (PVarV v a) where
@@ -356,7 +356,7 @@ type UsedPVarV v = PVarV v ()
 type Predicate = PredicateV Symbol
 newtype PredicateV v = Pr [UsedPVarV v]
   deriving (Generic, Data, Typeable)
-  deriving Hashable via Generically (PredicateV v)
+  deriving (B.Binary, Hashable) via Generically (PredicateV v)
 
 mapPredicateV :: (v -> v') -> PredicateV v -> PredicateV v'
 mapPredicateV f (Pr xs) = Pr (map (mapPVarV f (const ())) xs)
@@ -371,10 +371,6 @@ instance Ord v => Eq (PredicateV v) where
         where
           vs' = L.sort vs
           ws' = L.sort ws
-
-
-
-instance B.Binary v => B.Binary (PredicateV v)
 
 instance NFData Predicate where
   rnf _ = ()
@@ -422,7 +418,9 @@ instance F.Subable Predicate where
 
 instance NFData r => NFData (UReft r)
 
-newtype BTyVar = BTV F.LocSymbol deriving (Show, Generic, Data, Typeable)
+newtype BTyVar = BTV F.LocSymbol
+  deriving (Show, Generic, Data, Typeable)
+  deriving (B.Binary, Hashable) via Generically BTyVar
 
 newtype RTyVar = RTV TyVar deriving (Generic, Data, Typeable)
 
@@ -432,8 +430,6 @@ instance Eq BTyVar where
 instance Ord BTyVar where
   compare (BTV x) (BTV y) = compare x y
 
-instance B.Binary BTyVar
-instance Hashable BTyVar
 instance NFData   BTyVar
 instance NFData   RTyVar
 
@@ -456,9 +452,7 @@ data BTyCon = BTyCon
   , btc_prom  :: !Bool           -- ^ Is Promoted Data Con?
   }
   deriving (Generic, Data, Typeable)
-  deriving Hashable via Generically BTyCon
-
-instance B.Binary BTyCon
+  deriving (B.Binary, Hashable) via Generically BTyCon
 
 data RTyCon = RTyCon
   { rtc_tc    :: TyCon         -- ^ GHC Type Constructor
@@ -776,9 +770,8 @@ data RTypeV v c tv r
   | RHole r -- ^ let LH match against the Haskell type and add k-vars, e.g. `x:_`
             --   see tests/pos/Holes.hs
   deriving (Eq, Generic, Data, Typeable, Functor, Foldable, Traversable)
-  deriving Hashable via Generically (RTypeV v c tv r)
+  deriving (B.Binary, Hashable) via Generically (RTypeV v c tv r)
 
-instance (B.Binary v, B.Binary c, B.Binary tv, B.Binary r) => B.Binary (RTypeV v c tv r)
 instance (NFData c, NFData tv, NFData r)       => NFData (RType c tv r)
 
 makeRTVar :: tv -> RTVar tv s
@@ -791,7 +784,7 @@ data RTVar tv s = RTVar
   { ty_var_value :: tv
   , ty_var_info  :: RTVInfo s
   } deriving (Generic, Data, Typeable, Functor, Foldable, Traversable)
-    deriving Hashable via Generically (RTVar tv s)
+    deriving (B.Binary, Hashable) via Generically (RTVar tv s)
 
 mapTyVarValue :: (tv1 -> tv2) -> RTVar tv1 s -> RTVar tv2 s
 mapTyVarValue f v = v {ty_var_value = f $ ty_var_value v}
@@ -808,7 +801,7 @@ data RTVInfo s
                                  -- any refinement (ie is polymorphic on refinements),
                                  -- false iff instantiation is with true refinement
             } deriving (Generic, Data, Typeable, Functor, Eq, Foldable, Traversable)
-              deriving Hashable via Generically (RTVInfo s)
+              deriving (B.Binary, Hashable) via Generically (RTVInfo s)
 
 
 setRtvPol :: RTVar tv a -> Bool -> RTVar tv a
@@ -820,10 +813,8 @@ rTVarToBind = go . ty_var_info
     go RTVInfo{..} | rtv_is_val = Just (rtv_name, rtv_kind)
     go _                        = Nothing
 
-instance (B.Binary tv, B.Binary s) => B.Binary (RTVar tv s)
 instance (NFData tv, NFData s)     => NFData   (RTVar tv s)
 instance (NFData s)                => NFData   (RTVInfo s)
-instance (B.Binary s)              => B.Binary (RTVInfo s)
 
 -- | @Ref@ describes `Prop τ` and `HProp` arguments applied to type constructors.
 --   For example, in [a]<{\h -> v > h}>, we apply (via `RApp`)
@@ -838,9 +829,8 @@ data Ref τ t = RProp
   { rf_args :: [(Symbol, τ)] -- ^ arguments. e.g. @h@ in the above example
   , rf_body :: t -- ^ Abstract refinement associated with `RTyCon`. e.g. @v > h@ in the above example
   } deriving (Eq, Generic, Data, Typeable, Functor, Foldable, Traversable)
-    deriving Hashable via Generically (Ref τ t)
+    deriving (B.Binary, Hashable) via Generically (Ref τ t)
 
-instance (B.Binary τ, B.Binary t) => B.Binary (Ref τ t)
 instance (NFData τ,   NFData t)   => NFData   (Ref τ t)
 
 rPropP :: [(Symbol, τ)] -> r -> Ref τ (RTypeV v c tv r)
@@ -857,6 +847,7 @@ data UReftV v r = MkUReft
   , ur_pred   :: !(PredicateV v)
   }
   deriving (Eq, Generic, Data, Typeable, Functor, Foldable, Traversable)
+  deriving (B.Binary, Hashable) via Generically (UReftV v r)
 
 mapUReftV :: (v -> v') -> (r -> r') -> UReftV v r -> UReftV v' r'
 mapUReftV f g (MkUReft r p) = MkUReft (g r) (mapPredicateV f p)
@@ -865,9 +856,6 @@ emapUReftVM
   :: Monad m
   => ([Symbol] -> v -> m v') -> (r -> m r') -> UReftV v r -> m (UReftV v' r')
 emapUReftVM f g (MkUReft r p) = MkUReft <$> g r <*> emapPredicateVM f p
-
-instance (Ord v, Hashable v, Hashable r) => Hashable (UReftV v r)
-instance (B.Binary v, B.Binary r) => B.Binary (UReftV v r)
 
 type BRType      = RTypeV Symbol BTyCon BTyVar    -- ^ "Bare" parsed version
 type BRTypeV v   = RTypeV v BTyCon BTyVar         -- ^ "Bare" parsed version

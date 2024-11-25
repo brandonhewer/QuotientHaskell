@@ -4,6 +4,7 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveTraversable  #-}
 {-# LANGUAGE DeriveGeneric      #-}
+{-# LANGUAGE DerivingVia        #-}
 {-# LANGUAGE NamedFieldPuns     #-}
 
 {-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
@@ -48,8 +49,7 @@ data Bound t e = Bound
   , bargs   :: [(LocSymbol, t)]  -- ^ These are value variables
   , bbody   :: e                 -- ^ The body of the bound
   } deriving (Data, Typeable, Generic, Functor, Foldable, Traversable)
-
-instance (B.Binary t, B.Binary e) => B.Binary (Bound t e)
+  deriving B.Binary via Generically (Bound t e)
 
 type RBound        = RRBound RSort
 type RRBound tv    = RRBoundV F.Symbol tv
