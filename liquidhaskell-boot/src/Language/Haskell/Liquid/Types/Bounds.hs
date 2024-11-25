@@ -18,7 +18,8 @@ module Language.Haskell.Liquid.Types.Bounds (
     RBEnv, RRBEnv, RRBEnvV,
 
     makeBound,
-    emapBoundM
+    emapBoundM,
+    mapBoundTy
 
     ) where
 
@@ -70,6 +71,15 @@ emapBoundM f g b = do
     (e2, bargs) <- mapAccumM (\e -> fmap (e,) . traverse (f e)) e1 (bargs b)
     bbody <- g e2 (bbody b)
     return b{tyvars, bparams, bargs, bbody}
+
+mapBoundTy :: (t0 -> t1) -> Bound t0 e -> Bound t1 e
+mapBoundTy f Bound{..} = do
+    Bound
+      { tyvars = map f tyvars
+      , bparams = map (fmap f) bparams
+      , bargs = map (fmap f) bargs
+      , ..
+      }
 
 instance Hashable (Bound t e) where
   hashWithSalt i = hashWithSalt i . bname
