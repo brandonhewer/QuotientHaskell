@@ -383,7 +383,7 @@ type BareSpecParsed = Spec LocSymbol BareTypeParsed
 -- non-interpreted functions and type aliases.
 data Spec lname ty = Spec
   { measures   :: ![MeasureV lname (F.Located ty) LocSymbol]          -- ^ User-defined properties for ADTs
-  , expSigs    :: ![(lname, F.Sort)]                                  -- ^ Exported logic symbols
+  , expSigs    :: ![(lname, F.Sort)]                                  -- ^ Exported logic symbols originated by reflecting functions
   , asmSigs    :: ![(F.Located LHName, F.Located ty)]                 -- ^ Assumed (unchecked) types; including reflected signatures
   , asmReflectSigs :: ![(F.Located LHName, F.Located LHName)]         -- ^ Assume reflects : left is the actual function and right the pretended one
   , sigs       :: ![(F.Located LHName, F.Located (BareTypeV lname))]  -- ^ Asserted spec signatures
