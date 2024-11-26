@@ -7,7 +7,7 @@ module Language.Haskell.Liquid.Bare.Types
     Env (..)
   , TyThingMap 
   , ModSpecs
-  , LocalVars 
+  , LocalVars(..)
   , LocalVarDetails (..)
 
     -- * Tycon and Datacon processing environment
@@ -77,7 +77,6 @@ data Env = RE
   , reUsedExternals :: Ghc.NameSet
   , reLMap      :: LogicMap
   , reSyms      :: [(F.Symbol, Ghc.Var)]    -- ^ see "syms" in old makeGhcSpec'
-  , _reSubst    :: F.Subst                  -- ^ see "su"   in old makeGhcSpec'
   , _reTyThings :: TyThingMap
   , reCfg       :: Config
   , reQualImps  :: QImports                 -- ^ qualified imports
@@ -90,13 +89,18 @@ data Env = RE
 instance HasConfig Env where 
   getConfig = reCfg 
 
--- | @LocalVars@ is a map from names to lists of pairs of @Ghc.Var@ and 
---   the lines at which they were defined. 
-type LocalVars = M.HashMap F.Symbol [LocalVarDetails]
+data LocalVars = LocalVars
+  { -- | A map from names to lists of pairs of @Ghc.Var@ and
+    --   the lines at which they were defined.
+    lvSymbols :: M.HashMap F.Symbol [LocalVarDetails]
+    -- | A map from names to its details
+  , lvNames :: NameEnv LocalVarDetails
+  }
 
 data LocalVarDetails = LocalVarDetails
   { lvdSourcePos :: F.SourcePos
   , lvdVar :: Ghc.Var
+  , lvdLclEnv :: [Ghc.Var]
   , lvdIsRec :: Bool  -- ^ Is the variable defined in a letrec?
   } deriving Show
 

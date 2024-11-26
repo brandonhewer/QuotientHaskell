@@ -286,11 +286,11 @@ replacePreds msg                 = L.foldl' go
 --         go z (π, RPropP r) = replacePVarReft (π, r) <$> z
 
 -------------------------------------------------------------------------------------
-substPVar :: PVar BSort -> PVar BSort -> BareType -> BareType
+substPVar :: PVarV v (BSortV v) -> PVarV v (BSortV v) -> BareTypeParsed -> BareTypeParsed
 -------------------------------------------------------------------------------------
 substPVar src dst = go
   where
-    go :: BareType -> BareType
+    go :: BareTypeParsed -> BareTypeParsed
     go (RVar a r)         = RVar a (goRR r)
     go (RApp c ts rs r)   = RApp c (go <$> ts) (goR <$> rs) (goRR r)
     go (RAllP q t)
@@ -304,13 +304,13 @@ substPVar src dst = go
     go (RAppTy t1 t2 r)   = RAppTy    (go t1) (go t2) (goRR r)
     go (RHole r)          = RHole     (goRR r)
     go t@(RExprArg  _)    = t
-    goR :: BRProp RReft -> BRProp RReft
+    goR :: BRPropV LocSymbol (RReftV LocSymbol) -> BRPropV LocSymbol (RReftV LocSymbol)
     goR rp = rp {rf_body = go (rf_body rp) }
-    goRR :: RReft -> RReft
+    goRR :: RReftV LocSymbol -> RReftV LocSymbol
     goRR rr = rr { ur_pred = goP (ur_pred rr) }
-    goP :: Predicate -> Predicate
+    goP :: PredicateV LocSymbol -> PredicateV LocSymbol
     goP (Pr ps) = Pr (goPV <$> ps)
-    goPV :: UsedPVar -> UsedPVar
+    goPV :: UsedPVarV LocSymbol -> UsedPVarV LocSymbol
     goPV pv
       | pname pv == pname src = pv { pname = pname dst }
       | otherwise             = pv

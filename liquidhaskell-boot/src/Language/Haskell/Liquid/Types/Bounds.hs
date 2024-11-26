@@ -2,7 +2,10 @@
 {-# LANGUAGE TupleSections      #-}
 {-# LANGUAGE OverloadedStrings  #-}
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DeriveTraversable  #-}
 {-# LANGUAGE DeriveGeneric      #-}
+{-# LANGUAGE DerivingVia        #-}
+{-# LANGUAGE NamedFieldPuns     #-}
 
 {-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 
@@ -10,11 +13,13 @@ module Language.Haskell.Liquid.Types.Bounds (
 
     Bound(..),
 
-    RBound, RRBound,
+    RBound, RRBound, RRBoundV,
 
-    RBEnv, RRBEnv,
+    RBEnv, RRBEnv, RRBEnvV,
 
     makeBound,
+    emapBoundM,
+    mapBoundTy
 
     ) where
 
@@ -27,6 +32,7 @@ import Data.Hashable
 import Data.Bifunctor as Bifunctor
 import Data.Data
 import qualified Data.Binary         as B
+import Data.Traversable
 import qualified Data.HashMap.Strict as M
 
 import qualified Language.Fixpoint.Types as F
@@ -43,15 +49,37 @@ data Bound t e = Bound
   , bparams :: [(LocSymbol, t)]  -- ^ These are abstract refinements, for now
   , bargs   :: [(LocSymbol, t)]  -- ^ These are value variables
   , bbody   :: e                 -- ^ The body of the bound
-  } deriving (Data, Typeable, Generic)
-
-instance (B.Binary t, B.Binary e) => B.Binary (Bound t e)
+  } deriving (Data, Typeable, Generic, Functor, Foldable, Traversable)
+  deriving B.Binary via Generically (Bound t e)
 
 type RBound        = RRBound RSort
-type RRBound tv    = Bound tv F.Expr
+type RRBound tv    = RRBoundV F.Symbol tv
+type RRBoundV v tv = Bound tv (F.ExprV v)
 type RBEnv         = M.HashMap LocSymbol RBound
 type RRBEnv tv     = M.HashMap LocSymbol (RRBound tv)
+type RRBEnvV v tv     = M.HashMap LocSymbol (RRBoundV v tv)
 
+emapBoundM
+  :: Monad m
+  => ([F.Symbol] -> t0 -> m t1)
+  -> ([F.Symbol] -> e0 -> m e1)
+  -> Bound t0 e0
+  -> m (Bound t1 e1)
+emapBoundM f g b = do
+    tyvars <- mapM (f []) $ tyvars b
+    (e1, bparams) <- mapAccumM (\e -> fmap (e,) . traverse (f e)) [] (bparams b)
+    (e2, bargs) <- mapAccumM (\e -> fmap (e,) . traverse (f e)) e1 (bargs b)
+    bbody <- g e2 (bbody b)
+    return b{tyvars, bparams, bargs, bbody}
+
+mapBoundTy :: (t0 -> t1) -> Bound t0 e -> Bound t1 e
+mapBoundTy f Bound{..} = do
+    Bound
+      { tyvars = map f tyvars
+      , bparams = map (fmap f) bparams
+      , bargs = map (fmap f) bargs
+      , ..
+      }
 
 instance Hashable (Bound t e) where
   hashWithSalt i = hashWithSalt i . bname
@@ -71,9 +99,6 @@ instance (PPrint e, PPrint t) => (PPrint (Bound t e)) where
     where
       ppBsyms _ [] = ""
       ppBsyms k' xs = "\\" <+> pprintTidy k' xs <+> "->"
-
-instance Functor (Bound a) where
-  fmap f (Bound s vs ps xs e) = Bound s vs ps xs (f e)
 
 instance Bifunctor Bound where
   first  f (Bound s vs ps xs e) = Bound s (f <$> vs) (fmap f <$> ps) (fmap f <$> xs) e

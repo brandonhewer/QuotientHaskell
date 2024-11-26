@@ -506,6 +506,7 @@ import GHC.Tc.Types                   as Ghc
     , TcGblEnv
         ( tcg_anns
         , tcg_exports
+        , tcg_imports
         , tcg_insts
         , tcg_mod
         , tcg_rdr_env
@@ -641,6 +642,11 @@ import GHC.Types.Name                 as Ghc
     , occNameString
     , stableNameCmp
     )
+import GHC.Types.Name.Env             as Ghc
+    ( NameEnv
+    , lookupNameEnv
+    , mkNameEnvWith
+    )
 import GHC.Types.Name.Set             as Ghc
     ( NameSet
     , elemNameSet
@@ -757,6 +763,7 @@ import GHC.Unit.Module                as Ghc
     , IsBootInterface(NotBoot, IsBoot)
     , ModuleNameWithIsBoot
     , UnitId
+    , lookupModuleEnv
     , stableModuleCmp
     , fsToUnit
     , mkModuleNameFS
@@ -764,6 +771,13 @@ import GHC.Unit.Module                as Ghc
     , moduleStableString
     , toUnitId
     , unitString
+    )
+import GHC.Unit.Module.Deps       as Ghc
+    ( ImportAvails(imp_mods) )
+import GHC.Unit.Module.Imported       as Ghc
+    ( ImportedMods
+    , ImportedModsVal(imv_name, imv_qualified)
+    , importedByUser
     )
 import GHC.Unit.Module.ModGuts        as Ghc
     ( ModGuts
@@ -775,6 +789,10 @@ import GHC.Unit.Module.ModGuts        as Ghc
       , mg_tcs
       , mg_usages
       )
+    )
+import GHC.Unit.Types                 as Ghc
+    ( moduleUnitId
+    , unitIdString
     )
 import GHC.Utils.Binary               as Ghc
     ( Binary(get, put_)

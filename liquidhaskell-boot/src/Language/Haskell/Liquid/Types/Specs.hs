@@ -6,7 +6,10 @@
 {-# LANGUAGE DeriveDataTypeable         #-}
 {-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE DerivingVia                #-}
+{-# LANGUAGE NamedFieldPuns             #-}
 {-# LANGUAGE StandaloneDeriving         #-}
+{-# LANGUAGE TupleSections              #-}
+{-# LANGUAGE UndecidableInstances       #-}
 
 {-# OPTIONS_GHC -Wno-orphans #-}
 
@@ -24,6 +27,8 @@ module Language.Haskell.Liquid.Types.Specs (
   -- * BareSpec
   -- $bareSpec
   , BareSpec
+  , BareSpecLHName
+  , BareSpecParsed
   -- * LiftedSpec
   -- $liftedSpec
   , LiftedSpec(..)
@@ -49,6 +54,11 @@ module Language.Haskell.Liquid.Types.Specs (
   , BareMeasure
   , SpecMeasure
   , VarOrLocSymbol
+  , emapSpecM
+  , fromBareSpecLHName
+  , fromBareSpecParsed
+  , mapSpecLName
+  , mapSpecTy
   -- * Legacy data structures
   -- $legacyDataStructures
   , GhcSrc(..)
@@ -64,17 +74,21 @@ module Language.Haskell.Liquid.Types.Specs (
   ) where
 
 import           GHC.Generics            hiding (to, moduleName)
+import           Data.Bifunctor          (bimap, first)
+import           Data.Bitraversable      (bimapM)
 import           Data.Binary
 import qualified Language.Fixpoint.Types as F
 import           Data.Data (Data)
 import           Data.Hashable
 import qualified Data.HashSet            as S
 import           Data.HashSet            (HashSet)
+import qualified Data.HashMap.Lazy       as Lazy.M
 import qualified Data.HashMap.Strict     as M
 import           Data.HashMap.Strict     (HashMap)
 import           Language.Haskell.Liquid.Types.DataDecl
 import           Language.Haskell.Liquid.Types.Names
 import           Language.Haskell.Liquid.Types.RType
+import           Language.Haskell.Liquid.Types.RTypeOp
 import           Language.Haskell.Liquid.Types.Types
 import           Language.Haskell.Liquid.Types.Variance
 import           Language.Haskell.Liquid.Types.Bounds
@@ -359,23 +373,28 @@ type SpecMeasure   = Measure LocSpecType DataCon
 --
 -- Also, a 'BareSpec' has not yet been subject to name resolution, so it may refer
 -- to undefined or out-of-scope entities.
-type BareSpec = Spec LocBareType
+type BareSpec = Spec F.Symbol BareType
+type BareSpecLHName = Spec LHName BareTypeLHName
+type BareSpecParsed = Spec LocSymbol BareTypeParsed
 
--- | A generic 'Spec' type, polymorphic over the inner choice of type and binder.
-data Spec ty = Spec
-  { measures   :: ![Measure ty LocSymbol]                             -- ^ User-defined properties for ADTs
-  , expSigs    :: ![(F.Symbol, F.Sort)]                               -- ^ Exported logic symbols
-  , asmSigs    :: ![(F.Located LHName, ty)]                           -- ^ Assumed (unchecked) types; including reflected signatures
+-- | A generic 'Spec' type, polymorphic over the inner choice of type and binders.
+--
+-- @lname@ corresponds to the names used for entities only known to LH like
+-- non-interpreted functions and type aliases.
+data Spec lname ty = Spec
+  { measures   :: ![MeasureV lname (F.Located ty) LocSymbol]          -- ^ User-defined properties for ADTs
+  , expSigs    :: ![(lname, F.Sort)]                                  -- ^ Exported logic symbols
+  , asmSigs    :: ![(F.Located LHName, F.Located ty)]                 -- ^ Assumed (unchecked) types; including reflected signatures
   , asmReflectSigs :: ![(F.Located LHName, F.Located LHName)]         -- ^ Assume reflects : left is the actual function and right the pretended one
-  , sigs       :: ![(F.Located LHName, ty)]                           -- ^ Asserted spec signatures
-  , invariants :: ![(Maybe F.LocSymbol, ty)]                          -- ^ Data type invariants; the Maybe is the generating measure
-  , ialiases   :: ![(ty, ty)]                                         -- ^ Data type invariants to be checked
-  , dataDecls  :: ![DataDecl]                                         -- ^ Predicated data definitions
-  , newtyDecls :: ![DataDecl]                                         -- ^ Predicated new type definitions
-  , aliases    :: ![F.Located (RTAlias F.Symbol BareType)]            -- ^ RefType aliases
-  , ealiases   :: ![F.Located (RTAlias F.Symbol F.Expr)]              -- ^ Expression aliases
+  , sigs       :: ![(F.Located LHName, F.Located (BareTypeV lname))]  -- ^ Asserted spec signatures
+  , invariants :: ![(Maybe F.LocSymbol, F.Located ty)]                -- ^ Data type invariants; the Maybe is the generating measure
+  , ialiases   :: ![(F.Located ty, F.Located ty)]                     -- ^ Data type invariants to be checked
+  , dataDecls  :: ![DataDeclP lname ty]                               -- ^ Predicated data definitions
+  , newtyDecls :: ![DataDeclP lname ty]                               -- ^ Predicated new type definitions
+  , aliases    :: ![F.Located (RTAlias F.Symbol (BareTypeV lname))]   -- ^ RefType aliases
+  , ealiases   :: ![F.Located (RTAlias F.Symbol (F.ExprV lname))]     -- ^ Expression aliases
   , embeds     :: !(F.TCEmb (F.Located LHName))                       -- ^ GHC-Tycon-to-fixpoint Tycon map
-  , qualifiers :: ![F.Qualifier]                                      -- ^ Qualifiers in source files
+  , qualifiers :: ![F.QualifierV lname]                               -- ^ Qualifiers in source files
   , lvars      :: !(S.HashSet (F.Located LHName))                     -- ^ Variables that should be checked in the environment they are used
   , lazy       :: !(S.HashSet (F.Located LHName))                     -- ^ Ignore Termination Check in these Functions
   , rewrites    :: !(S.HashSet (F.Located LHName))                    -- ^ Theorems turned into rewrite rules
@@ -390,33 +409,187 @@ data Spec ty = Spec
   , ignores    :: !(S.HashSet (F.Located LHName))                     -- ^ Binders to ignore during checking; that is DON't check the corebind.
   , autosize   :: !(S.HashSet (F.Located LHName))                     -- ^ Type Constructors that get automatically sizing info
   , pragmas    :: ![F.Located String]                                 -- ^ Command-line configurations passed in through source
-  , cmeasures  :: ![Measure ty ()]                                    -- ^ Measures attached to a type-class
-  , imeasures  :: ![Measure ty LocSymbol]                             -- ^ Mappings from (measure,type) -> measure
-  , omeasures  :: ![Measure ty LocSymbol]                             -- ^ Opaque reflection measures.
+  , cmeasures  :: ![MeasureV lname (F.Located ty) ()]                 -- ^ Measures attached to a type-class
+  , imeasures  :: ![MeasureV lname (F.Located ty) LocSymbol]          -- ^ Mappings from (measure,type) -> measure
+  , omeasures  :: ![MeasureV lname (F.Located ty) LocSymbol]          -- ^ Opaque reflection measures.
   -- Separate field bc measures are checked for duplicates, and we want to allow for opaque-reflected measures to be duplicated.
   -- See Note [Duplicate measures and opaque reflection] in "Language.Haskell.Liquid.Measure".
-  , classes    :: ![RClass ty]                                        -- ^ Refined Type-Classes
-  , relational :: ![(F.Located LHName, F.Located LHName, ty, ty, RelExpr, RelExpr)] -- ^ Relational types
-  , asmRel     :: ![(F.Located LHName, F.Located LHName, ty, ty, RelExpr, RelExpr)] -- ^ Assumed relational types
-  , termexprs  :: ![(F.Located LHName, [F.Located F.Expr])]                -- ^ Terminating Conditions for functions
-  , rinstance  :: ![RInstance ty]
+  , classes    :: ![RClass (F.Located ty)]                            -- ^ Refined Type-Classes
+  , relational :: ![(F.Located LHName, F.Located LHName, F.Located (BareTypeV lname), F.Located (BareTypeV lname), RelExprV lname, RelExprV lname)] -- ^ Relational types
+  , asmRel :: ![(F.Located LHName, F.Located LHName, F.Located (BareTypeV lname), F.Located (BareTypeV lname), RelExprV lname, RelExprV lname)] -- ^ Assumed relational types
+  , termexprs  :: ![(F.Located LHName, [F.Located (F.ExprV lname)])]  -- ^ Terminating Conditions for functions
+  , rinstance  :: ![RInstance (F.Located ty)]
   , dvariance  :: ![(F.Located LHName, [Variance])]                   -- ^ TODO ? Where do these come from ?!
-  , dsize      :: ![([ty], F.LocSymbol)]                              -- ^ Size measure to enforce fancy termination
-  , bounds     :: !(RRBEnv ty)
-  , axeqs      :: ![F.Equation]                                       -- ^ Equalities used for Proof-By-Evaluation
-  } deriving (Data, Generic, Show)
+  , dsize      :: ![([F.Located ty], F.LocSymbol)]                    -- ^ Size measure to enforce fancy termination
+  , bounds     :: !(RRBEnvV lname (F.Located ty))
+  , axeqs      :: ![F.EquationV lname]                                -- ^ Equalities used for Proof-By-Evaluation
+  } deriving (Data, Generic)
 
-
-instance (Show ty, F.PPrint ty) => F.PPrint (Spec ty) where
+instance (Show lname, F.PPrint lname, Show ty, F.PPrint ty, F.PPrint (RTypeV lname BTyCon BTyVar (RReftV lname))) => F.PPrint (Spec lname ty) where
     pprintTidy k sp = text "dataDecls = " <+> pprintTidy k  (dataDecls sp)
                          HughesPJ.$$
                       text "classes = " <+> pprintTidy k (classes sp)
                          HughesPJ.$$
                       text "sigs = " <+> pprintTidy k (sigs sp)
 
+deriving instance Show BareSpec
+
+-- | A function to resolve names in the ty parameter of Spec
+--
+--
+emapSpecM
+  :: Monad m
+  =>
+     -- | The bscope setting, which affects which names
+     -- are considered to be in scope in refinment types.
+     Bool
+     -- | For names that have a local environment return the names in scope.
+  -> (LHName -> [F.Symbol])
+     -- | The first parameter of the function argument are the variables in scope.
+  -> ([F.Symbol] -> lname0 -> m lname1)
+  -> ([F.Symbol] -> ty0 -> m ty1)
+  -> Spec lname0 ty0
+  -> m (Spec lname1 ty1)
+emapSpecM bscp lenv vf f sp = do
+    measures <- mapM (emapMeasureM vf (traverse . f)) (measures sp)
+    expSigs <- sequence [ (,s) <$> vf [] n | (n, s) <- expSigs sp ]
+    asmSigs <- mapM (\p -> traverse (traverse (f $ lenv $ val $ fst p)) p) (asmSigs sp)
+    sigs <-
+      mapM
+        (\p -> traverse (traverse (emapBareTypeVM bscp vf (lenv $ val $ fst p))) p)
+        (sigs sp)
+    invariants <- mapM (traverse (traverse fnull)) (invariants sp)
+    ialiases <- mapM (bimapM (traverse fnull) (traverse fnull)) (ialiases sp)
+    dataDecls <- mapM (emapDataDeclM bscp vf f) (dataDecls sp)
+    newtyDecls <- mapM (emapDataDeclM bscp vf f) (newtyDecls sp)
+    aliases <- mapM (traverse (emapRTAlias (emapBareTypeVM bscp vf))) (aliases sp)
+    ealiases <- mapM (traverse (emapRTAlias (\e -> emapExprVM (vf . (++ e))))) $ ealiases sp
+    qualifiers <- mapM (emapQualifierM vf) $ qualifiers sp
+    cmeasures <- mapM (emapMeasureM vf (traverse . f)) (cmeasures sp)
+    imeasures <- mapM (emapMeasureM vf (traverse . f)) (imeasures sp)
+    omeasures <- mapM (emapMeasureM vf (traverse . f)) (omeasures sp)
+    classes <- mapM (traverse (traverse fnull)) (classes sp)
+    relational <- mapM (emapRelationalM vf) (relational sp)
+    asmRel <- mapM (emapRelationalM vf) (asmRel sp)
+    let mbinds = Lazy.M.fromList [ (val lx, ty_binds $ toRTypeRep $ val lty) | (lx, lty) <- sigs ]
+    termexprs <-
+      mapM
+        (\p -> do
+          let bs0 = lenv $ val $ fst p
+              mbs = M.findWithDefault [] (val $ fst p) mbinds
+          traverse
+            (mapM (traverse (emapExprVM (vf . (++ (mbs ++ bs0))))))
+            p
+        )
+        (termexprs sp)
+    rinstance <- mapM (traverse (traverse fnull)) (rinstance sp)
+    dsize <- mapM (firstM (mapM (traverse fnull))) (dsize sp)
+    bounds <- M.fromList <$>
+      mapM
+        (traverse (emapBoundM (traverse . f) (\e -> emapExprVM (vf . (++ e)))))
+        (M.toList $ bounds sp)
+    axeqs <- mapM (emapEquationM vf) $ axeqs sp
+    return sp
+      { measures
+      , expSigs
+      , asmSigs
+      , sigs
+      , invariants
+      , ialiases
+      , dataDecls
+      , newtyDecls
+      , aliases
+      , ealiases
+      , qualifiers
+      , cmeasures
+      , imeasures
+      , omeasures
+      , classes
+      , relational
+      , asmRel
+      , termexprs
+      , rinstance
+      , dsize
+      , bounds
+      , axeqs
+      }
+  where
+    fnull = f []
+    emapRelationalM vf1 (n0, n1, t0, t1, e0, e1) = do
+      t0' <- traverse (emapBareTypeVM bscp vf1 []) t0
+      t1' <- traverse (emapBareTypeVM bscp vf1 []) t1
+      let bs = [F.symbol "r1", F.symbol "r2"] ++ tArgs (val t0') ++ tArgs (val t1')
+      e0' <- emapRelExprV (vf1 . (++ bs)) e0
+      e1' <- emapRelExprV (vf1 . (++ bs)) e1
+      return (n0, n1, t0', t1', e0', e1')
+    firstM f1 (a, b) = (, b) <$> f1 a
+
+    tArgs t =
+      let rt = toRTypeRep t
+       in ty_binds rt ++ concatMap tArgs (ty_args rt)
+
+emapRTAlias :: Monad m => ([F.Symbol] -> r0 -> m r1) -> RTAlias F.Symbol r0 -> m (RTAlias F.Symbol r1)
+emapRTAlias f rt = do
+    rtBody <- f (rtTArgs rt ++ rtVArgs rt) (rtBody rt)
+    return rt{rtBody}
+
+emapQualifierM :: Monad m => ([F.Symbol] -> v0 -> m v1) -> F.QualifierV v0 -> m (F.QualifierV v1)
+emapQualifierM f q = do
+    qBody <- emapExprVM (f . (++ map F.qpSym (F.qParams q))) (F.qBody q)
+    return q{F.qBody}
+
+emapEquationM :: Monad m => ([F.Symbol] -> v0 -> m v1) -> F.EquationV v0 -> m (F.EquationV v1)
+emapEquationM f e = do
+    eqBody <- emapExprVM (f . (++ map fst (F.eqArgs e))) (F.eqBody e)
+    return e{F.eqBody}
+
+mapSpecTy :: (ty0 -> ty1) -> Spec lname ty0 -> Spec lname ty1
+mapSpecTy f Spec {..} =
+    Spec
+      { measures = map (mapMeasureTy (fmap f)) measures
+      , asmSigs = map (fmap (fmap f)) asmSigs
+      , invariants = map (fmap (fmap f)) invariants
+      , ialiases = map (bimap (fmap f) (fmap f)) ialiases
+      , dataDecls = map (fmap f) dataDecls
+      , newtyDecls = map (fmap f) newtyDecls
+      , cmeasures = map (mapMeasureTy (fmap f)) cmeasures
+      , imeasures = map (mapMeasureTy (fmap f)) imeasures
+      , omeasures = map (mapMeasureTy (fmap f)) omeasures
+      , classes = map (fmap (fmap f)) classes
+      , rinstance = map (fmap (fmap f)) rinstance
+      , dsize = map (first (map (fmap f))) dsize
+      , bounds = M.map (first (fmap f)) bounds
+      , ..
+      }
+
+mapSpecLName :: (lname0 -> lname1) -> Spec lname0 ty -> Spec lname1 ty
+mapSpecLName f Spec {..} =
+    Spec
+      { measures = map (mapMeasureV f) measures
+      , expSigs = map (first f) expSigs
+      , sigs = map (fmap (fmap (mapRTypeV f . mapReft (mapUReftV f (fmap f))))) sigs
+      , dataDecls = map (mapDataDeclV f) dataDecls
+      , newtyDecls = map (mapDataDeclV f) newtyDecls
+      , aliases = map (fmap (fmap (mapRTypeV f . fmap (mapUReftV f (fmap f))))) aliases
+      , ealiases = map (fmap (fmap (fmap f))) ealiases
+      , qualifiers = map (fmap f) qualifiers
+      , cmeasures = map (mapMeasureV f) cmeasures
+      , imeasures = map (mapMeasureV f) imeasures
+      , omeasures = map (mapMeasureV f) omeasures
+      , relational = map (mapRelationalV f) relational
+      , asmRel = map (mapRelationalV f) asmRel
+      , termexprs = map (fmap (map (fmap (fmap f)))) termexprs
+      , bounds = M.map (fmap (fmap f)) bounds
+      , axeqs = map (fmap f) axeqs
+      , ..
+      }
+  where
+    mapRelationalV f1 (n0, n1, a, b, e0, e1) =
+      (n0, n1, fmap (mapRTypeV f1 . mapReft (mapUReftV f1 (fmap f1))) a, fmap (mapRTypeV f1 . mapReft (mapUReftV f1 (fmap f1))) b, fmap f1 e0, fmap f1 e1)
+
 -- /NOTA BENE/: These instances below are considered legacy, because merging two 'Spec's together doesn't
 -- really make sense, and we provide this only for legacy purposes.
-instance Semigroup (Spec ty) where
+instance Semigroup (Spec lname ty) where
   s1 <> s2
     = Spec { measures   =           measures   s1 ++ measures   s2
            , expSigs    =           expSigs    s1 ++ expSigs    s2
@@ -459,7 +632,7 @@ instance Semigroup (Spec ty) where
            , autois     = S.union   (autois s1)      (autois s2)
            }
 
-instance Monoid (Spec ty) where
+instance Monoid (Spec lname ty) where
   mappend = (<>)
   mempty
     = Spec { measures   = []
@@ -525,29 +698,29 @@ instance Monoid (Spec ty) where
 -- Apart from less fields, a 'LiftedSpec' /replaces all instances of lists with sets/, to enforce
 -- duplicate detection and removal on what we serialise on disk.
 data LiftedSpec = LiftedSpec
-  { liftedMeasures   :: HashSet (Measure LocBareType F.LocSymbol)
+  { liftedMeasures   :: HashSet (MeasureV LHName LocBareTypeLHName F.LocSymbol)
     -- ^ User-defined properties for ADTs
-  , liftedExpSigs    :: HashSet (F.Symbol, F.Sort)
+  , liftedExpSigs    :: HashSet (LHName, F.Sort)
     -- ^ Exported logic symbols
-  , liftedAsmSigs    :: HashSet (F.Located LHName, LocBareType)
+  , liftedAsmSigs    :: HashSet (F.Located LHName, LocBareTypeLHName)
     -- ^ Assumed (unchecked) types; including reflected signatures
-  , liftedSigs       :: HashSet (F.Located LHName, LocBareType)
+  , liftedSigs       :: HashSet (F.Located LHName, LocBareTypeLHName)
     -- ^ Asserted spec signatures
-  , liftedInvariants :: HashSet (Maybe F.LocSymbol, LocBareType)
+  , liftedInvariants :: HashSet (Maybe F.LocSymbol, LocBareTypeLHName)
     -- ^ Data type invariants; the Maybe is the generating measure
-  , liftedIaliases   :: HashSet (LocBareType, LocBareType)
+  , liftedIaliases   :: HashSet (LocBareTypeLHName, LocBareTypeLHName)
     -- ^ Data type invariants to be checked
-  , liftedDataDecls  :: HashSet DataDecl
+  , liftedDataDecls  :: HashSet DataDeclLHName
     -- ^ Predicated data definitions
-  , liftedNewtyDecls :: HashSet DataDecl
+  , liftedNewtyDecls :: HashSet DataDeclLHName
     -- ^ Predicated new type definitions
-  , liftedAliases    :: HashSet (F.Located (RTAlias F.Symbol BareType))
+  , liftedAliases    :: HashSet (F.Located (RTAlias F.Symbol BareTypeLHName))
     -- ^ RefType aliases
-  , liftedEaliases   :: HashSet (F.Located (RTAlias F.Symbol F.Expr))
+  , liftedEaliases   :: HashSet (F.Located (RTAlias F.Symbol (F.ExprV LHName)))
     -- ^ Expression aliases
   , liftedEmbeds     :: F.TCEmb (F.Located LHName)
     -- ^ GHC-Tycon-to-fixpoint Tycon map
-  , liftedQualifiers :: HashSet F.Qualifier
+  , liftedQualifiers :: HashSet (F.QualifierV LHName)
     -- ^ Qualifiers in source/spec files
   , liftedLvars      :: HashSet (F.Located LHName)
     -- ^ Variables that should be checked in the environment they are used
@@ -555,26 +728,44 @@ data LiftedSpec = LiftedSpec
     -- ^ Automatically instantiate axioms in these Functions
   , liftedAutosize   :: HashSet (F.Located LHName)
     -- ^ Type Constructors that get automatically sizing info
-  , liftedCmeasures  :: HashSet (Measure LocBareType ())
+  , liftedCmeasures  :: HashSet (MeasureV LHName LocBareTypeLHName ())
     -- ^ Measures attached to a type-class
-  , liftedImeasures  :: HashSet (Measure LocBareType F.LocSymbol)
+  , liftedImeasures  :: HashSet (MeasureV LHName LocBareTypeLHName F.LocSymbol)
     -- Lifted opaque reflection measures
-  , liftedOmeasures  :: HashSet (Measure LocBareType F.LocSymbol)
+  , liftedOmeasures  :: HashSet (MeasureV LHName LocBareTypeLHName F.LocSymbol)
     -- ^ Mappings from (measure,type) -> measure
-  , liftedClasses    :: HashSet (RClass LocBareType)
+  , liftedClasses    :: HashSet (RClass LocBareTypeLHName)
     -- ^ Refined Type-Classes
-  , liftedRinstance  :: HashSet (RInstance LocBareType)
-  , liftedDsize      :: [([LocBareType], F.LocSymbol)]
+  , liftedRinstance  :: HashSet (RInstance LocBareTypeLHName)
+  , liftedDsize      :: [([LocBareTypeLHName], F.LocSymbol)]
   , liftedDvariance  :: HashSet (F.Located LHName, [Variance])
     -- ^ ? Where do these come from ?!
-  , liftedBounds     :: RRBEnv LocBareType
-  , liftedAxeqs      :: HashSet F.Equation
+  , liftedBounds     :: RRBEnvV LHName LocBareTypeLHName
+  , liftedAxeqs      :: HashSet (F.EquationV LHName)
     -- ^ Equalities used for Proof-By-Evaluation
-  } deriving (Eq, Data, Generic, Show)
+  } deriving (Eq, Data, Generic)
     deriving Hashable via Generically LiftedSpec
     deriving Binary   via Generically LiftedSpec
 
-instance Binary F.Equation
+
+instance Show LiftedSpec where
+   show = (show :: BareSpec -> String) . fromBareSpecLHName . unsafeFromLiftedSpec
+
+fromBareSpecLHName :: BareSpecLHName -> BareSpec
+fromBareSpecLHName sp =
+    mapSpecTy
+      ( mapRTypeV logicNameToSymbol .
+        mapReft (mapUReftV logicNameToSymbol (fmap logicNameToSymbol))
+      ) $
+    mapSpecLName logicNameToSymbol sp
+
+fromBareSpecParsed :: BareSpecParsed -> BareSpec
+fromBareSpecParsed sp =
+    mapSpecTy
+      ( mapRTypeV val .
+        mapReft (mapUReftV val (fmap val))
+      ) $
+    mapSpecLName val sp
 
 emptyLiftedSpec :: LiftedSpec
 emptyLiftedSpec = LiftedSpec
@@ -679,7 +870,7 @@ data GhcSpec = SP
   , _gsRefl   :: !GhcSpecRefl
   , _gsImps   :: ![(F.Symbol, F.Sort)]  -- ^ Imported Environment
   , _gsConfig :: !Config
-  , _gsLSpec  :: !(Spec LocBareType) -- ^ Lifted specification for the target module
+  , _gsLSpec  :: !(Spec F.Symbol BareType) -- ^ Lifted specification for the target module
   }
 
 instance HasConfig GhcSpec where
@@ -726,11 +917,8 @@ fromTargetSrc a = Src
   , _gsTyThings  = gsTyThings a
   }
 
-toTargetSpec :: GhcSpec -> (TargetSpec, LiftedSpec)
-toTargetSpec ghcSpec =
-  (targetSpec, (toLiftedSpec . _gsLSpec) ghcSpec)
-  where
-    targetSpec = TargetSpec
+toTargetSpec ::  GhcSpec -> TargetSpec
+toTargetSpec ghcSpec = TargetSpec
       { gsSig    = _gsSig ghcSpec
       , gsQual   = _gsQual ghcSpec
       , gsData   = _gsData ghcSpec
@@ -742,7 +930,7 @@ toTargetSpec ghcSpec =
       , gsConfig = _gsConfig ghcSpec
       }
 
-toLiftedSpec :: Spec LocBareType -> LiftedSpec
+toLiftedSpec :: BareSpecLHName -> LiftedSpec
 toLiftedSpec a = LiftedSpec
   { liftedMeasures   = S.fromList . measures $ a
   , liftedExpSigs    = S.fromList . expSigs  $ a
@@ -772,7 +960,7 @@ toLiftedSpec a = LiftedSpec
 
 -- This is a temporary internal function that we use to convert the input dependencies into a format
 -- suitable for 'makeGhcSpec'.
-unsafeFromLiftedSpec :: LiftedSpec -> Spec LocBareType
+unsafeFromLiftedSpec :: LiftedSpec -> BareSpecLHName
 unsafeFromLiftedSpec a = Spec
   { measures   = S.toList . liftedMeasures $ a
   , expSigs    = S.toList . liftedExpSigs $ a

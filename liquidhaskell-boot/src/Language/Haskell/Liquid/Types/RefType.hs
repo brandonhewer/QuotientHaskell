@@ -67,6 +67,7 @@ module Language.Haskell.Liquid.Types.RefType (
 
   -- * Manipulating Refinements in RTypes
   , strengthen
+  , strengthenWith
   , generalize
   , normalizePds
   , dataConMsReft
@@ -163,8 +164,8 @@ dataConArgs trep = unzip [ (x, t) | (x, t) <- zip xs ts, isValTy t]
     isValTy      = not . Ghc.isEvVarType . toType False
 
 
-pdVar :: PVar t -> Predicate
-pdVar v        = Pr [uPVar v]
+pdVar :: PVarV v t -> PredicateV v
+pdVar v  = Pr [uPVar v]
 
 findPVar :: [PVar (RType c tv ())] -> UsedPVar -> PVar (RType c tv ())
 findPVar ps upv = PV name ty v (zipWith (\(_, _, e) (t, s, _) -> (t, s, e)) (pargs upv) args)
@@ -183,14 +184,14 @@ uRType'         = fmap ur_reft
 uRTypeGen       :: Reftable b => RType c tv a -> RType c tv b
 uRTypeGen       = fmap $ const mempty
 
-uPVar           :: PVar t -> UsedPVar
+uPVar           :: PVarV v t -> UsedPVarV v
 uPVar           = void
 
 uReft           :: (Symbol, Expr) -> UReft Reft
 uReft           = uTop . Reft
 
-uTop            ::  r -> UReft r
-uTop r          = MkUReft r mempty
+uTop            ::  r -> UReftV v r
+uTop r          = MkUReft r (Pr [])
 
 --------------------------------------------------------------------
 -------------- (Class) Predicates for Valid Refinement Types -------
@@ -468,7 +469,7 @@ rTVar :: Monoid r => TyVar -> RTVar RTyVar (RRType r)
 rTVar a = RTVar (RTV a) (rTVarInfo a)
 
 bTVar :: Monoid r => TyVar -> RTVar BTyVar (BRType r)
-bTVar a = RTVar (BTV (symbol a)) (bTVarInfo a)
+bTVar a = RTVar (BTV (symbol <$> GM.locNamedThing a)) (bTVarInfo a)
 
 bTVarInfo :: Monoid r => TyVar -> RTVInfo (BRType r)
 bTVarInfo = mkTVarInfo kindToBRType
@@ -503,14 +504,14 @@ isValKind x0 =
     let x = expandTypeSynonyms x0
      in x == naturalTy || x == typeSymbolKind
 
-bTyVar :: Symbol -> BTyVar
+bTyVar :: LocSymbol -> BTyVar
 bTyVar      = BTV
 
 symbolRTyVar :: Symbol -> RTyVar
 symbolRTyVar = rTyVar . GM.symbolTyVar
 
 bareRTyVar :: BTyVar -> RTyVar
-bareRTyVar (BTV tv) = symbolRTyVar tv
+bareRTyVar (BTV tv) = symbolRTyVar $ val tv
 
 normalizePds :: (OkRT c tv r) => RType c tv r -> RType c tv r
 normalizePds t = addPds ps t'
@@ -706,20 +707,26 @@ meets rs rs'
   | length rs == length rs' = zipWith meet rs rs'
   | otherwise               = panic Nothing "meets: unbalanced rs"
 
-strengthen :: Reftable r => RType c tv r -> r -> RType c tv r
-strengthen (RApp c ts rs r)   r' = RApp c ts rs   (r `meet` r')
-strengthen (RVar a r)         r' = RVar a         (r `meet` r')
-strengthen (RFun b i t1 t2 r) r' = RFun b i t1 t2 (r `meet` r')
-strengthen (RAppTy t1 t2 r)   r' = RAppTy t1 t2   (r `meet` r')
-strengthen (RAllT a t r)      r' = RAllT a t      (r `meet` r')
-strengthen (RHole r)          r' = RHole          (r `meet` r')
-strengthen t                  _  = t
+strengthen :: Reftable r => RTypeV v c tv r -> r -> RTypeV v c tv r
+strengthen = strengthenWith meet
 
-quantifyRTy :: (Monoid r, Eq tv) => [RTVar tv (RType c tv ())] -> RType c tv r -> RType c tv r
+strengthenWith :: (r -> r -> r) -> RTypeV v c tv r -> r -> RTypeV v c tv r
+strengthenWith mt = go
+  where
+    go (RApp c ts rs r)   r' = RApp c ts rs   (r `mt` r')
+    go (RVar a r)         r' = RVar a         (r `mt` r')
+    go (RFun b i t1 t2 r) r' = RFun b i t1 t2 (r `mt` r')
+    go (RAppTy t1 t2 r)   r' = RAppTy t1 t2   (r `mt` r')
+    go (RAllT a t r)      r' = RAllT a t      (r `mt` r')
+    go (RHole r)          r' = RHole          (r `mt` r')
+    go t                  _  = t
+
+
+quantifyRTy :: (Monoid r, Eq tv) => [RTVar tv (RTypeV v c tv ())] -> RTypeV v c tv r -> RTypeV v c tv r
 quantifyRTy tvs ty = foldr rAllT ty tvs
   where rAllT a t = RAllT a t mempty
 
-quantifyFreeRTy :: (Monoid r, Eq tv) => RType c tv r -> RType c tv r
+quantifyFreeRTy :: (Monoid r, Eq tv) => RTypeV v c tv r -> RTypeV v c tv r
 quantifyFreeRTy ty = quantifyRTy (freeTyVars ty) ty
 
 
@@ -917,7 +924,7 @@ allTyVars' t = fmap ty_var_value $ vs ++ vs'
     vs'     = freeTyVars t
 
 
-freeTyVars :: Eq tv => RType c tv r -> [RTVar tv (RType c tv ())]
+freeTyVars :: Eq tv => RTypeV v c tv r -> [RTVar tv (RTypeV v c tv ())]
 freeTyVars (RAllP _ t)       = freeTyVars t
 freeTyVars (RAllT α t _)     = freeTyVars t L.\\ [α]
 freeTyVars (RFun _ _ t t' _) = freeTyVars t `L.union` freeTyVars t'
@@ -1222,12 +1229,12 @@ instance (SubsTy tv ty Expr) => SubsTy tv ty Reft where
   subt su (Reft (x, e)) = Reft (x, subt su e)
 
 instance SubsTy Symbol Symbol (BRType r) where
-  subt (x,y) (RVar v r)
-    | BTV x == v = RVar (BTV y) r
-    | otherwise  = RVar v r
-  subt (x, y) (RAllT (RTVar v i) t r)
-    | BTV x == v = RAllT (RTVar v i) t r
-    | otherwise  = RAllT (RTVar v i) (subt (x,y) t) r
+  subt (x,y) (RVar (BTV v) r)
+    | x == val v = RVar (BTV (y <$ v)) r
+    | otherwise  = RVar (BTV v) r
+  subt (x, y) (RAllT (RTVar (BTV v) i) t r)
+    | x == val v = RAllT (RTVar (BTV v) i) t r
+    | otherwise  = RAllT (RTVar (BTV v) i) (subt (x,y) t) r
   subt su (RFun x i t1 t2 r)  = RFun x i (subt su t1) (subt su t2) r
   subt su (RAllP p t)       = RAllP p (subt su t)
   subt su (RApp c ts ps r)  = RApp c (subt su <$> ts) (subt su <$> ps) r
@@ -1345,7 +1352,7 @@ ofType      = ofType_ $ TyConv
 bareOfType :: Monoid r => Type -> BRType r
 --------------------------------------------------------------------------------
 bareOfType  = ofType_ $ TyConv
-  { tcFVar  = (`RVar` mempty) . BTV . symbol
+  { tcFVar  = (`RVar` mempty) . BTV . fmap symbol . GM.locNamedThing
   , tcFTVar = bTVar
   , tcFApp  = \c ts -> bApp c ts [] mempty
   , tcFLit  = ofLitType bApp

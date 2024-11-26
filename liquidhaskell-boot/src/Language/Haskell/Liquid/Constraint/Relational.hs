@@ -776,7 +776,9 @@ traceUSyn
 traceUSyn expr e cg = do
   t <- cg
   trace (expr ++ " To SYNTH UNARY") e dummy t dummy dummy cg
-  where dummy = F.PTrue
+  where
+    dummy :: F.Expr
+    dummy = F.PTrue
 
 trace
   :: (PPrint e, PPrint d, PPrint t, PPrint s, PPrint p)

@@ -35,6 +35,7 @@ import qualified Language.Haskell.Liquid.Misc               as Misc -- (nubHashO
 import qualified Language.Haskell.Liquid.GHC.Misc           as GM
 import qualified Liquid.GHC.API            as Ghc
 import           Language.Haskell.Liquid.GHC.Types          (StableName)
+import           Language.Haskell.Liquid.LHNameResolution   (LogicNameEnv, toBareSpecLHName)
 import           Language.Haskell.Liquid.Types.Errors
 import           Language.Haskell.Liquid.Types.DataDecl
 import           Language.Haskell.Liquid.Types.Names
@@ -84,12 +85,13 @@ to disk so that we can retrieve it later without having to re-check the relevant
 -- to treat warnings and errors).
 makeTargetSpec :: Config
                -> Bare.LocalVars
+               -> LogicNameEnv
                -> LogicMap
                -> TargetSrc
                -> BareSpec
                -> TargetDependencies
                -> Ghc.TcRn (Either Diagnostics ([Warning], TargetSpec, LiftedSpec))
-makeTargetSpec cfg localVars lmap targetSrc bareSpec dependencies = do
+makeTargetSpec cfg localVars lnameEnv lmap targetSrc bareSpec dependencies = do
   let targDiagnostics     = Bare.checkTargetSrc cfg targetSrc
   let depsDiagnostics     = mapM (Bare.checkBareSpec . snd) legacyDependencies
   let bareSpecDiagnostics = Bare.checkBareSpec bareSpec
@@ -104,14 +106,15 @@ makeTargetSpec cfg localVars lmap targetSrc bareSpec dependencies = do
       case diagOrSpec of
         Left d -> return $ Left d
         Right (warns, ghcSpec) -> do
-          let (targetSpec, liftedSpec) = toTargetSpec ghcSpec
+          let targetSpec = toTargetSpec ghcSpec
+              liftedSpec = ghcSpecToLiftedSpec ghcSpec
           liftedSpec' <- removeUnexportedLocalAssumptions liftedSpec
           return $ Right (phaseOneWarns <> warns, targetSpec, liftedSpec')
 
-    toLegacyDep :: (Ghc.StableModule, LiftedSpec) -> (ModName, Ms.BareSpec)
-    toLegacyDep (sm, ls) = (ModName SrcImport (Ghc.moduleName . Ghc.unStableModule $ sm), unsafeFromLiftedSpec ls)
+    toLegacyDep :: (Ghc.StableModule, LiftedSpec) -> (ModName, BareSpec)
+    toLegacyDep (sm, ls) = (ModName SrcImport (Ghc.moduleName . Ghc.unStableModule $ sm), fromBareSpecLHName $ unsafeFromLiftedSpec ls)
 
-    legacyDependencies :: [(ModName, Ms.BareSpec)]
+    legacyDependencies :: [(ModName, BareSpec)]
     legacyDependencies = map toLegacyDep . M.toList . getDependencies $ dependencies
 
     -- Assumptions about local functions that are not exported aren't useful for
@@ -126,6 +129,9 @@ makeTargetSpec cfg localVars lmap targetSrc bareSpec dependencies = do
               Just m -> m /= Ghc.tcg_mod tcg || Ghc.elemNameSet n exportedNames
           exportedAssumption _ = True
       return lspec { liftedAsmSigs = S.filter (exportedAssumption . val . fst) (liftedAsmSigs lspec) }
+
+    ghcSpecToLiftedSpec = toLiftedSpec . toBareSpecLHName cfg lnameEnv . _gsLSpec
+
 
 -------------------------------------------------------------------------------------
 -- | @makeGhcSpec@ invokes @makeGhcSpec0@ to construct the @GhcSpec@ and then
@@ -149,7 +155,7 @@ makeGhcSpec cfg localVars src lmap targetSpec dependencySpecs = do
                                          (toTargetSrc src)
                                          (ghcSpecEnv sp)
                                          (_giCbs src)
-                                         (fst . toTargetSpec $ sp)
+                                         (toTargetSpec sp)
   pure $ if not (noErrors dg0) then Left dg0 else
            case diagnostics of
              Left dg1
@@ -476,7 +482,7 @@ makeSpecQual _cfg env tycEnv measEnv _rtEnv specs = SpQual
                    ++ (fst <$> Bare.meSyms measEnv)
                    ++ (fst <$> Bare.meClassSyms measEnv)
 
-makeQualifiers :: Bare.Env -> Bare.TycEnv -> (ModName, Ms.Spec ty) -> [F.Qualifier]
+makeQualifiers :: Bare.Env -> Bare.TycEnv -> (ModName, Ms.Spec F.Symbol ty) -> [F.Qualifier]
 makeQualifiers env tycEnv (modn, spec)
   = fmap        (Bare.qualifyTopDummy env        modn)
   . Mb.mapMaybe (resolveQParams       env tycEnv modn)
@@ -574,7 +580,7 @@ makeRewrite env spec =
 makeRewriteWith :: Bare.Env -> Ms.BareSpec -> Bare.Lookup (M.HashMap Ghc.Var [Ghc.Var])
 makeRewriteWith env spec = M.fromList <$> makeRewriteWith' env spec
 
-makeRewriteWith' :: Bare.Env -> Spec ty -> Bare.Lookup [(Ghc.Var, [Ghc.Var])]
+makeRewriteWith' :: Bare.Env -> Spec lname ty -> Bare.Lookup [(Ghc.Var, [Ghc.Var])]
 makeRewriteWith' env spec =
   forM (M.toList $ Ms.rewriteWith spec) $ \(x, xs) -> do
     xv  <- Bare.lookupGhcIdLHName env x
@@ -917,7 +923,9 @@ allAsmSigs env myName specs = do
       -- constraints should account instead for what logic functions are used in
       -- the constraints, which should be easier to do when precise renaming has
       -- been implemented for expressions and reflected functions.
-    , isUsedExternalVar v || isInScope v || isLocalVar v
+    , isUsedExternalVar v ||
+      isInScope v ||
+      isNonTopLevelVar v -- Keep assumptions about non-top-level bindings
     ]
   where
     isUsedExternalVar :: Ghc.Var -> Bool
@@ -942,7 +950,7 @@ allAsmSigs env myName specs = do
             Ghc.DataConWorkId dc -> inScope dc
             _ -> inScope v0
 
-    isLocalVar = Mb.isNothing . Ghc.nameModule_maybe . Ghc.getName
+    isNonTopLevelVar = Mb.isNothing . Ghc.nameModule_maybe . Ghc.getName
 
 getAsmSigs :: ModName -> ModName -> Ms.BareSpec -> [(Bool, Located LHName, LocBareType)]
 getAsmSigs myName name spec

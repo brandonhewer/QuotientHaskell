@@ -370,11 +370,11 @@ processInputSpec
   :: Config
   -> PipelineData
   -> ModSummary
-  -> BareSpec
+  -> BareSpecParsed
   -> TcM (Either LiquidCheckException LiquidLib)
 processInputSpec cfg pipelineData modSummary inputSpec = do
   tcg <- getGblEnv
-  debugLog $ " Input spec: \n" ++ show inputSpec
+  debugLog $ " Input spec: \n" ++ show (fromBareSpecParsed inputSpec)
   debugLog $ "Direct ===> \n" ++ unlines (renderModule <$> S.toList (directImports tcg))
 
   logicMap :: LogicMap <- liftIO LH.makeLogicMap
@@ -457,7 +457,7 @@ errorLogger file filters outputResult = do
                            }
     (LH.orMessages outputResult)
 
-isIgnore :: BareSpec -> Bool
+isIgnore :: Spec lname ty -> Bool
 isIgnore sp = any ((== "--skip-module") . F.val) (pragmas sp)
 
 --------------------------------------------------------------------------------
@@ -489,7 +489,7 @@ loadDependencies currentModuleConfig mods = do
 
 data LiquidHaskellContext = LiquidHaskellContext {
     lhGlobalCfg        :: Config
-  , lhInputSpec        :: BareSpec
+  , lhInputSpec        :: BareSpecParsed
   , lhModuleLogicMap   :: LogicMap
   , lhModuleSummary    :: ModSummary
   , lhModuleTcData     :: TcData
@@ -546,17 +546,27 @@ processModule LiquidHaskellContext{..} = do
     tcg <- getGblEnv
     let localVars = makeLocalVars preNormalizedCore
         eBareSpec = resolveLHNames
+          moduleCfg
           thisModule
           localVars
+          (imp_mods $ tcg_imports tcg)
           (tcg_rdr_env tcg)
+          lhModuleLogicMap
           bareSpec0
           dependencies
     result <-
       case eBareSpec of
         Left errors -> pure $ Left $ mkDiagnostics [] errors
-        Right bareSpec ->
+        Right (bareSpec, lnameEnv) ->
           fmap (,bareSpec) <$>
-            makeTargetSpec moduleCfg localVars lhModuleLogicMap targetSrc bareSpec dependencies
+            makeTargetSpec
+              moduleCfg
+              localVars
+              lnameEnv
+              lhModuleLogicMap
+              targetSrc
+              bareSpec
+              dependencies
 
     let continue = pure $ Left (ErrorsOccurred [])
         reportErrs :: (Show e, F.PPrint e) => [TError e] -> TcRn (Either LiquidCheckException ProcessModuleResult)

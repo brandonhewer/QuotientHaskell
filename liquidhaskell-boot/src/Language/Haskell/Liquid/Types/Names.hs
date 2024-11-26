@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module Language.Haskell.Liquid.Types.Names
   ( lenLocSymbol
@@ -12,13 +13,16 @@ module Language.Haskell.Liquid.Types.Names
   , LHNameSpace (..)
   , LHThisModuleNameFlag (..)
   , makeResolvedLHName
+  , getLHGHCName
   , getLHNameResolved
   , getLHNameSymbol
+  , logicNameToSymbol
   , makeGHCLHName
   , makeGHCLHNameFromId
   , makeGHCLHNameLocated
   , makeGHCLHNameLocatedFromId
   , makeLocalLHName
+  , makeLogicLHName
   , makeUnresolvedLHName
   , mapLHNames
   , mapMLocLHNames
@@ -26,11 +30,16 @@ module Language.Haskell.Liquid.Types.Names
   ) where
 
 import Control.DeepSeq
+import qualified Data.Base64.Types                       as Base64
 import qualified Data.Binary as B
+import qualified Data.ByteString.Lazy                    as ByteString
+import qualified Data.ByteString.Base64                  as Base64
+import qualified Data.ByteString.Builder                 as Builder
 import Data.Data (Data, gmapM, gmapT)
 import Data.Generics (extM, extT)
 import Data.Hashable
 import Data.String (fromString)
+import qualified Data.Text                               as Text
 import GHC.Generics
 import GHC.Stack
 import Language.Fixpoint.Types
@@ -60,7 +69,10 @@ selfSymbol = symbol ("liquid_internal_this" :: String)
 -- or uninterpreted functions.
 data LogicName = LogicName
     { lnSymbol :: !Symbol
+      -- | Module where the entity was defined
     , lnModule :: !GHC.Module
+      -- | If the named entity is the reflection of some Haskell name
+    , lnReflected :: !(Maybe GHC.Name)
     }
   deriving (Data, Eq, Generic)
 
@@ -125,7 +137,7 @@ instance NFData LHThisModuleNameFlag
 instance Hashable LHThisModuleNameFlag
 
 instance Ord LogicName where
-  compare (LogicName s1 m1) (LogicName s2 m2) =
+  compare (LogicName s1 m1 _) (LogicName s2 m2 _) =
     case compare s1 s2 of
       EQ -> GHC.stableModuleCmp m1 m2
       x -> x
@@ -146,7 +158,7 @@ instance Hashable LHResolvedName where
   hashWithSalt s (LHRIndex w) = s `hashWithSalt` (3::Int) `hashWithSalt` w
 
 instance Hashable LogicName where
-  hashWithSalt s (LogicName sym m) =
+  hashWithSalt s (LogicName sym m _) =
         s `hashWithSalt` sym
           `hashWithSalt` GHC.moduleStableString m
 
@@ -177,8 +189,9 @@ instance GHC.Binary LHResolvedName where
   put_ _bh (LHRIndex _n) = error "GHC.Binary: cannot serialize LHRIndex"
 
 instance GHC.Binary LogicName where
-  get bh = LogicName . fromString <$> GHC.get bh <*> GHC.get bh
-  put_ bh (LogicName s m) = GHC.put_ bh (symbolString s) >> GHC.put_ bh m
+  get bh = LogicName . fromString <$> GHC.get bh <*> GHC.get bh <*> GHC.get bh
+  put_ bh (LogicName s m r) =
+    GHC.put_ bh (symbolString s) >> GHC.put_ bh m >> GHC.put_ bh r
 
 instance PPrint LHName where
   pprintTidy _ = text . show
@@ -199,6 +212,9 @@ makeGHCLHNameFromId x =
 
 makeLocalLHName :: Symbol -> LHName
 makeLocalLHName s = LHNResolved (LHRLocal s) s
+
+makeLogicLHName :: Symbol -> GHC.Module -> Maybe GHC.Name -> LHName
+makeLogicLHName s m r = LHNResolved (LHRLogic (LogicName s m r)) s
 
 makeGHCLHNameLocated :: (GHC.NamedThing a, Symbolic a) => a -> Located LHName
 makeGHCLHNameLocated x =
@@ -224,6 +240,10 @@ getLHNameResolved :: HasCallStack => LHName -> LHResolvedName
 getLHNameResolved (LHNResolved n _) = n
 getLHNameResolved n@LHNUnresolved{} = error $ "getLHNameResolved: unresolved name: " ++ show n
 
+getLHGHCName :: LHName -> Maybe GHC.Name
+getLHGHCName (LHNResolved (LHRGHC n) _) = Just n
+getLHGHCName _ = Nothing
+
 mapLHNames :: Data a => (LHName -> LHName) -> a -> a
 mapLHNames f = go
   where
@@ -239,3 +259,22 @@ mapMLocLHNames f = go
 updateLHNameSymbol :: (Symbol -> Symbol) -> LHName -> LHName
 updateLHNameSymbol f (LHNResolved n s) = LHNResolved n (f s)
 updateLHNameSymbol f (LHNUnresolved n s) = LHNUnresolved n (f s)
+
+logicNameToSymbol :: LHName -> Symbol
+logicNameToSymbol (LHNResolved (LHRLogic (LogicName s m _)) _) =
+    let msymbol = Text.pack $ GHC.moduleNameString $ GHC.moduleName m
+        munique =
+          Text.dropEnd 2 $ -- Remove padding of two characters "=="
+          Base64.extractBase64 $
+          Base64.encodeBase64 $
+          ByteString.toStrict $
+          Builder.toLazyByteString $
+          Builder.int32BE $
+          fromIntegral $
+          hash $
+          GHC.unitIdString $
+          GHC.moduleUnitId m
+     in symbol $ mconcat ["u", munique, "##", msymbol, ".", symbolText s]
+logicNameToSymbol (LHNResolved (LHRLocal s) _) = s
+logicNameToSymbol n = error $ "logicNameToSymbol: unexpected name: " ++ show n
+
