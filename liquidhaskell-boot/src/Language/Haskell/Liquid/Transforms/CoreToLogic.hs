@@ -272,7 +272,7 @@ coreToLg allowTC (C.App (C.Var v) e)
 coreToLg _allowTC (C.Var x)
   | x == falseDataConId        = return PFalse
   | x == trueDataConId         = return PTrue
-  | otherwise                  = getState >>= eVarWithMap x . lsSymMap
+  | otherwise                  = eVarWithMap x . lsSymMap <$> getState
 coreToLg allowTC e@(C.App _ _)         = toPredApp allowTC e
 coreToLg allowTC (C.Case e b _ alts)
   | eqType (GM.expandVarType b) boolTy  = checkBoolAlts alts >>= coreToIte allowTC e
@@ -453,11 +453,10 @@ makeApp def lmap f es
   = eAppWithMap lmap f es def
   -- where msg = "makeApp f = " ++ show f ++ " es = " ++ show es ++ " def = " ++ show def
 
-eVarWithMap :: Id -> LogicMap -> LogicM Expr
+eVarWithMap :: Id -> LogicMap -> Expr
 eVarWithMap x lmap = do
-  f'     <- tosymbol' (C.Var x :: C.CoreExpr)
-  -- let msg = "eVarWithMap x = " ++ show x ++ " f' = " ++ show f'
-  return $ eAppWithMap lmap f' [] (EVar $ symbol x)
+  let f' = dummyLoc $ symbol x
+   in eAppWithMap lmap f' [] (EVar $ symbol x)
 
 brels :: M.HashMap Symbol Brel
 brels = M.fromList [ (symbol ("GHC.Classes.==" :: String), Eq)
