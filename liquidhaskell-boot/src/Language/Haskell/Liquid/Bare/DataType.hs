@@ -610,7 +610,7 @@ ofBDataDecl env name (Just dd@(DataDecl tc as ps cts pos sfun pt _)) maybe_invar
     err            = ErrBadData (GM.fSrcSpan tc) (pprint tc) "Mismatch in number of type variables"
 
 ofBDataDecl env name Nothing (Just (tc, is)) =
-  case Bare.lookupGhcTyConLHName env tc of
+  case Bare.lookupGhcTyConLHName (Bare.reTyLookupEnv env) tc of
     Left e    -> Left e
     Right tc' -> Right ((name, TyConP srcpos tc' [] [] tcov tcontr Nothing, Nothing), [])
   where

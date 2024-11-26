@@ -20,7 +20,6 @@ module Language.Haskell.Liquid.Bare (
 
 import           Control.Monad                              (forM, mplus, when)
 import qualified Control.Exception                          as Ex
-import           Data.IORef (newIORef)
 import qualified Data.Maybe                                 as Mb
 import qualified Data.List                                  as L
 import qualified Data.HashMap.Strict                        as M
@@ -146,11 +145,10 @@ makeGhcSpec :: Config
             -> Ghc.TcRn (Either Diagnostics ([Warning], GhcSpec))
 -------------------------------------------------------------------------------------
 makeGhcSpec cfg localVars src lmap targetSpec dependencySpecs = do
-  hscEnv <- Ghc.getTopEnv
-  session <- Ghc.Session <$> Ghc.liftIO (newIORef hscEnv)
+  ghcTyLookupEnv <- Bare.makeGHCTyLookupEnv (_giCbs src)
   tcg <- Ghc.getGblEnv
   instEnvs <- Ghc.tcGetInstEnvs
-  (dg0, sp) <- makeGhcSpec0 cfg session tcg instEnvs localVars src lmap targetSpec dependencySpecs
+  (dg0, sp) <- makeGhcSpec0 cfg ghcTyLookupEnv tcg instEnvs localVars src lmap targetSpec dependencySpecs
   let diagnostics = Bare.checkTargetSpec (targetSpec : map snd dependencySpecs)
                                          (toTargetSrc src)
                                          (ghcSpecEnv sp)
@@ -190,7 +188,7 @@ ghcSpecEnv sp = F.notracepp "RENV" $ fromListSEnv binds
 -------------------------------------------------------------------------------------
 makeGhcSpec0
   :: Config
-  -> Ghc.Session
+  -> Bare.GHCTyLookupEnv
   -> Ghc.TcGblEnv
   -> Ghc.InstEnvs
   -> Bare.LocalVars
@@ -199,7 +197,7 @@ makeGhcSpec0
   -> Ms.BareSpec
   -> [(ModName, Ms.BareSpec)]
   -> Ghc.TcRn (Diagnostics, GhcSpec)
-makeGhcSpec0 cfg session tcg instEnvs localVars src lmap targetSpec dependencySpecs = do
+makeGhcSpec0 cfg ghcTyLookupEnv tcg instEnvs localVars src lmap targetSpec dependencySpecs = do
   -- build up environments
   tycEnv <- makeTycEnv1 name env (tycEnv0, datacons) coreToLg simplifier
   let tyi      = Bare.tcTyConMap   tycEnv
@@ -319,10 +317,10 @@ makeGhcSpec0 cfg session tcg instEnvs localVars src lmap targetSpec dependencySp
                               else (targetSpec, [])
     mySpec1  = mySpec0 <> lSpec0
     lSpec0   = makeLiftedSpec0 cfg src embs lmap mySpec0
-    embs     = makeEmbeds          src env (mySpec0 : map snd dependencySpecs)
+    embs     = makeEmbeds          src ghcTyLookupEnv (mySpec0 : map snd dependencySpecs)
     dm       = Bare.tcDataConMap tycEnv0
     (dg0, datacons, tycEnv0) = makeTycEnv0   cfg name env embs mySpec2 iSpecs2
-    env      = Bare.makeEnv cfg session tcg instEnvs localVars src lmap ((name, targetSpec) : dependencySpecs)
+    env      = Bare.makeEnv cfg ghcTyLookupEnv tcg instEnvs localVars src lmap ((name, targetSpec) : dependencySpecs)
     -- check barespecs
     name     = F.notracepp ("ALL-SPECS" ++ zzz) $ _giTargetMod  src
     zzz      = F.showpp (fst <$> mspecs)
@@ -332,13 +330,13 @@ makeImports specs = concatMap (expSigs . snd) specs'
   where specs' = filter (isSrcImport . fst) specs
 
 
-makeEmbeds :: GhcSrc -> Bare.Env -> [Ms.BareSpec] -> F.TCEmb Ghc.TyCon
+makeEmbeds :: GhcSrc -> Bare.GHCTyLookupEnv -> [Ms.BareSpec] -> F.TCEmb Ghc.TyCon
 makeEmbeds src env
   = Bare.addClassEmbeds (_gsCls src) (_gsFiTcs src)
   . mconcat
   . map (makeTyConEmbeds env)
 
-makeTyConEmbeds :: Bare.Env -> Ms.BareSpec -> F.TCEmb Ghc.TyCon
+makeTyConEmbeds :: Bare.GHCTyLookupEnv -> Ms.BareSpec -> F.TCEmb Ghc.TyCon
 makeTyConEmbeds env spec
   = F.tceFromList [ (tc, t) | (c,t) <- F.tceToList (Ms.embeds spec), tc <- symTc c ]
     where
@@ -590,7 +588,7 @@ makeRewriteWith' env spec =
 makeAutoSize :: Bare.Env -> Ms.BareSpec -> Bare.Lookup (S.HashSet Ghc.TyCon)
 makeAutoSize env
   = fmap S.fromList
-  . mapM (Bare.lookupGhcTyConLHName env)
+  . mapM (Bare.lookupGhcTyConLHName (Bare.reTyLookupEnv env))
   . S.toList
   . Ms.autosize
 
