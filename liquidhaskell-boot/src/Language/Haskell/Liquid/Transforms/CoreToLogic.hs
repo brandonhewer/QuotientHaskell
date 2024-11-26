@@ -457,25 +457,7 @@ eVarWithMap :: Id -> LogicMap -> LogicM Expr
 eVarWithMap x lmap = do
   f'     <- tosymbol' (C.Var x :: C.CoreExpr)
   -- let msg = "eVarWithMap x = " ++ show x ++ " f' = " ++ show f'
-  return $ eAppWithMap lmap f' [] (varExpr x)
-
-varExpr :: Var -> Expr
-varExpr x
-  | isPolyCst t = mkEApp (dummyLoc s) []
-  | otherwise   = EVar s
-  where
-    t           = GM.expandVarType x
-    s           = symbol x
-
-isPolyCst :: Type -> Bool
-isPolyCst (ForAllTy _ t) = isCst t
-isPolyCst _              = False
-
-isCst :: Type -> Bool
-isCst (ForAllTy _ t) = isCst t
-isCst FunTy{}        = False
-isCst _              = True
-
+  return $ eAppWithMap lmap f' [] (EVar $ symbol x)
 
 brels :: M.HashMap Symbol Brel
 brels = M.fromList [ (symbol ("GHC.Classes.==" :: String), Eq)
