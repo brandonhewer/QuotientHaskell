@@ -79,6 +79,7 @@ import qualified GHC.Types.Name.Occurrence
 import           Language.Fixpoint.Types as F hiding (Error, panic)
 import           Language.Haskell.Liquid.Bare.Resolve (lookupLocalVar)
 import           Language.Haskell.Liquid.Bare.Types (LocalVars(lvNames), LocalVarDetails(lvdLclEnv))
+import           Language.Haskell.Liquid.Name.LogicNameEnv
 import qualified Language.Haskell.Liquid.Types.DataDecl as DataDecl
 import           Language.Haskell.Liquid.Types.Errors (TError(ErrDupNames, ErrResolve), panic)
 import           Language.Haskell.Liquid.Types.Specs as Specs
@@ -373,16 +374,6 @@ lookupInScopeExprEnv env s = do
          case filter ((GHC.mkFastString (symbolString q) ==) . GHC.moduleNameFS . fst) xs of
            [] -> Left $ map ((`LH.qualifySymbol` n) . symbol . GHC.moduleNameString . fst) xs
            ys -> Right $ map snd ys
-
--- | For every symbol tells the corresponding LHName
---
--- Symbols are expected to follow a precise syntax
---
--- > <package unique> ## module name ## name
---
--- as created by 'logicNameToSymbol'.
---
-type LogicNameEnv = SEnv LHName
 
 -- | Builds an 'InScopeExprEnv' from the module aliases for the current module,
 -- the spec of the current module, and the specs of the dependencies.
