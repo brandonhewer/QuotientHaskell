@@ -5,6 +5,7 @@
 module Language.Haskell.Liquid.Bare.Types 
   ( -- * Name resolution environment 
     Env (..)
+  , GHCTyLookupEnv (..)
   , TyThingMap 
   , ModSpecs
   , LocalVars(..)
@@ -70,9 +71,8 @@ plugSrc _        = Nothing
 -- | Name resolution environment 
 -------------------------------------------------------------------------------
 data Env = RE 
-  { reSession   :: Ghc.Session
+  { reTyLookupEnv :: GHCTyLookupEnv
   , reTcGblEnv  :: Ghc.TcGblEnv
-  , reTypeEnv   :: Ghc.TypeEnv
   , reInstEnvs  :: Ghc.InstEnvs
   , reUsedExternals :: Ghc.NameSet
   , reLMap      :: LogicMap
@@ -85,6 +85,11 @@ data Env = RE
   , reGlobSyms  :: S.HashSet F.Symbol       -- ^ global symbols, typically unlifted measures like 'len', 'fromJust'
   , reSrc       :: GhcSrc                   -- ^ all source info
   }
+
+data GHCTyLookupEnv = GHCTyLookupEnv
+       { gtleSession :: Ghc.Session
+       , gtleTypeEnv :: Ghc.TypeEnv
+       }
 
 instance HasConfig Env where 
   getConfig = reCfg 

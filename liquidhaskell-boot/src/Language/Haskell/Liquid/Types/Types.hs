@@ -280,22 +280,8 @@ eAppWithMap lmap f es expr
   | Just (LMap _ xs e) <- M.lookup (F.val f) (lmSymDefs lmap)
   , length xs == length es
   = F.subst (F.mkSubst $ zip xs es) e
-  | Just (LMap _ xs e) <- M.lookup (F.val f) (lmSymDefs lmap)
-  , isApp e
-  = F.subst (F.mkSubst $ zip xs es) $ dropApp e (length xs - length es)
   | otherwise
   = expr
-
-dropApp :: Expr -> Int -> Expr
-dropApp e i | i <= 0 = e
-dropApp (F.EApp e _) i = dropApp e (i-1)
-dropApp _ _          = errorstar "impossible"
-
-isApp :: Expr -> Bool
-isApp (F.EApp (F.EVar _) (F.EVar _)) = True
-isApp (F.EApp e (F.EVar _))          = isApp e
-isApp _                              = False
-
 
 --------------------------------------------------------------------------------
 -- | Refined Instances ---------------------------------------------------------

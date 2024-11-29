@@ -383,7 +383,7 @@ type BareSpecParsed = Spec LocSymbol BareTypeParsed
 -- non-interpreted functions and type aliases.
 data Spec lname ty = Spec
   { measures   :: ![MeasureV lname (F.Located ty) LocSymbol]          -- ^ User-defined properties for ADTs
-  , expSigs    :: ![(lname, F.Sort)]                                  -- ^ Exported logic symbols
+  , expSigs    :: ![(lname, F.Sort)]                                  -- ^ Exported logic symbols originated by reflecting functions
   , asmSigs    :: ![(F.Located LHName, F.Located ty)]                 -- ^ Assumed (unchecked) types; including reflected signatures
   , asmReflectSigs :: ![(F.Located LHName, F.Located LHName)]         -- ^ Assume reflects : left is the actual function and right the pretended one
   , sigs       :: ![(F.Located LHName, F.Located (BareTypeV lname))]  -- ^ Asserted spec signatures
@@ -701,7 +701,7 @@ data LiftedSpec = LiftedSpec
   { liftedMeasures   :: HashSet (MeasureV LHName LocBareTypeLHName F.LocSymbol)
     -- ^ User-defined properties for ADTs
   , liftedExpSigs    :: HashSet (LHName, F.Sort)
-    -- ^ Exported logic symbols
+    -- ^ Exported logic symbols originated from reflecting functions
   , liftedAsmSigs    :: HashSet (F.Located LHName, LocBareTypeLHName)
     -- ^ Assumed (unchecked) types; including reflected signatures
   , liftedSigs       :: HashSet (F.Located LHName, LocBareTypeLHName)
@@ -731,9 +731,9 @@ data LiftedSpec = LiftedSpec
   , liftedCmeasures  :: HashSet (MeasureV LHName LocBareTypeLHName ())
     -- ^ Measures attached to a type-class
   , liftedImeasures  :: HashSet (MeasureV LHName LocBareTypeLHName F.LocSymbol)
-    -- Lifted opaque reflection measures
-  , liftedOmeasures  :: HashSet (MeasureV LHName LocBareTypeLHName F.LocSymbol)
     -- ^ Mappings from (measure,type) -> measure
+  , liftedOmeasures  :: HashSet (MeasureV LHName LocBareTypeLHName F.LocSymbol)
+    -- ^ Lifted opaque reflection measures
   , liftedClasses    :: HashSet (RClass LocBareTypeLHName)
     -- ^ Refined Type-Classes
   , liftedRinstance  :: HashSet (RInstance LocBareTypeLHName)

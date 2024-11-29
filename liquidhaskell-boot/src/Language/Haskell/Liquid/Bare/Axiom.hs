@@ -145,7 +145,7 @@ strengthenSpecWithMeasure :: GhcSpecSig -> Bare.Env
                        -> Located AxiomType
 -----------------------------------------------------------------------------------------------
 strengthenSpecWithMeasure sig env actualV qPretended =
-    qPretended{ val = axiomType allowTC qPretended rt}
+    qPretended{ val = addSingletonApp allowTC qPretended rt}
   where
     -- Get the GHC type of the actual and pretended functions
     actualTy = Ghc.varType actualV
@@ -331,7 +331,7 @@ makeAssumeType allowTC tce lmap dm sym mbT v def
                 trep{ty_info = fmap (\i -> i{permitTC = Just allowTC}) ty_info}) .
             toRTypeRep $ Mb.fromMaybe (ofType τ) mbT
     τ     = Ghc.varType v
-    at    = axiomType allowTC sym rt
+    at    = addSingletonApp allowTC sym rt
     out   = rTypeSort tce $ ares at
     xArgs = F.EVar . fst <$> aargs at
     _msg  = unwords [showpp sym, showpp mbT]
@@ -423,8 +423,12 @@ instance Subable Ghc.CoreAlt where
 data AxiomType = AT { aty :: SpecType, aargs :: [(F.Symbol, SpecType)], ares :: SpecType }
 
 -- | Specification for Haskell function
-axiomType :: Bool -> LocSymbol -> SpecType -> AxiomType
-axiomType allowTC s st = AT to (reverse xts) res
+--
+-- @addSingletonApp allowTC f (x:_ -> y: -> {v:_ | p}@ produces a type
+-- @x:_ -> y:_ -> {v:_ | p && v = f x y}@
+--
+addSingletonApp :: Bool -> LocSymbol -> SpecType -> AxiomType
+addSingletonApp allowTC s st = AT to (reverse xts) res
   where
     (to, (_,xts, Just res)) = runState (go st) (1,[], Nothing)
     go (RAllT a t r) = RAllT a <$> go t <*> return r

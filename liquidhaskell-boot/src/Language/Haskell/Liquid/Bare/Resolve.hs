@@ -15,6 +15,7 @@ module Language.Haskell.Liquid.Bare.Resolve
   ( -- * Creating the Environment
     makeEnv
   , makeLocalVars
+  , makeGHCTyLookupEnv
 
     -- * Resolving symbols
   , ResolveSym (..)
@@ -63,6 +64,7 @@ import qualified Control.Exception                 as Ex
 import           Control.Monad (mplus)
 import           Data.Bifunctor (first)
 import           Data.Function (on)
+import           Data.IORef (newIORef)
 import qualified Data.List                         as L
 import qualified Data.HashSet                      as S
 import qualified Data.Maybe                        as Mb
@@ -103,16 +105,10 @@ type Lookup a = Either [Error] a
 -------------------------------------------------------------------------------
 -- | Creating an environment
 -------------------------------------------------------------------------------
-makeEnv :: Config -> Ghc.Session -> Ghc.TcGblEnv -> Ghc.InstEnvs -> LocalVars -> GhcSrc -> LogicMap -> [(ModName, BareSpec)] -> Env
-makeEnv cfg session tcg instEnv localVars src lmap specs = RE
-  { reSession   = session
+makeEnv :: Config -> GHCTyLookupEnv -> Ghc.TcGblEnv -> Ghc.InstEnvs -> LocalVars -> GhcSrc -> LogicMap -> [(ModName, BareSpec)] -> Env
+makeEnv cfg ghcTyLookupEnv tcg instEnv localVars src lmap specs = RE
+  { reTyLookupEnv = ghcTyLookupEnv
   , reTcGblEnv  = tcg
-  , reTypeEnv   =
-      -- Types differ in tcg_type_env vs the core bindings though they seem to
-      -- be alpha-equivalent. We prefer the type in the core bindings and we
-      -- also include the types of local variables.
-      let varsEnv = Ghc.mkTypeEnv $ map Ghc.AnId $ letVars $ _giCbs src
-       in Ghc.tcg_type_env tcg `Ghc.plusTypeEnv` varsEnv
   , reInstEnvs = instEnv
   , reUsedExternals = usedExternals
   , reLMap      = lmap
@@ -180,6 +176,21 @@ localVarMap lvds =
                 x = F.symbol $ Ghc.occNameString $ Ghc.nameOccName $ Ghc.varName v
           ]
       , lvNames = Ghc.mkNameEnvWith (Ghc.getName . lvdVar) lvds
+      }
+
+makeGHCTyLookupEnv :: Ghc.CoreProgram -> Ghc.TcRn GHCTyLookupEnv
+makeGHCTyLookupEnv cbs = do
+    hscEnv <- Ghc.getTopEnv
+    session <- Ghc.Session <$> Ghc.liftIO (newIORef hscEnv)
+    tcg <- Ghc.getGblEnv
+      -- Types differ in tcg_type_env vs the core bindings though they seem to
+      -- be alpha-equivalent. We prefer the type in the core bindings and we
+      -- also include the types of local variables.
+    let varsEnv = Ghc.mkTypeEnv $ map Ghc.AnId $ letVars cbs
+        typeEnv = Ghc.tcg_type_env tcg `Ghc.plusTypeEnv` varsEnv
+    return GHCTyLookupEnv
+      { gtleSession = session
+      , gtleTypeEnv = typeEnv
       }
 
 localKey   :: Ghc.Var -> Maybe F.Symbol
@@ -530,7 +541,7 @@ lookupGhcDnTyConE env (DnCon  lname)
   = Ghc.dataConTyCon <$> lookupGhcDataConLHName env lname
 lookupGhcDnTyConE env (DnName lname)
   = do
-   case lookupTyThing env lname of
+   case lookupTyThing (reTyLookupEnv env) lname of
      Ghc.ATyCon tc -> Right tc
      Ghc.AConLike (Ghc.RealDataCon d) -> Right $ Ghc.dataConTyCon d
      _ -> panic
@@ -538,14 +549,14 @@ lookupGhcDnTyConE env (DnName lname)
 
 lookupGhcDataConLHName :: HasCallStack => Env -> Located LHName -> Lookup Ghc.DataCon
 lookupGhcDataConLHName env lname = do
-   case lookupTyThing env lname of
+   case lookupTyThing (reTyLookupEnv env) lname of
      Ghc.AConLike (Ghc.RealDataCon d) -> Right d
      _ -> panic
            (Just $ GM.fSrcSpan lname) $ "not a data constructor: " ++ show (val lname)
 
 lookupGhcIdLHName :: HasCallStack => Env -> Located LHName -> Lookup Ghc.Id
 lookupGhcIdLHName env lname =
-   case lookupTyThing env lname of
+   case lookupTyThing (reTyLookupEnv env) lname of
      Ghc.AConLike (Ghc.RealDataCon d) -> Right (Ghc.dataConWorkId d)
      Ghc.AnId x -> Right x
      _ -> panic
@@ -916,10 +927,10 @@ ofBRType env name f l = go []
     goSyms (x, t)                 = (x,) <$> ofBSortE env name l t
     goRApp bs tc ts rs r          = bareTCApp <$> goReft bs r <*> lc' <*> mapM (goRef bs) rs <*> mapM (go bs) ts
       where
-        lc'                    = F.atLoc lc <$> lookupGhcTyConLHName env lc
+        lc'                    = F.atLoc lc <$> lookupGhcTyConLHName (reTyLookupEnv env) lc
         lc                     = btc_tc tc
 
-lookupGhcTyConLHName :: HasCallStack => Env -> Located LHName -> Lookup Ghc.TyCon
+lookupGhcTyConLHName :: HasCallStack => GHCTyLookupEnv -> Located LHName -> Lookup Ghc.TyCon
 lookupGhcTyConLHName env lc = do
     case lookupTyThing env lc of
       Ghc.ATyCon tc -> Right tc
@@ -933,7 +944,7 @@ lookupGhcTyConLHName env lc = do
 -- This should be benign because the result doesn't depend of when exactly this is
 -- called. Since this code is intended to be used inside a GHC plugin, there is no
 -- danger that GHC is finalized before the result is evaluated.
-lookupTyThingMaybe :: HasCallStack => Env -> Located LHName -> Maybe Ghc.TyThing
+lookupTyThingMaybe :: HasCallStack => GHCTyLookupEnv -> Located LHName -> Maybe Ghc.TyThing
 lookupTyThingMaybe env lc@(Loc _ _ c0) = unsafePerformIO $ do
     case c0 of
       LHNUnresolved _ _ -> panic (Just $ GM.fSrcSpan lc) $ "unresolved name: " ++ show c0
@@ -942,9 +953,9 @@ lookupTyThingMaybe env lc@(Loc _ _ c0) = unsafePerformIO $ do
         LHRIndex i -> panic (Just $ GM.fSrcSpan lc) $ "cannot resolve a LHRIndex " ++ show i
         LHRLogic (LogicName s _ _) -> panic (Just $ GM.fSrcSpan lc) $ "lookupTyThing: cannot resolve a LHRLogic name " ++ show s
         LHRGHC n ->
-          Ghc.reflectGhc (Interface.lookupTyThing (reTypeEnv env) n) (reSession env)
+          Ghc.reflectGhc (Interface.lookupTyThing (gtleTypeEnv env) n) (gtleSession env)
 
-lookupTyThing :: HasCallStack => Env -> Located LHName -> Ghc.TyThing
+lookupTyThing :: HasCallStack => GHCTyLookupEnv -> Located LHName -> Ghc.TyThing
 lookupTyThing env lc =
     Mb.fromMaybe (panic (Just $ GM.fSrcSpan lc) $ "not found: " ++ show (val lc)) $
       lookupTyThingMaybe env lc

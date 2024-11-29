@@ -76,6 +76,7 @@ library
                       Language.Haskell.Liquid.Liquid
                       Language.Haskell.Liquid.Measure
                       Language.Haskell.Liquid.Misc
+                      Language.Haskell.Liquid.Name.LogicNameEnv
                       Language.Haskell.Liquid.Parse
                       Language.Haskell.Liquid.Termination.Structural
                       Language.Haskell.Liquid.Transforms.ANF

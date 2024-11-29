@@ -54,7 +54,7 @@ module Language.Haskell.Liquid.LHNameResolution
   , LogicNameEnv
   ) where
 
-import           Liquid.GHC.API         as GHC hiding (Expr, panic)
+import qualified Liquid.GHC.API         as GHC hiding (Expr, panic)
 import qualified Language.Haskell.Liquid.GHC.Misc        as LH
 import           Language.Haskell.Liquid.Types.Names
 import           Language.Haskell.Liquid.Types.RType
@@ -79,6 +79,7 @@ import qualified GHC.Types.Name.Occurrence
 import           Language.Fixpoint.Types as F hiding (Error, panic)
 import           Language.Haskell.Liquid.Bare.Resolve (lookupLocalVar)
 import           Language.Haskell.Liquid.Bare.Types (LocalVars(lvNames), LocalVarDetails(lvdLclEnv))
+import           Language.Haskell.Liquid.Name.LogicNameEnv
 import qualified Language.Haskell.Liquid.Types.DataDecl as DataDecl
 import           Language.Haskell.Liquid.Types.Errors (TError(ErrDupNames, ErrResolve), panic)
 import           Language.Haskell.Liquid.Types.Specs as Specs
@@ -95,14 +96,14 @@ import qualified Text.Printf               as Printf
 -- Type alias names cannot be qualified at the moment, and therefore their
 -- names identify them uniquely.
 collectTypeAliases
-  :: Module
+  :: GHC.Module
   -> BareSpecParsed
   -> TargetDependencies
   -> HM.HashMap Symbol (GHC.Module, RTAlias Symbol ())
 collectTypeAliases m spec deps =
     let bsAliases = [ (rtName a, (m, void a)) | a <- map val (aliases spec) ]
         depAliases =
-          [ (rtName a, (unStableModule sm, void a))
+          [ (rtName a, (GHC.unStableModule sm, void a))
           | (sm, lspec) <- HM.toList (getDependencies deps)
           , a <- map val (HS.toList $ liftedAliases lspec)
           ]
@@ -113,10 +114,10 @@ collectTypeAliases m spec deps =
 -- type aliases and GlobalRdrEnv.
 resolveLHNames
   :: Config
-  -> Module
+  -> GHC.Module
   -> LocalVars
   -> GHC.ImportedMods
-  -> GlobalRdrEnv
+  -> GHC.GlobalRdrEnv
   -> LogicMap
   -> BareSpecParsed
   -> TargetDependencies
@@ -180,7 +181,7 @@ resolveLHNames cfg thisModule localVars impMods globalRdrEnv lmap bareSpec0 depe
                 (ErrDupNames
                    (LH.fSrcSpan lname)
                    (pprint s)
-                   (map (PJ.text . showPprUnsafe) es)
+                   (map (PJ.text . GHC.showPprUnsafe) es)
                 )
               pure $ val lname
         [] ->
@@ -234,7 +235,7 @@ addError e = modify (first (e :))
 addName :: LHName -> State RenameOutput ()
 addName n = modify (fmap (n:))
 
-mkLookupGRE :: LHNameSpace -> Symbol -> LookupGRE GHC.GREInfo
+mkLookupGRE :: LHNameSpace -> Symbol -> GHC.LookupGRE GHC.GREInfo
 mkLookupGRE ns s =
     let m = LH.takeModuleNames s
         n = LH.dropModuleNames s
@@ -247,7 +248,7 @@ mkLookupGRE ns s =
             GHC.mkRdrQual (GHC.mkModuleName $ symbolString m) oname
      in GHC.LookupRdrName rdrn (mkWhichGREs ns)
   where
-    mkWhichGREs :: LHNameSpace -> WhichGREs GHC.GREInfo
+    mkWhichGREs :: LHNameSpace -> GHC.WhichGREs GHC.GREInfo
     mkWhichGREs = \case
       LHTcName -> GHC.SameNameSpace
       LHDataConName _ -> GHC.SameNameSpace
@@ -296,7 +297,7 @@ resolveBoundVarsInTypeAliases = updateAliases resolveBoundVars
 -- the parser builds a type for @Ev (plus n n)@.
 --
 fixExpressionArgsOfTypeAliases
-  :: HM.HashMap Symbol (Module, RTAlias Symbol ())
+  :: HM.HashMap Symbol (GHC.Module, RTAlias Symbol ())
   -> BareSpecParsed
   -> BareSpecParsed
 fixExpressionArgsOfTypeAliases taliases =
@@ -370,19 +371,9 @@ lookupInScopeExprEnv env s = do
       Alts closeSyms -> Left closeSyms
       F.Found xs -> do
          let q = LH.takeModuleNames s
-         case filter ((mkFastString (symbolString q) ==) . GHC.moduleNameFS . fst) xs of
+         case filter ((GHC.mkFastString (symbolString q) ==) . GHC.moduleNameFS . fst) xs of
            [] -> Left $ map ((`LH.qualifySymbol` n) . symbol . GHC.moduleNameString . fst) xs
            ys -> Right $ map snd ys
-
--- | For every symbol tells the corresponding LHName
---
--- Symbols are expected to follow a precise syntax
---
--- > <package unique> ## module name ## name
---
--- as created by 'logicNameToSymbol'.
---
-type LogicNameEnv = SEnv LHName
 
 -- | Builds an 'InScopeExprEnv' from the module aliases for the current module,
 -- the spec of the current module, and the specs of the dependencies.
@@ -427,7 +418,7 @@ makeInScopeExprEnv impAvails thisModule spec dependencies =
           ] ++ map (map getLHNameSymbol . snd) logicNames
         logicNames =
           (thisModule, []) :
-          [ (unStableModule sm, collectLiftedSpecLogicNames sp)
+          [ (GHC.unStableModule sm, collectLiftedSpecLogicNames sp)
           | (sm, sp) <- HM.toList $ getDependencies dependencies
           ]
      in
@@ -556,7 +547,7 @@ resolveLogicNames cfg env globalRdrEnv unhandledNames lmap0 localVars sp =
               (ErrDupNames
                  (LH.fSrcSpan s)
                  (pprint $ val s)
-                 (map (PJ.text . showPprUnsafe) es)
+                 (map (PJ.text . GHC.showPprUnsafe) es)
               )
             return $ makeLocalLHName $ val s
 
@@ -583,7 +574,7 @@ resolveLogicNames cfg env globalRdrEnv unhandledNames lmap0 localVars sp =
               (ErrDupNames
                  (LH.fSrcSpan s)
                  (pprint $ val s)
-                 (map (PJ.text . showPprUnsafe) es)
+                 (map (PJ.text . GHC.showPprUnsafe) es)
               )
             return $ makeLocalLHName $ val s
 

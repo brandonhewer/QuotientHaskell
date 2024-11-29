@@ -92,15 +92,15 @@ instance ParseableV LocSymbol where
     where
       notTrivial (x, EVar y) = x /= val y
       notTrivial _           = True
-  vFromString = dummyLoc . symbol
+  vFromString = fmap symbol
 
 initPStateWithList :: LHPState
 initPStateWithList
   = (initPState composeFun)
-               { empList    = Just (EVar (dummyLoc "GHC.Types.[]"))
-               , singList   = Just (\e -> EApp (EApp (EVar (dummyLoc "GHC.Types.:")) e) (EVar (dummyLoc "GHC.Types.[]")))
+               { empList    = Just $ \lx -> EVar ("GHC.Types.[]" <$ lx)
+               , singList   = Just (\lx e -> EApp (EApp (EVar ("GHC.Types.:" <$ lx)) e) (EVar ("GHC.Types.[]" <$ lx)))
                }
-  where composeFun = Just $ EVar $ dummyLoc functionComposisionSymbol
+  where composeFun = Just $ EVar . (functionComposisionSymbol <$)
 
 -------------------------------------------------------------------------------
 singleSpecP :: SourcePos -> String -> Either (ParseErrorBundle String Void) BPspec
