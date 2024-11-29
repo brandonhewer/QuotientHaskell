@@ -16,6 +16,7 @@ module Language.Haskell.Liquid.Bare.Resolve
     makeEnv
   , makeLocalVars
   , makeGHCTyLookupEnv
+  , GHCTyLookupEnv(..)
 
     -- * Resolving symbols
   , ResolveSym (..)
