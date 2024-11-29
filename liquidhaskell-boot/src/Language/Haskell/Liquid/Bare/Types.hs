@@ -5,9 +5,10 @@
 module Language.Haskell.Liquid.Bare.Types 
   ( -- * Name resolution environment 
     Env (..)
+  , GHCTyLookupEnv (..)
   , TyThingMap 
   , ModSpecs
-  , LocalVars 
+  , LocalVars(..)
   , LocalVarDetails (..)
 
     -- * Tycon and Datacon processing environment
@@ -70,14 +71,12 @@ plugSrc _        = Nothing
 -- | Name resolution environment 
 -------------------------------------------------------------------------------
 data Env = RE 
-  { reSession   :: Ghc.Session
+  { reTyLookupEnv :: GHCTyLookupEnv
   , reTcGblEnv  :: Ghc.TcGblEnv
-  , reTypeEnv   :: Ghc.TypeEnv
   , reInstEnvs  :: Ghc.InstEnvs
   , reUsedExternals :: Ghc.NameSet
   , reLMap      :: LogicMap
   , reSyms      :: [(F.Symbol, Ghc.Var)]    -- ^ see "syms" in old makeGhcSpec'
-  , _reSubst    :: F.Subst                  -- ^ see "su"   in old makeGhcSpec'
   , _reTyThings :: TyThingMap
   , reCfg       :: Config
   , reQualImps  :: QImports                 -- ^ qualified imports
@@ -87,16 +86,26 @@ data Env = RE
   , reSrc       :: GhcSrc                   -- ^ all source info
   }
 
+data GHCTyLookupEnv = GHCTyLookupEnv
+       { gtleSession :: Ghc.Session
+       , gtleTypeEnv :: Ghc.TypeEnv
+       }
+
 instance HasConfig Env where 
   getConfig = reCfg 
 
--- | @LocalVars@ is a map from names to lists of pairs of @Ghc.Var@ and 
---   the lines at which they were defined. 
-type LocalVars = M.HashMap F.Symbol [LocalVarDetails]
+data LocalVars = LocalVars
+  { -- | A map from names to lists of pairs of @Ghc.Var@ and
+    --   the lines at which they were defined.
+    lvSymbols :: M.HashMap F.Symbol [LocalVarDetails]
+    -- | A map from names to its details
+  , lvNames :: NameEnv LocalVarDetails
+  }
 
 data LocalVarDetails = LocalVarDetails
   { lvdSourcePos :: F.SourcePos
   , lvdVar :: Ghc.Var
+  , lvdLclEnv :: [Ghc.Var]
   , lvdIsRec :: Bool  -- ^ Is the variable defined in a letrec?
   } deriving Show
 

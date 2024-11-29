@@ -145,7 +145,7 @@ makeClasses env sigEnv myName specs = do
     classTcs = [ (name, cls, tc) | (name, spec) <- M.toList specs
                                  , cls          <- Ms.classes spec
                                  , tc           <- Mb.maybeToList (classTc cls) ]
-    classTc = either (const Nothing) Just . Bare.lookupGhcTyConLHName env . btc_tc . rcName
+    classTc = either (const Nothing) Just . Bare.lookupGhcTyConLHName (reTyLookupEnv env) . btc_tc . rcName
 
 mkClass :: Bare.Env -> Bare.SigEnv -> ModName -> ModName -> RClass LocBareType -> Ghc.TyCon
         -> Bare.Lookup (Maybe (DataConP, [(ModName, Ghc.Var, LocSpecType)]))
@@ -248,7 +248,7 @@ resolveDictionaries env = map $ \ri ->
          Right v -> v
     lookupDFun (RI c _ ts _) = do
        let tys = map (toType False . dropUniv . val) ts
-       case Bare.lookupGhcTyConLHName env (btc_tc c) of
+       case Bare.lookupGhcTyConLHName (reTyLookupEnv env) (btc_tc c) of
          Left _ ->
            panic (Just $ GM.fSrcSpan $ btc_tc c) "cannot find type class"
          Right tc -> case Ghc.tyConClass_maybe tc of
