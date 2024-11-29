@@ -8,7 +8,7 @@
 -- | This module contains the code that DOES reflection; i.e. converts Haskell
 --   definitions into refinements.
 
-module Language.Haskell.Liquid.Bare.Axiom ( makeHaskellAxioms, strengthenSpecWithMeasure, makeAssumeReflectAxioms, wiredReflects, AxiomType(..) ) where
+module Language.Haskell.Liquid.Bare.Axiom ( makeHaskellAxioms, strengthenSpecWithMeasure, makeAssumeReflectAxioms, AxiomType(..) ) where
 
 import Prelude hiding (error)
 import Prelude hiding (mapM)
@@ -62,13 +62,12 @@ findDuplicateBetweenLists key l1 l2 =
       [ (x, y) | x <- l2', Just y <- [Map.lookup (key' x) seen]]
 
 -----------------------------------------------------------------------------------------------
-makeHaskellAxioms :: Config -> GhcSrc -> Bare.Env -> Bare.TycEnv -> ModName -> LogicMap -> GhcSpecSig -> Ms.BareSpec
+makeHaskellAxioms :: GhcSrc -> Bare.Env -> Bare.TycEnv -> ModName -> LogicMap -> GhcSpecSig -> Ms.BareSpec
                   -> Bare.Lookup [(Ghc.Var, LocSpecType, F.Equation)]
 -----------------------------------------------------------------------------------------------
-makeHaskellAxioms cfg src env tycEnv name lmap spSig spec = do
-  wiDefs     <- wiredDefs cfg env name spSig
+makeHaskellAxioms src env tycEnv name lmap spSig spec = do
   let refDefs = getReflectDefs src spSig spec env
-  return (makeAxiom env tycEnv name lmap <$> (wiDefs ++ refDefs))
+  return (makeAxiom env tycEnv name lmap <$> refDefs)
 
 -----------------------------------------------------------------------------------------------
 --          Returns a list of elements, one per assume reflect                               --
@@ -456,56 +455,3 @@ singletonApp :: F.Symbolic a => LocSymbol -> [a] -> UReft F.Reft
 singletonApp s ys = MkUReft r mempty
   where
     r             = F.exprReft (F.mkEApp s (F.eVar <$> ys))
-
-
--------------------------------------------------------------------------------
--- | Hardcode imported reflected functions ------------------------------------
--------------------------------------------------------------------------------
-
-wiredReflects :: Config -> Bare.Env -> ModName -> GhcSpecSig ->
-                 Bare.Lookup [Ghc.Var]
-wiredReflects cfg env name sigs = do
-  vs <- wiredDefs cfg env name sigs
-  return [v | (_, _, v, _) <- vs]
-
-wiredDefs :: Config -> Bare.Env -> ModName -> GhcSpecSig
-          -> Bare.Lookup [(LocSymbol, Maybe SpecType, Ghc.Var, Ghc.CoreExpr)]
-wiredDefs cfg env name spSig
-  | reflection cfg = do
-    let x = F.dummyLoc functionComposisionSymbol
-    v    <- Bare.lookupGhcVar env name "wiredAxioms" x
-    return [ (x, F.val <$> lookup v (gsTySigs spSig), v, makeCompositionExpression v) ]
-  | otherwise =
-    return []
-
--------------------------------------------------------------------------------
--- | Expression Definitions of Prelude Functions ------------------------------
--- | NV: Currently Just Hacking Composition       -----------------------------
--------------------------------------------------------------------------------
-
-
-makeCompositionExpression :: Ghc.Id -> Ghc.CoreExpr
-makeCompositionExpression gid
-  =  go $ Ghc.varType $ F.notracepp ( -- tracing to find  the body of . from the inline spec,
-                                      -- replace F.notrace with F.trace to print
-      "\nv = " ++ GM.showPpr gid ++
-      "\n realIdUnfolding = " ++ GM.showPpr (Ghc.realIdUnfolding gid) ++
-      "\n maybeUnfoldingTemplate . realIdUnfolding = " ++ GM.showPpr (Ghc.maybeUnfoldingTemplate $ Ghc.realIdUnfolding gid ) ++
-      "\n inl_src . inlinePragInfo . Ghc.idInfo = "    ++ GM.showPpr (Ghc.inl_src $ Ghc.inlinePragInfo $ Ghc.idInfo gid) ++
-      "\n inl_inline . inlinePragInfo . Ghc.idInfo = " ++ GM.showPpr (Ghc.inl_inline $ Ghc.inlinePragInfo $ Ghc.idInfo gid) ++
-      "\n inl_sat . inlinePragInfo . Ghc.idInfo = "    ++ GM.showPpr (Ghc.inl_sat $ Ghc.inlinePragInfo $ Ghc.idInfo gid) ++
-      "\n inl_act . inlinePragInfo . Ghc.idInfo = "    ++ GM.showPpr (Ghc.inl_act $ Ghc.inlinePragInfo $ Ghc.idInfo gid) ++
-      "\n inl_rule . inlinePragInfo . Ghc.idInfo = "   ++ GM.showPpr (Ghc.inl_rule $ Ghc.inlinePragInfo $ Ghc.idInfo gid) ++
-      "\n inl_rule rule = " ++ GM.showPpr (Ghc.inl_rule $ Ghc.inlinePragInfo $ Ghc.idInfo gid) ++
-      "\n inline spec = " ++ GM.showPpr (Ghc.inl_inline $ Ghc.inlinePragInfo $ Ghc.idInfo gid)
-     ) gid
-   where
-    go (Ghc.ForAllTy a (Ghc.ForAllTy b (Ghc.ForAllTy c Ghc.FunTy{ Ghc.ft_arg = tf, Ghc.ft_res = Ghc.FunTy { Ghc.ft_arg = tg, Ghc.ft_res = tx}})))
-      = let f = stringVar "f" tf
-            g = stringVar "g" tg
-            x = stringVar "x" tx
-        in Ghc.Lam (Ghc.binderVar a) $
-           Ghc.Lam (Ghc.binderVar b) $
-           Ghc.Lam (Ghc.binderVar c) $
-           Ghc.Lam f $ Ghc.Lam g $ Ghc.Lam x $ Ghc.App (Ghc.Var f) (Ghc.App (Ghc.Var g) (Ghc.Var x))
-    go _ = error "Axioms.go"

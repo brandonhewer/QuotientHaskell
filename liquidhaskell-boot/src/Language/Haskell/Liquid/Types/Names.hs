@@ -5,7 +5,6 @@
 module Language.Haskell.Liquid.Types.Names
   ( lenLocSymbol
   , anyTypeSymbol
-  , functionComposisionSymbol
   , selfSymbol
   , LogicName (..)
   , LHResolvedName (..)
@@ -53,12 +52,6 @@ lenLocSymbol = dummyLoc $ symbol ("autolen" :: String)
 
 anyTypeSymbol :: Symbol
 anyTypeSymbol = symbol ("GHC.Prim.Any" :: String)
-
-
---  defined in include/GHC/Base.hs
-functionComposisionSymbol :: Symbol
-functionComposisionSymbol = symbol ("GHC.Internal.Base.." :: String)
-
 
 selfSymbol :: Symbol
 selfSymbol = symbol ("liquid_internal_this" :: String)

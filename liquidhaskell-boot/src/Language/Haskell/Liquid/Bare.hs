@@ -214,7 +214,7 @@ makeGhcSpec0 cfg ghcTyLookupEnv tcg instEnvs localVars src lmap targetSpec depen
     if allowTC then Bare.makeClassAuxTypes (elaborateSpecType coreToLg simplifier) datacons instMethods
                               >>= elaborateSig sig
                else pure sig
-  let (dg3, refl)    = withDiagnostics $ makeSpecRefl cfg src specs env name elaboratedSig tycEnv
+  let (dg3, refl)    = withDiagnostics $ makeSpecRefl src specs env name elaboratedSig tycEnv
   let eqs            = gsHAxioms refl
   let (dg4, measEnv) = withDiagnostics $ addOpaqueReflMeas cfg tycEnv env mySpec measEnv0 specs eqs
   let qual     = makeSpecQual cfg env tycEnv measEnv rtEnv specs
@@ -609,15 +609,14 @@ getSizeFuns decl
 
 
 ------------------------------------------------------------------------------------------
-makeSpecRefl :: Config -> GhcSrc -> Bare.ModSpecs -> Bare.Env -> ModName -> GhcSpecSig -> Bare.TycEnv
+makeSpecRefl :: GhcSrc -> Bare.ModSpecs -> Bare.Env -> ModName -> GhcSpecSig -> Bare.TycEnv
              -> Bare.Lookup GhcSpecRefl
 ------------------------------------------------------------------------------------------
-makeSpecRefl cfg src specs env name sig tycEnv = do
+makeSpecRefl src specs env name sig tycEnv = do
   autoInst <- makeAutoInst env mySpec
   rwr      <- makeRewrite env mySpec
   rwrWith  <- makeRewriteWith env mySpec
-  wRefls   <- Bare.wiredReflects cfg env name sig
-  xtes     <- Bare.makeHaskellAxioms cfg src env tycEnv name lmap sig mySpec
+  xtes     <- Bare.makeHaskellAxioms src env tycEnv name lmap sig mySpec
   asmReflAxioms <- Bare.makeAssumeReflectAxioms src env tycEnv name sig mySpec
   let otherAxioms = thd3 <$> asmReflAxioms
   let myAxioms =
@@ -645,9 +644,8 @@ makeSpecRefl cfg src specs env name sig tycEnv = do
       , gsAutoInst   = autoInst
       , gsImpAxioms  = impAxioms
       , gsMyAxioms   = myAxioms
-      , gsReflects   = (fst3 <$> xtes) ++ (fst <$> gsAsmReflects sig) ++ wRefls
+      , gsReflects   = (fst3 <$> xtes) ++ (fst <$> gsAsmReflects sig)
       , gsHAxioms    = F.notracepp "gsHAxioms" $ xtes ++ asmReflAxioms
-      , gsWiredReft  = wRefls
       , gsRewrites   = rwr
       , gsRewritesWith = rwrWith
       }
@@ -667,7 +665,7 @@ addReflSigs :: Bare.Env -> ModName -> BareRTEnv -> Bare.MeasEnv -> GhcSpecRefl -
 ------------------------------------------------------------------------------------------
 addReflSigs env name rtEnv measEnv refl sig =
   sig { gsRefSigs = F.notracepp ("gsRefSigs for " ++ F.showpp name) $ map expandReflectedSignature reflSigs
-      , gsAsmSigs = F.notracepp ("gsAsmSigs for " ++ F.showpp name) combinedOpaqueAndReflectedAndWiredAsmSigs
+      , gsAsmSigs = F.notracepp ("gsAsmSigs for " ++ F.showpp name) combinedOpaqueAndReflectedAsmSigs
       }
   where
     -- We make sure that the reflected functions are excluded from `gsAsmSigs`, except for the signatures of
@@ -681,10 +679,9 @@ addReflSigs env name rtEnv measEnv refl sig =
     -- Based on `M.union`'s handling of duplicates, the leftmost elements in the chain of `M.union` will precede over those
     -- after, which is why we put the opaque reflection first in the chain. The signatures for opaque reflections are created
     -- by strengthening the post-conditions, as in (assume-)reflection.
-    combinedOpaqueAndReflectedAndWiredAsmSigs = M.toList $
+    combinedOpaqueAndReflectedAsmSigs = M.toList $
         M.fromList (createUpdatedSpecs . fst <$> Bare.meOpaqueRefl measEnv)
         `M.union` M.fromList (filter notReflected (gsAsmSigs sig))
-        `M.union` M.fromList wreflSigs
     -- Strengthen the post-condition of each of the opaque reflections.
     createUpdatedSpecs var = (var, Bare.aty <$> Bare.strengthenSpecWithMeasure sig env var (Bare.varLocSym var))
     -- See T1738. We need to expand and qualify any reflected signature /here/, after any
@@ -696,15 +693,14 @@ addReflSigs env name rtEnv measEnv refl sig =
     expandReflectedSignature :: (Ghc.Var, LocSpecType) -> (Ghc.Var, LocSpecType)
     expandReflectedSignature = fmap (Bare.qualifyExpand env name rtEnv (F.dummyPos "expand-refSigs") [])
 
-    (wreflSigs, reflSigs)   = L.partition ((`elem` gsWiredReft refl) . fst)
-                                 [ (x, t) | (x, t, _) <- gsHAxioms refl ]
+    reflSigs = [ (x, t) | (x, t, _) <- gsHAxioms refl ]
     -- Get the set of all the actual functions (in assume-reflects)
     actualFnsInAssmRefl     = S.fromList $ fst <$> gsAsmReflects sig
     isActualFn           x  = S.member x actualFnsInAssmRefl
     -- Get all the variables from the axioms that are not actual functions (in assume-reflects)
     notReflActualTySigs     = L.filter (not . isActualFn . fst) reflSigs
     -- Get the list of reflected elements. We do not count actual functions in assume reflect as reflected
-    reflected               = S.fromList $ fst <$> (wreflSigs ++ notReflActualTySigs)
+    reflected               = S.fromList $ fst <$> notReflActualTySigs
     notReflected xt         = fst xt `notElem` reflected
 
 makeAutoInst :: Bare.Env -> Ms.BareSpec ->
@@ -1287,7 +1283,7 @@ makeLiftedSpec name src env refl sData sig qual myRTE lSpec0 = lSpec0
     xbs           = toBare <$> reflTySigs
     sigVars       = S.difference defVars reflVars
     defVars       = S.fromList (_giDefVars src)
-    reflTySigs    = [(x, t) | (x,t,_) <- gsHAxioms refl, x `notElem` gsWiredReft refl]
+    reflTySigs    = [(x, t) | (x,t,_) <- gsHAxioms refl]
     reflVars      = S.fromList (fst <$> reflTySigs)
     -- myAliases fld = M.elems . fld $ myRTE
     srcF          = _giTarget src

@@ -551,9 +551,6 @@ resolveLogicNames cfg env globalRdrEnv unhandledNames lmap0 localVars sp =
               )
             return $ makeLocalLHName $ val s
 
-    resolveVarName _ s
-      | val s == "GHC.Internal.Base.." = Just $ do
-        return $ makeLocalLHName $ val s
     resolveVarName lmap s =
       case GHC.lookupGRE globalRdrEnv (mkLookupGRE (LHVarName LHAnyModuleNameF) (val s)) of
         [e] -> do
