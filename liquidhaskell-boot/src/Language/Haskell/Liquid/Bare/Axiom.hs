@@ -77,17 +77,17 @@ makeHaskellAxioms src env tycEnv name lmap spSig spec = do
 --   ``VV == pretendedFn arg1 arg2 ...`                                                      --
 -- * The assume reflect equation, linking the pretended and actual function:                 --
 --   `actualFn arg1 arg 2 ... = pretendedFn arg1 arg2 ...`                                   --
-makeAssumeReflectAxioms :: GhcSrc -> Bare.Env -> Bare.TycEnv -> ModName -> GhcSpecSig -> Ms.BareSpec
+makeAssumeReflectAxioms :: GhcSrc -> Bare.Env -> Bare.TycEnv -> GhcSpecSig -> Ms.BareSpec
                   -> Bare.Lookup [(Ghc.Var, LocSpecType, F.Equation)]
 -----------------------------------------------------------------------------------------------
-makeAssumeReflectAxioms src env tycEnv name spSig spec = do
+makeAssumeReflectAxioms src env tycEnv spSig spec = do
   -- Send an error message if we're redefining a reflection
   case findDuplicatePair val reflActSymbols <|> findDuplicateBetweenLists val refSymbols reflActSymbols of
     Just (x , y) -> Ex.throw $ mkError y $
                       "Duplicate reflection of " ++ show x ++ " and " ++ show y
     Nothing -> return $ turnIntoAxiom <$> Ms.asmReflectSigs spec
   where
-    turnIntoAxiom (actual, pretended) = makeAssumeReflectAxiom spSig env embs name (actual, pretended)
+    turnIntoAxiom (actual, pretended) = makeAssumeReflectAxiom spSig env embs (actual, pretended)
     refDefs                 = getReflectDefs src spSig spec env
     embs                    = Bare.tcEmbs       tycEnv
     refSymbols              =
@@ -98,11 +98,11 @@ makeAssumeReflectAxioms src env tycEnv name spSig spec = do
 -- Processes one `assume reflect` and returns its axiom element, as detailed in              --
 -- `makeAssumeReflectAxioms`. Can also be used to compute the updated SpecType of            --
 -- a type where we add the post-condition that actual and pretended are the same             --
-makeAssumeReflectAxiom :: GhcSpecSig -> Bare.Env -> F.TCEmb Ghc.TyCon -> ModName
+makeAssumeReflectAxiom :: GhcSpecSig -> Bare.Env -> F.TCEmb Ghc.TyCon
                        -> (Located LHName, Located LHName) -- actual function and pretended function
                        -> (Ghc.Var, LocSpecType, F.Equation)
 -----------------------------------------------------------------------------------------------
-makeAssumeReflectAxiom sig env tce name (actual, pretended) =
+makeAssumeReflectAxiom sig env tce (actual, pretended) =
    -- The actual and pretended function must have the same type
   if pretendedTy == actualTy then
     (actualV, actual{val = aty at}, actualEq)
@@ -121,8 +121,13 @@ makeAssumeReflectAxiom sig env tce name (actual, pretended) =
       Right x -> x
       Left _ -> panic (Just $ GM.fSrcSpan pretended) "function to reflect not in scope"
     -- Get the qualified name symbols for the actual and pretended functions
-    qActual = Bare.qualifyTop env name (F.loc actual) (getLHNameSymbol $ val actual)
-    qPretended = Bare.qualifyTop env name (F.loc pretended) (getLHNameSymbol $ val pretended)
+    lhNameToSymbol lx =
+      F.symbol $
+      Mb.fromMaybe (panic (Just $ GM.fSrcSpan lx) $ "expected a resolved Haskell name: " ++ show lx) $
+      getLHGHCName $
+      val lx
+    qActual = lhNameToSymbol actual
+    qPretended = lhNameToSymbol pretended
     -- Get the GHC type of the actual and pretended functions
     actualTy = Ghc.varType actualV
     pretendedTy = Ghc.varType pretendedV
@@ -144,7 +149,7 @@ strengthenSpecWithMeasure :: GhcSpecSig -> Bare.Env
                        -> Located AxiomType
 -----------------------------------------------------------------------------------------------
 strengthenSpecWithMeasure sig env actualV qPretended =
-    qPretended{ val = addSingletonApp allowTC qPretended rt}
+    qPretended{ val = addSingletonApp allowTC (val qPretended) rt}
   where
     -- Get the GHC type of the actual and pretended functions
     actualTy = Ghc.varType actualV
@@ -323,14 +328,15 @@ makeAssumeType
   -> Ghc.Var -> Ghc.CoreExpr
   -> (LocSpecType, F.Equation)
 makeAssumeType allowTC tce lmap dm sym mbT v def
-  = (sym {val = aty at `strengthenRes` F.subst su ref},  F.mkEquation (val sym) xts (F.subst su le) out)
+  = (sym {val = aty at `strengthenRes` F.subst su ref},  F.mkEquation symbolV xts (F.subst su le) out)
   where
+    symbolV = F.symbol v
     rt    = fromRTypeRep .
             (\trep@RTypeRep{..} ->
                 trep{ty_info = fmap (\i -> i{permitTC = Just allowTC}) ty_info}) .
             toRTypeRep $ Mb.fromMaybe (ofType τ) mbT
     τ     = Ghc.varType v
-    at    = addSingletonApp allowTC sym rt
+    at    = addSingletonApp allowTC symbolV rt
     out   = rTypeSort tce $ ares at
     xArgs = F.EVar . fst <$> aargs at
     _msg  = unwords [showpp sym, showpp mbT]
@@ -426,7 +432,7 @@ data AxiomType = AT { aty :: SpecType, aargs :: [(F.Symbol, SpecType)], ares :: 
 -- @addSingletonApp allowTC f (x:_ -> y: -> {v:_ | p}@ produces a type
 -- @x:_ -> y:_ -> {v:_ | p && v = f x y}@
 --
-addSingletonApp :: Bool -> LocSymbol -> SpecType -> AxiomType
+addSingletonApp :: Bool -> F.Symbol -> SpecType -> AxiomType
 addSingletonApp allowTC s st = AT to (reverse xts) res
   where
     (to, (_,xts, Just res)) = runState (go st) (1,[], Nothing)
@@ -451,7 +457,7 @@ unDummy x i
   | x /= F.dummySymbol = x
   | otherwise          = F.symbol ("lq" ++ show i)
 
-singletonApp :: F.Symbolic a => LocSymbol -> [a] -> UReft F.Reft
+singletonApp :: F.Symbolic a => F.Symbol -> [a] -> UReft F.Reft
 singletonApp s ys = MkUReft r mempty
   where
-    r             = F.exprReft (F.mkEApp s (F.eVar <$> ys))
+    r             = F.exprReft (F.eApps (F.EVar s) (F.eVar <$> ys))

@@ -34,7 +34,7 @@ import qualified Language.Haskell.Liquid.Misc               as Misc -- (nubHashO
 import qualified Language.Haskell.Liquid.GHC.Misc           as GM
 import qualified Liquid.GHC.API            as Ghc
 import           Language.Haskell.Liquid.GHC.Types          (StableName)
-import           Language.Haskell.Liquid.LHNameResolution   (LogicNameEnv, toBareSpecLHName)
+import           Language.Haskell.Liquid.LHNameResolution
 import           Language.Haskell.Liquid.Types.Errors
 import           Language.Haskell.Liquid.Types.DataDecl
 import           Language.Haskell.Liquid.Types.Names
@@ -247,7 +247,10 @@ makeGhcSpec0 cfg ghcTyLookupEnv tcg instEnvs localVars src lmap targetSpec depen
     , _gsTerm   = spcTerm
 
     , _gsLSpec  = finalLiftedSpec
-                { expSigs   = [ (F.symbol v, F.sr_sort $ Bare.varSortedReft embs v) | v <- gsReflects refl ]
+                { expSigs   =
+                    [ (logicNameToSymbol $ reflectGHCName thisModule $ Ghc.getName v, F.sr_sort $ Bare.varSortedReft embs v)
+                    | v <- gsReflects refl
+                    ]
                 , dataDecls = Bare.dataDeclSize mySpec $ dataDecls mySpec
                 , measures  = Ms.measures mySpec
                   -- We want to export measures in a 'LiftedSpec', especially if they are
@@ -272,6 +275,7 @@ makeGhcSpec0 cfg ghcTyLookupEnv tcg instEnvs localVars src lmap targetSpec depen
                 }
     })
   where
+    thisModule = Ghc.tcg_mod tcg
     -- typeclass elaboration
 
     coreToLg ce =
@@ -617,16 +621,15 @@ makeSpecRefl src specs env name sig tycEnv = do
   rwr      <- makeRewrite env mySpec
   rwrWith  <- makeRewriteWith env mySpec
   xtes     <- Bare.makeHaskellAxioms src env tycEnv name lmap sig mySpec
-  asmReflAxioms <- Bare.makeAssumeReflectAxioms src env tycEnv name sig mySpec
+  asmReflAxioms <- Bare.makeAssumeReflectAxioms src env tycEnv sig mySpec
   let otherAxioms = thd3 <$> asmReflAxioms
   let myAxioms =
         [ Bare.qualifyTop
             env
             name
             (F.loc lt)
-            e {eqName = s, eqRec = S.member s (exprSymbolsSet (eqBody e))}
-        | (x, lt, e) <- xtes
-        , let s = symbol x
+            e {eqRec = S.member (eqName e) (exprSymbolsSet (eqBody e))}
+        | (_, lt, e) <- xtes
         ] ++ otherAxioms
   let asmReflEls = eqName <$> otherAxioms
   let impAxioms  = concatMap (filter ((`notElem` asmReflEls) . eqName) . Ms.axeqs . snd) (M.toList specs)
