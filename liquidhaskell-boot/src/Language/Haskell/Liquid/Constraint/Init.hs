@@ -18,6 +18,7 @@ module Language.Haskell.Liquid.Constraint.Init (
 import           Prelude                                       hiding (error, undefined)
 import           Control.Monad (foldM, forM)
 import           Control.Monad.State
+import           Data.Char (isLower)
 import           Data.Maybe                                    (isNothing, fromMaybe, catMaybes, mapMaybe)
 import qualified Data.HashMap.Strict                           as M
 import qualified Data.HashSet                                  as S
@@ -188,7 +189,13 @@ measEnv sp xts cbs _tcb lt1s lt2s asms itys hs info = CGE
   , syenv    = F.fromListSEnv (gsFreeSyms (gsName sp))
   , litEnv   = F.fromListSEnv lts
   , constEnv = F.fromListSEnv lt2s
-  , fenv     = initFEnv $ filterHO (tcb' ++ lts ++ (second (rTypeSort tce . val) <$> gsMeas (gsData sp)))
+  , fenv     =
+      initFEnv $ filterHO $ concat
+        [ tcb'
+        , lts
+        , second (rTypeSort tce . val) <$> gsMeas (gsData sp)
+        , [(F.eqName e, eqToPolySort e) | e <- gsImpAxioms (gsRefl sp)]
+        ]
   , denv     = dmapty val $ gsDicts (gsSig sp)
   , recs     = S.empty
   , invs     = mempty
@@ -215,6 +222,14 @@ measEnv sp xts cbs _tcb lt1s lt2s asms itys hs info = CGE
       lts         = lt1s ++ lt2s
       tcb'        = []
 
+-- | Given an equation whose sorts are @FObj "a"@, @FObj "b"@, etc,
+-- replaces those with @FVar@s.
+eqToPolySort :: F.EquationV v -> F.Sort
+eqToPolySort e  =
+    let s = foldr (F.FFunc . snd) (F.eqSort e) (F.eqArgs e)
+        ss = filter (all isLower . take 1 . F.symbolString) $ S.toList $ F.sortSymbols s
+        su = F.mkSortSubst $ zip ss $ map F.FVar [0..]
+     in F.mkPoly (length ss - 1) $ F.sortSubst su s
 
 assm :: TargetInfo -> [(Var, SpecType)]
 assm = assmGrty (giImpVars . giSrc)
