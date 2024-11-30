@@ -272,6 +272,7 @@ makeGhcSpec0 cfg ghcTyLookupEnv tcg instEnvs localVars src lmap targetSpec depen
                 , reflects = Ms.reflects mySpec0
                 , cmeasures = Ms.cmeasures targetSpec
                 , embeds = Ms.embeds targetSpec
+                , privateReflects = mconcat $ map (privateReflects . snd) mspecs
                 }
     })
   where

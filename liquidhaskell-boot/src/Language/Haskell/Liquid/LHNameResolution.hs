@@ -131,8 +131,8 @@ resolveLHNames cfg thisModule localVars impMods globalRdrEnv lmap bareSpec0 depe
             sp1 <- mapMLocLHNames (\l -> (<$ l) <$> resolveLHName l) $
                      fixExpressionArgsOfTypeAliases taliases bareSpec0
             -- Now we do a second traversal to resolve logic names
-            let (inScopeEnv, logicNameEnv0, unhandledNames) =
-                  makeInScopeNonReflectedEnv impMods thisModule sp1 dependencies
+            let (inScopeEnv, logicNameEnv0, privateReflectNames, unhandledNames) =
+                  makeLogicEnvs impMods thisModule sp1 dependencies
             sp2 <- fromBareSpecLHName <$>
                      resolveLogicNames
                        cfg
@@ -142,6 +142,7 @@ resolveLHNames cfg thisModule localVars impMods globalRdrEnv lmap bareSpec0 depe
                        lmap
                        localVars
                        logicNameEnv0
+                       privateReflectNames
                        sp1
             return (sp2, logicNameEnv0)
         logicNameEnv' = extendLogicNameEnv logicNameEnv ns
@@ -390,22 +391,26 @@ lookupInScopeNonReflectedEnv env s = do
 -- of the dependencies.
 --
 -- Also returns a LogicNameEnv constructed from the same names.
+-- Also returns the names of reflected private functions.
 -- Also returns the set of all names that aren't handled yet by name resolution.
-makeInScopeNonReflectedEnv
+makeLogicEnvs
   :: GHC.ImportedMods
   -> GHC.Module
   -> BareSpecParsed
   -> TargetDependencies
   -> ( InScopeNonReflectedEnv
      , LogicNameEnv
+     , HS.HashSet LocSymbol
      , HS.HashSet Symbol
      )
-makeInScopeNonReflectedEnv impAvails thisModule spec dependencies =
+makeLogicEnvs impAvails thisModule spec dependencies =
     let unqualify s =
           if s == LH.qualifySymbol (symbol $ GHC.moduleName thisModule) (LH.dropModuleNames s) then
             LH.dropModuleNames s
           else
             s
+
+        dependencyPairs = HM.toList $ getDependencies dependencies
         -- Names should be removed from this list as they are supported
         -- by renaming.
         unhandledNames = HS.fromList $
@@ -512,9 +517,10 @@ resolveLogicNames
   -> LogicMap
   -> LocalVars
   -> LogicNameEnv
+  -> HS.HashSet LocSymbol
   -> BareSpecParsed
   -> State RenameOutput BareSpecLHName
-resolveLogicNames cfg env globalRdrEnv unhandledNames lmap0 localVars lnameEnv sp =
+resolveLogicNames cfg env globalRdrEnv unhandledNames lmap0 localVars lnameEnv privateReflectNames sp =
     emapSpecM
       (bscope cfg)
       (map localVarToSymbol . maybe [] lvdLclEnv . (GHC.lookupNameEnv (lvNames localVars) <=< getLHGHCName))
@@ -605,7 +611,10 @@ resolveLogicNames cfg env globalRdrEnv unhandledNames lmap0 localVars lnameEnv s
           refls = mapMaybe (findReflection . GHC.greName) gres
       case refls of
         [lhName] -> Just $ return lhName
-        _ -> case gres of
+        _ | HS.member s privateReflectNames
+          -> Just $ return $ makeLocalLHName (val s)
+          | otherwise
+          -> case gres of
           [e] -> do
             let n = GHC.greName e
             if HM.member (symbol n) (lmSymDefs lmap) then
