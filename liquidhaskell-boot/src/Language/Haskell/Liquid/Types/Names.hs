@@ -60,7 +60,8 @@ selfSymbol = symbol ("liquid_internal_this" :: String)
 -- For instance, this can be used to represent predicate aliases
 -- or uninterpreted functions.
 data LogicName = LogicName
-    { lnSymbol :: !Symbol
+    { -- | Unqualified symbol
+      lnSymbol :: !Symbol
       -- | Module where the entity was defined
     , lnModule :: !GHC.Module
       -- | If the named entity is the reflection of some Haskell name
