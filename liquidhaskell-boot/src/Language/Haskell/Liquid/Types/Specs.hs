@@ -85,7 +85,11 @@ import           Data.HashSet            (HashSet)
 import qualified Data.HashMap.Lazy       as Lazy.M
 import qualified Data.HashMap.Strict     as M
 import           Data.HashMap.Strict     (HashMap)
+import           Data.Maybe
+import           Language.Haskell.Liquid.GHC.Misc (fSrcSpan)
+import           Language.Haskell.Liquid.Name.LogicNameEnv
 import           Language.Haskell.Liquid.Types.DataDecl
+import           Language.Haskell.Liquid.Types.Errors
 import           Language.Haskell.Liquid.Types.Names
 import           Language.Haskell.Liquid.Types.RType
 import           Language.Haskell.Liquid.Types.RTypeOp
@@ -93,7 +97,7 @@ import           Language.Haskell.Liquid.Types.Types
 import           Language.Haskell.Liquid.Types.Variance
 import           Language.Haskell.Liquid.Types.Bounds
 import           Language.Haskell.Liquid.UX.Config
-import           Liquid.GHC.API hiding (Binary, text, (<+>))
+import           Liquid.GHC.API hiding (Binary, text, (<+>), panic)
 import           Language.Haskell.Liquid.GHC.Types
 import           Text.PrettyPrint.HughesPJ              (text, (<+>))
 import           Text.PrettyPrint.HughesPJ as HughesPJ (($$))
@@ -696,7 +700,7 @@ instance Monoid (Spec lname ty) where
 -- Apart from less fields, a 'LiftedSpec' /replaces all instances of lists with sets/, to enforce
 -- duplicate detection and removal on what we serialise on disk.
 data LiftedSpec = LiftedSpec
-  { liftedMeasures   :: HashSet (MeasureV LHName LocBareTypeLHName F.LocSymbol)
+  { liftedMeasures   :: HashMap LHName (MeasureV LHName LocBareTypeLHName F.LocSymbol)
     -- ^ User-defined properties for ADTs
   , liftedExpSigs    :: HashSet (LHName, F.Sort)
     -- ^ Exported logic symbols originated from reflecting functions
@@ -931,9 +935,15 @@ toTargetSpec ghcSpec = TargetSpec
       , gsConfig = _gsConfig ghcSpec
       }
 
-toLiftedSpec :: BareSpecLHName -> LiftedSpec
-toLiftedSpec a = LiftedSpec
-  { liftedMeasures   = S.fromList . measures $ a
+toLiftedSpec :: LogicNameEnv -> BareSpecLHName -> LiftedSpec
+toLiftedSpec lenv a = LiftedSpec
+  { liftedMeasures   =
+      M.fromList
+        [ (n, m)
+        | m <- measures a
+        , let n = fromMaybe (panic (Just $ fSrcSpan (msName m)) "cannot find logic name") $
+                    F.lookupSEnv (val $ msName m) (lneLHName lenv)
+        ]
   , liftedExpSigs    = S.fromList . expSigs  $ a
   , liftedPrivateReflects = privateReflects a
   , liftedAsmSigs    = S.fromList . asmSigs  $ a
@@ -964,7 +974,7 @@ toLiftedSpec a = LiftedSpec
 -- suitable for 'makeGhcSpec'.
 unsafeFromLiftedSpec :: LiftedSpec -> BareSpecLHName
 unsafeFromLiftedSpec a = Spec
-  { measures   = S.toList . liftedMeasures $ a
+  { measures   = M.elems . liftedMeasures $ a
   , expSigs    = S.toList . liftedExpSigs $ a
   , asmSigs    = S.toList . liftedAsmSigs $ a
   , asmReflectSigs = mempty

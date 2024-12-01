@@ -72,8 +72,9 @@ import           Data.Generics (extT)
 
 import qualified Data.HashSet                            as HS
 import qualified Data.HashMap.Strict                     as HM
-import           Data.List (nub)
-import           Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
+import           Data.List (find, isSuffixOf, nub)
+import           Data.List.Extra (dropEnd)
+import           Data.Maybe (fromMaybe, listToMaybe, mapMaybe, maybeToList)
 import qualified Data.Text                               as Text
 import qualified GHC.Types.Name.Occurrence
 
@@ -142,6 +143,7 @@ resolveLHNames cfg thisModule localVars impMods globalRdrEnv lmap bareSpec0 depe
                        localVars
                        logicNameEnv0
                        privateReflectNames
+                       thisModule
                        sp1
             return (sp2, logicNameEnv0)
         logicNameEnv' = extendLogicNameEnv logicNameEnv ns
@@ -382,8 +384,11 @@ lookupInScopeNonReflectedEnv env s = do
       F.Found xs -> do
          let q = LH.takeModuleNames s
          case filter ((GHC.mkFastString (symbolString q) ==) . GHC.moduleNameFS . fst) xs of
-           [] -> Left $ map ((`LH.qualifySymbol` n) . symbol . GHC.moduleNameString . fst) xs
+           [] -> Left $ map (maybeQualifySymbol n . symbol . GHC.moduleNameString . fst) xs
            ys -> Right $ map snd ys
+  where
+    maybeQualifySymbol n m =
+      if m == "" then n else LH.qualifySymbol m n
 
 -- | Builds an environment of non-reflected names in scope from the module
 -- aliases for the current module, the spec of the current module, and the specs
@@ -409,15 +414,12 @@ makeLogicEnvs impAvails thisModule spec dependencies =
           else
             s
 
-        dependencyPairs = HM.toList $ getDependencies dependencies
         -- Names should be removed from this list as they are supported
         -- by renaming.
         unhandledNames = HS.fromList $
           map unqualify unhandledNamesList ++ map (LH.qualifySymbol (symbol $ GHC.moduleName thisModule)) unhandledNamesList
         unhandledNamesList = concat $
-          [ map (getLHNameSymbol . val) $ HS.toList $ hmeas spec
-          , map (val . msName) $ measures spec
-          , map (val . msName) $ cmeasures spec
+          [ map (val . msName) $ cmeasures spec
           , map (rtName . val) $ ealiases spec
           , map fst $
              concatMap (DataDecl.dcpTyArgs . val) wiredDataCons
@@ -428,14 +430,11 @@ makeLogicEnvs impAvails thisModule spec dependencies =
           , map fst wiredSortedSyms
           ] ++ map (map getLHNameSymbol . snd) unhandledLogicNames
         unhandledLogicNames =
-          [ (GHC.unStableModule sm, collectUnhandledLiftedSpecLogicNames sp)
-          | (sm, sp) <- dependencyPairs
-          ]
+          map (fmap collectUnhandledLiftedSpecLogicNames) dependencyPairs
         logicNames =
           (thisModule, thisModuleNames) :
-          [ (GHC.unStableModule sm, collectLiftedSpecLogicNames sp)
-          | (sm, sp) <- dependencyPairs
-          ] ++ unhandledLogicNames
+          map (fmap collectLiftedSpecLogicNames) dependencyPairs
+          ++ unhandledLogicNames
         thisModuleNames =
           [ reflectLHName thisModule (val n)
           | n <- concat
@@ -443,7 +442,10 @@ makeLogicEnvs impAvails thisModule spec dependencies =
               , HS.toList (reflects spec)
               , HS.toList (opaqueReflects spec)
               , HS.toList (inlines spec)
+              , HS.toList (hmeas spec)
               ]
+          ] ++ concat
+          [ [ makeLogicLHName (val (msName m)) thisModule Nothing | m <- measures spec ]
           ]
         privateReflectNames =
           mconcat $
@@ -455,12 +457,14 @@ makeLogicEnvs impAvails thisModule spec dependencies =
         , unhandledNames
         )
   where
+    dependencyPairs = map (first GHC.unStableModule) $ HM.toList $ getDependencies dependencies
+
     mkAliasEnv (m, lhnames) =
       let aliases = moduleAliases m
        in fromListSEnv
             [ (s,  map (,lhname) aliases)
-              -- Note that only non-reflected names go to the InScope environement
-            | lhname@(LHNResolved (LHRLogic (LogicName s _ Nothing))_) <- lhnames
+              -- Note that only non-reflected names go to the InScope environment
+            | lhname@(LHNResolved (LHRLogic (LogicName s _ Nothing)) _) <- lhnames
             ]
 
     unionAliasEnvs :: [InScopeNonReflectedEnv] -> InScopeNonReflectedEnv
@@ -473,7 +477,29 @@ makeLogicEnvs impAvails thisModule spec dependencies =
     moduleAliases m =
       case GHC.lookupModuleEnv impAvails m of
         Just impBys -> concatMap imvAliases $ GHC.importedByUser impBys
-        Nothing -> [GHC.moduleName m, GHC.mkModuleName ""]
+        Nothing
+          | thisModule == m ->
+            -- Aliases for the current module
+            [GHC.moduleName m, GHC.mkModuleName ""]
+          | otherwise ->
+            -- Use the aliases of the unsuffixed module
+            concatMap imvAliases $ GHC.importedByUser $
+              concat $ maybeToList $ do
+                pString <- dropLHAssumptionsSuffix m
+                pMod <- findDependency pString
+                GHC.lookupModuleEnv impAvails pMod
+
+    dropLHAssumptionsSuffix m =
+      let mString = GHC.moduleNameString (GHC.moduleName m)
+          sfx = "_LHAssumptions"
+       in if isSuffixOf sfx mString then
+            Just $ dropEnd (length sfx) mString
+          else
+            Nothing
+
+    findDependency ms =
+      find ((ms ==) . GHC.moduleNameString . GHC.moduleName) $
+      GHC.moduleEnvKeys impAvails
 
     imvAliases imv
       | GHC.imv_qualified imv = [GHC.imv_name imv]
@@ -489,7 +515,6 @@ collectUnhandledLiftedSpecLogicNames :: LiftedSpec -> [LHName]
 collectUnhandledLiftedSpecLogicNames sp =
     concat
       [ map (makeLocalLHName . LH.dropModuleNames . val . msName) $ HS.toList $ liftedCmeasures sp
-      , map (makeLocalLHName . LH.dropModuleNames . val . msName) $ HS.toList $ liftedMeasures sp
       , map (makeLocalLHName . LH.dropModuleNames . rtName . val) $ HS.toList $ liftedEaliases sp
       , map (makeLocalLHName . LH.dropModuleNames . fst) $
         concatMap DataDecl.dcFields $ concat $
@@ -499,7 +524,10 @@ collectUnhandledLiftedSpecLogicNames sp =
 
 collectLiftedSpecLogicNames :: LiftedSpec -> [LHName]
 collectLiftedSpecLogicNames sp =
-    map fst $ HS.toList $ liftedExpSigs sp
+    concat
+      [ map fst $ HS.toList $ liftedExpSigs sp
+      , map fst $ HM.toList $ liftedMeasures sp
+      ]
 
 -- | Resolves names in the logic namespace
 --
@@ -515,17 +543,29 @@ resolveLogicNames
   -> LocalVars
   -> LogicNameEnv
   -> HS.HashSet LocSymbol
+  -> GHC.Module
   -> BareSpecParsed
   -> State RenameOutput BareSpecLHName
-resolveLogicNames cfg env globalRdrEnv unhandledNames lmap0 localVars lnameEnv privateReflectNames sp =
+resolveLogicNames cfg env globalRdrEnv unhandledNames lmap0 localVars lnameEnv privateReflectNames thisModule sp =
     emapSpecM
       (bscope cfg)
       (map localVarToSymbol . maybe [] lvdLclEnv . (GHC.lookupNameEnv (lvNames localVars) <=< getLHGHCName))
       resolveLogicName
       (emapBareTypeVM (bscope cfg) resolveLogicName)
-      sp
+      sp { measures = map qualifyMeasureName (measures sp)
+         }
   where
     localVarToSymbol = F.symbol . GHC.occNameString . GHC.nameOccName . GHC.varName
+
+    qualifyName = LH.qualifySymbol (symbol $ GHC.moduleNameString $ GHC.moduleName thisModule)
+
+    qualifyMeasureName m =
+      m { msName = qualifyName <$> msName m
+        , msEqns = qualifyDefName <$> msEqns m
+        }
+
+    qualifyDefName d =
+      d { measure = qualifyName <$> measure d }
 
     resolveLogicName :: [Symbol] -> LocSymbol -> State RenameOutput LHName
     resolveLogicName ss ls
@@ -620,9 +660,6 @@ resolveLogicNames cfg env globalRdrEnv unhandledNames lmap0 localVars lnameEnv p
                 addName lhName
                 -- return lhName
                 return $ makeLocalLHName $ val s
-            -- TODO: Remove this case when qualified names are handled
-            else if LH.takeModuleNames (val s) /= "" then
-              Just $ return $ makeLocalLHName $ val s
             else
               Nothing
           [] ->

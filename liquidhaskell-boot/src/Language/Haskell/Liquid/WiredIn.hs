@@ -41,8 +41,10 @@ import Language.Haskell.Liquid.Types.PredType
 import Language.Haskell.Liquid.Types.Names (selfSymbol)
 
 -- import Language.Fixpoint.Types hiding (panic)
+import qualified Language.Fixpoint.Smt.Theories as F
 import qualified Language.Fixpoint.Types as F
 import qualified Data.HashSet as S
+import           Data.Maybe
 
 import Language.Haskell.Liquid.GHC.TypeRep ()
 
@@ -77,8 +79,41 @@ dcPrefix :: F.Symbol
 dcPrefix = "lqdc"
 
 wiredSortedSyms :: [(F.Symbol, F.Sort)]
-wiredSortedSyms = (selfSymbol,selfSort):[(pappSym n, pappSort n) | n <- [1..pappArity]]
-  where selfSort = F.FAbs 1 (F.FVar 0)
+wiredSortedSyms =
+    (selfSymbol,selfSort) :
+    [(pappSym n, pappSort n) | n <- [1..pappArity]] ++
+    wiredTheorySortedSyms
+  where
+    selfSort = F.FAbs 1 (F.FVar 0)
+
+wiredTheorySortedSyms :: [(F.Symbol, F.Sort)]
+wiredTheorySortedSyms =
+    [ (s, srt)
+    | s <- wiredTheorySyms
+    , let srt = F.tsSort $
+                  fromMaybe (panic Nothing ("unknown symbol: " ++ show s)) $
+                    F.lookupSEnv s (F.theorySymbols [])
+    ]
+  where
+    wiredTheorySyms =
+      [ "Bag_count"
+      , "Bag_empty"
+      , "Bag_inter_min"
+      , "Bag_sng"
+      , "Bag_sub"
+      , "Bag_union"
+      , "Bag_union_max"
+
+      , "Set_cup"
+      , "Set_cap"
+      , "Set_dif"
+      , "Set_sng"
+      , "Set_emp"
+      , "Set_empty"
+      , "Set_mem"
+      , "Set_sub"
+      ]
+
 --------------------------------------------------------------------------------
 -- | LH Primitive TyCons -------------------------------------------------------
 --------------------------------------------------------------------------------

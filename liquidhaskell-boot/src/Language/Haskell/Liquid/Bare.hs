@@ -129,7 +129,7 @@ makeTargetSpec cfg localVars lnameEnv lmap targetSrc bareSpec dependencies = do
           exportedAssumption _ = True
       return lspec { liftedAsmSigs = S.filter (exportedAssumption . val . fst) (liftedAsmSigs lspec) }
 
-    ghcSpecToLiftedSpec = toLiftedSpec . toBareSpecLHName cfg lnameEnv . _gsLSpec
+    ghcSpecToLiftedSpec = toLiftedSpec lnameEnv . toBareSpecLHName cfg lnameEnv . _gsLSpec
 
 
 -------------------------------------------------------------------------------------
