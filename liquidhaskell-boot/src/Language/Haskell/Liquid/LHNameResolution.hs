@@ -417,7 +417,6 @@ makeLogicEnvs impAvails thisModule spec dependencies =
           map unqualify unhandledNamesList ++ map (LH.qualifySymbol (symbol $ GHC.moduleName thisModule)) unhandledNamesList
         unhandledNamesList = concat $
           [ map (getLHNameSymbol . val) $ HS.toList $ hmeas spec
-          , map (getLHNameSymbol . val) $ HS.toList $ inlines spec
           , map (val . msName) $ measures spec
           , map (val . msName) $ cmeasures spec
           , map (rtName . val) $ ealiases spec
@@ -444,6 +443,7 @@ makeLogicEnvs impAvails thisModule spec dependencies =
               [ map fst (asmReflectSigs spec)
               , HS.toList (reflects spec)
               , HS.toList (opaqueReflects spec)
+              , HS.toList (inlines spec)
               ]
           ]
         privateReflectNames =
