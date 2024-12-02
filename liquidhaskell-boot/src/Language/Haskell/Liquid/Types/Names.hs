@@ -25,15 +25,14 @@ module Language.Haskell.Liquid.Types.Names
   , makeUnresolvedLHName
   , mapLHNames
   , mapMLocLHNames
+  , maybeReflectedLHName
+  , reflectGHCName
+  , reflectLHName
   , updateLHNameSymbol
   ) where
 
 import Control.DeepSeq
-import qualified Data.Base64.Types                       as Base64
 import qualified Data.Binary as B
-import qualified Data.ByteString.Lazy                    as ByteString
-import qualified Data.ByteString.Base64                  as Base64
-import qualified Data.ByteString.Builder                 as Builder
 import Data.Data (Data, gmapM, gmapT)
 import Data.Generics (extM, extT)
 import Data.Hashable
@@ -61,7 +60,8 @@ selfSymbol = symbol ("liquid_internal_this" :: String)
 -- For instance, this can be used to represent predicate aliases
 -- or uninterpreted functions.
 data LogicName = LogicName
-    { lnSymbol :: !Symbol
+    { -- | Unqualified symbol
+      lnSymbol :: !Symbol
       -- | Module where the entity was defined
     , lnModule :: !GHC.Module
       -- | If the named entity is the reflection of some Haskell name
@@ -253,9 +253,20 @@ updateLHNameSymbol :: (Symbol -> Symbol) -> LHName -> LHName
 updateLHNameSymbol f (LHNResolved n s) = LHNResolved n (f s)
 updateLHNameSymbol f (LHNUnresolved n s) = LHNUnresolved n (f s)
 
+-- | Converts logic names to symbols.
+--
+-- One important postcondition of this function is that the symbol for reflected
+-- names must match exactly the symbol for the corresponding Haskell function.
+-- Otherwise, LH would fail to link the two at various places where it is needed.
 logicNameToSymbol :: LHName -> Symbol
-logicNameToSymbol (LHNResolved (LHRLogic (LogicName s m _)) _) =
-    let msymbol = Text.pack $ GHC.moduleNameString $ GHC.moduleName m
+logicNameToSymbol (LHNResolved (LHRLogic (LogicName s om mReflectionOf)) _) =
+    let m = maybe om GHC.nameModule mReflectionOf
+        msymbol = Text.pack $ GHC.moduleNameString $ GHC.moduleName m
+     in symbol $ mconcat [msymbol, ".", symbolText s]
+        {-
+        TODO: Adding a prefix for the unit would allow LH to deal with
+              -XPackageImports. This prefix should be added here and in
+              the Symbolic instance of Name.
         munique =
           Text.dropEnd 2 $ -- Remove padding of two characters "=="
           Base64.extractBase64 $
@@ -268,6 +279,28 @@ logicNameToSymbol (LHNResolved (LHRLogic (LogicName s m _)) _) =
           GHC.unitIdString $
           GHC.moduleUnitId m
      in symbol $ mconcat ["u", munique, "##", msymbol, ".", symbolText s]
+          -}
 logicNameToSymbol (LHNResolved (LHRLocal s) _) = s
 logicNameToSymbol n = error $ "logicNameToSymbol: unexpected name: " ++ show n
 
+-- | Creates a name in the logic namespace for the given Haskell name.
+reflectLHName :: HasCallStack => GHC.Module -> LHName -> LHName
+reflectLHName thisModule (LHNResolved (LHRGHC n) _) = reflectGHCName thisModule n
+reflectLHName _ n = error $ "not a GHC Name: " ++ show n
+
+-- | Creates a name in the logic namespace for the given Haskell name.
+reflectGHCName :: GHC.Module -> GHC.Name -> LHName
+reflectGHCName thisModule n =
+    LHNResolved
+      (LHRLogic
+        (LogicName
+          (symbol (GHC.occNameString $ GHC.nameOccName n))
+          thisModule
+          (Just n)
+        )
+      )
+      (symbol n)
+
+maybeReflectedLHName :: LHName -> Maybe GHC.Name
+maybeReflectedLHName (LHNResolved (LHRLogic (LogicName _ _ m)) _) = m
+maybeReflectedLHName _ = Nothing

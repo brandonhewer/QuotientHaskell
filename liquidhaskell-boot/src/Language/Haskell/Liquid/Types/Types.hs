@@ -275,9 +275,9 @@ toLogicMap ls = mempty {lmSymDefs = M.fromList $ map toLMap ls}
   where
     toLMap (x, ys, e) = (F.val x, LMap {lmVar = x, lmArgs = ys, lmExpr = e})
 
-eAppWithMap :: LogicMap -> F.Located Symbol -> [Expr] -> Expr -> Expr
+eAppWithMap :: LogicMap -> Symbol -> [Expr] -> Expr -> Expr
 eAppWithMap lmap f es expr
-  | Just (LMap _ xs e) <- M.lookup (F.val f) (lmSymDefs lmap)
+  | Just (LMap _ xs e) <- M.lookup f (lmSymDefs lmap)
   , length xs == length es
   = F.subst (F.mkSubst $ zip xs es) e
   | otherwise

@@ -700,6 +700,8 @@ data LiftedSpec = LiftedSpec
     -- ^ User-defined properties for ADTs
   , liftedExpSigs    :: HashSet (LHName, F.Sort)
     -- ^ Exported logic symbols originated from reflecting functions
+  , liftedPrivateReflects :: HashSet F.LocSymbol
+    -- ^ Private functions that have been reflected
   , liftedAsmSigs    :: HashSet (F.Located LHName, LocBareTypeLHName)
     -- ^ Assumed (unchecked) types; including reflected signatures
   , liftedSigs       :: HashSet (F.Located LHName, LocBareTypeLHName)
@@ -769,6 +771,7 @@ emptyLiftedSpec :: LiftedSpec
 emptyLiftedSpec = LiftedSpec
   { liftedMeasures = mempty
   , liftedExpSigs  = mempty
+  , liftedPrivateReflects = mempty
   , liftedAsmSigs  = mempty
   , liftedSigs     = mempty
   , liftedInvariants = mempty
@@ -932,6 +935,7 @@ toLiftedSpec :: BareSpecLHName -> LiftedSpec
 toLiftedSpec a = LiftedSpec
   { liftedMeasures   = S.fromList . measures $ a
   , liftedExpSigs    = S.fromList . expSigs  $ a
+  , liftedPrivateReflects = privateReflects a
   , liftedAsmSigs    = S.fromList . asmSigs  $ a
   , liftedSigs       = S.fromList . sigs     $ a
   , liftedInvariants = S.fromList . invariants $ a
@@ -981,7 +985,7 @@ unsafeFromLiftedSpec a = Spec
   , rewrites   = mempty
   , rewriteWith = mempty
   , reflects   = mempty
-  , privateReflects = mempty
+  , privateReflects = liftedPrivateReflects a
   , opaqueReflects   = mempty
   , autois     = liftedAutois a
   , hmeas      = mempty

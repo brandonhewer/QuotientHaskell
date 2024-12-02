@@ -126,7 +126,6 @@ library
                     , Diff                 >= 0.3 && < 0.6
                     , array
                     , aeson
-                    , base64
                     , binary
                     , bytestring           >= 0.10
                     , Cabal
