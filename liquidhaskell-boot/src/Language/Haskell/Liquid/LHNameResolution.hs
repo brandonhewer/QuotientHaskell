@@ -45,7 +45,6 @@
 {-# LANGUAGE LambdaCase                 #-}
 {-# LANGUAGE TupleSections              #-}
 {-# LANGUAGE TypeApplications           #-}
-{-# LANGUAGE ViewPatterns               #-}
 
 module Language.Haskell.Liquid.LHNameResolution
   ( resolveLHNames
@@ -500,9 +499,7 @@ collectUnhandledLiftedSpecLogicNames sp =
 
 collectLiftedSpecLogicNames :: LiftedSpec -> [LHName]
 collectLiftedSpecLogicNames sp =
-    concat
-      [ map fst $ HS.toList $ liftedExpSigs sp
-      ]
+    map fst $ HS.toList $ liftedExpSigs sp
 
 -- | Resolves names in the logic namespace
 --
