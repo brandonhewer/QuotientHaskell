@@ -222,14 +222,16 @@ measEnv sp xts cbs _tcb lt1s lt2s asms itys hs info = CGE
       lts         = lt1s ++ lt2s
       tcb'        = []
 
--- | Given an equation whose sorts are @FObj "a"@, @FObj "b"@, etc,
+-- | Given an equation whose sorts are @FObj "a##..."@, @FObj "b##..."@, etc,
 -- replaces those with @FVar@s.
 eqToPolySort :: F.EquationV v -> F.Sort
 eqToPolySort e  =
     let s = foldr (F.FFunc . snd) (F.eqSort e) (F.eqArgs e)
-        ss = filter (all isLower . take 1 . F.symbolString) $ S.toList $ F.sortSymbols s
+        ss = filter (isTyVarName . F.symbolString) $ S.toList $ F.sortSymbols s
         su = F.mkSortSubst $ zip ss $ map F.FVar [0..]
      in F.mkPoly (length ss - 1) $ F.sortSubst su s
+  where
+    isTyVarName s = all isLower (take 1 s) && L.isInfixOf "##" s
 
 assm :: TargetInfo -> [(Var, SpecType)]
 assm = assmGrty (giImpVars . giSrc)
