@@ -252,7 +252,7 @@ makeGhcSpec0 cfg ghcTyLookupEnv tcg instEnvs localVars src lmap targetSpec depen
                     | v <- gsReflects refl
                     ]
                 , dataDecls = Bare.dataDeclSize mySpec $ dataDecls mySpec
-                , measures  = Ms.measures mySpec
+                , measures  = mconcat $ map Ms.measures $ mySpec : map snd dependencySpecs
                   -- We want to export measures in a 'LiftedSpec', especially if they are
                   -- required to check termination of some 'liftedSigs' we export. Due to the fact
                   -- that 'lSpec1' doesn't contain the measures that we compute via 'makeHaskellMeasures',
