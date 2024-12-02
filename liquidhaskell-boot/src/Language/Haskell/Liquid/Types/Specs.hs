@@ -331,7 +331,6 @@ data GhcSpecRefl = SpRefl
   , gsMyAxioms     :: ![F.Equation]                     -- ^ Axioms from my reflected functions
   , gsReflects     :: ![Var]                            -- ^ Binders for reflected functions
   , gsLogicMap     :: !LogicMap
-  , gsWiredReft    :: ![Var]
   , gsRewrites     :: S.HashSet (F.Located Var)
   , gsRewritesWith :: M.HashMap Var [Var]
   }
@@ -345,7 +344,6 @@ instance Semigroup GhcSpecRefl where
     , gsMyAxioms = gsMyAxioms x <> gsMyAxioms y
     , gsReflects = gsReflects x <> gsReflects y
     , gsLogicMap = gsLogicMap x <> gsLogicMap y
-    , gsWiredReft = gsWiredReft x <> gsWiredReft y
     , gsRewrites = gsRewrites x <> gsRewrites y
     , gsRewritesWith = gsRewritesWith x <> gsRewritesWith y
     }
@@ -353,7 +351,7 @@ instance Semigroup GhcSpecRefl where
 instance Monoid GhcSpecRefl where
   mempty = SpRefl mempty mempty mempty
                   mempty mempty mempty
-                  mempty mempty mempty
+                  mempty mempty
 
 type VarOrLocSymbol = Either Var LocSymbol
 type BareMeasure   = Measure LocBareType F.LocSymbol
@@ -702,6 +700,8 @@ data LiftedSpec = LiftedSpec
     -- ^ User-defined properties for ADTs
   , liftedExpSigs    :: HashSet (LHName, F.Sort)
     -- ^ Exported logic symbols originated from reflecting functions
+  , liftedPrivateReflects :: HashSet F.LocSymbol
+    -- ^ Private functions that have been reflected
   , liftedAsmSigs    :: HashSet (F.Located LHName, LocBareTypeLHName)
     -- ^ Assumed (unchecked) types; including reflected signatures
   , liftedSigs       :: HashSet (F.Located LHName, LocBareTypeLHName)
@@ -771,6 +771,7 @@ emptyLiftedSpec :: LiftedSpec
 emptyLiftedSpec = LiftedSpec
   { liftedMeasures = mempty
   , liftedExpSigs  = mempty
+  , liftedPrivateReflects = mempty
   , liftedAsmSigs  = mempty
   , liftedSigs     = mempty
   , liftedInvariants = mempty
@@ -934,6 +935,7 @@ toLiftedSpec :: BareSpecLHName -> LiftedSpec
 toLiftedSpec a = LiftedSpec
   { liftedMeasures   = S.fromList . measures $ a
   , liftedExpSigs    = S.fromList . expSigs  $ a
+  , liftedPrivateReflects = privateReflects a
   , liftedAsmSigs    = S.fromList . asmSigs  $ a
   , liftedSigs       = S.fromList . sigs     $ a
   , liftedInvariants = S.fromList . invariants $ a
@@ -983,7 +985,7 @@ unsafeFromLiftedSpec a = Spec
   , rewrites   = mempty
   , rewriteWith = mempty
   , reflects   = mempty
-  , privateReflects = mempty
+  , privateReflects = liftedPrivateReflects a
   , opaqueReflects   = mempty
   , autois     = liftedAutois a
   , hmeas      = mempty

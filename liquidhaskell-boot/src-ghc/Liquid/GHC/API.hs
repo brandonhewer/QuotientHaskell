@@ -645,6 +645,7 @@ import GHC.Types.Name                 as Ghc
 import GHC.Types.Name.Env             as Ghc
     ( NameEnv
     , lookupNameEnv
+    , mkNameEnv
     , mkNameEnvWith
     )
 import GHC.Types.Name.Set             as Ghc

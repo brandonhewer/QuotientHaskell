@@ -449,14 +449,13 @@ makeApp _ _ f [e1, e2]
   , Just op <- M.lookup (mappendSym (symbol ("GHC.Internal.Num." :: String)) sym) bops
   = EBin op e1 e2
 
-makeApp def lmap f es
-  = eAppWithMap lmap f es def
+makeApp def lmap f es =
+    eAppWithMap lmap (val f) es def
   -- where msg = "makeApp f = " ++ show f ++ " es = " ++ show es ++ " def = " ++ show def
 
 eVarWithMap :: Id -> LogicMap -> Expr
 eVarWithMap x lmap = do
-  let f' = dummyLoc $ symbol x
-   in eAppWithMap lmap f' [] (EVar $ symbol x)
+    eAppWithMap lmap (symbol x) [] (EVar $ symbol x)
 
 brels :: M.HashMap Symbol Brel
 brels = M.fromList [ (symbol ("GHC.Classes.==" :: String), Eq)

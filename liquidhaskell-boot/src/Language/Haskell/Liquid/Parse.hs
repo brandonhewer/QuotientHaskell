@@ -100,7 +100,7 @@ initPStateWithList
                { empList    = Just $ \lx -> EVar ("GHC.Types.[]" <$ lx)
                , singList   = Just (\lx e -> EApp (EApp (EVar ("GHC.Types.:" <$ lx)) e) (EVar ("GHC.Types.[]" <$ lx)))
                }
-  where composeFun = Just $ EVar . (functionComposisionSymbol <$)
+  where composeFun = Nothing
 
 -------------------------------------------------------------------------------
 singleSpecP :: SourcePos -> String -> Either (ParseErrorBundle String Void) BPspec

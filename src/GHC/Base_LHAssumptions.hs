@@ -8,6 +8,13 @@ import GHC.Exts_LHAssumptions()
 import GHC.Types_LHAssumptions()
 import Data.Tuple_LHAssumptions()
 
+{-@ LIQUID "--higherorder" @-}
+{-@ reflect comp @-}
+{-@ assume reflect . as comp @-}
+comp :: (b -> c) -> (a -> b) -> a -> c
+comp f g x = f (g x)
+
+
 {-@
 
 assume . :: forall <p :: b -> c -> Bool, q :: a -> b -> Bool, r :: a -> c -> Bool>.

@@ -73,7 +73,7 @@ import           Language.Haskell.Liquid.Types.Specs
 import           Language.Haskell.Liquid.Types.Types
 import           Language.Haskell.Liquid.Types.Visitors
 import           Language.Haskell.Liquid.Bare
-import           Language.Haskell.Liquid.Bare.Resolve (makeLocalVars)
+import qualified Language.Haskell.Liquid.Bare.Resolve as Resolve
 import           Language.Haskell.Liquid.UX.CmdLine
 import           Language.Haskell.Liquid.UX.Config
 
@@ -544,7 +544,7 @@ processModule LiquidHaskellContext{..} = do
     -- call 'evaluate' to force any exception and catch it, if we can.
 
     tcg <- getGblEnv
-    let localVars = makeLocalVars preNormalizedCore
+    let localVars = Resolve.makeLocalVars preNormalizedCore
         eBareSpec = resolveLHNames
           moduleCfg
           thisModule
