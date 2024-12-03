@@ -369,12 +369,13 @@ exprArg l msg = notracepp ("exprArg: " ++ msg) . go
 --
 -- For each symbol we have the aliases with which it is imported and the
 -- name corresponding to each alias.
-type InScopeNonReflectedEnv = SEnv [(GHC.ModuleName, LHName)]
+type InScopeNonReflectedEnv = SEnv [(GHC.ModuleName, (GHC.Module, LHName))]
 
 -- | Looks the names in scope with the given symbol.
 -- Returns a list of close but different symbols or a non empty list
 -- with the matched names.
-lookupInScopeNonReflectedEnv :: InScopeNonReflectedEnv -> Symbol -> Either [Symbol] [LHName]
+lookupInScopeNonReflectedEnv
+  :: InScopeNonReflectedEnv -> Symbol -> Either [Symbol] [(GHC.Module, LHName)]
 lookupInScopeNonReflectedEnv env s = do
     let n = LH.dropModuleNames s
     case lookupSEnvWithDistance n env of
@@ -459,8 +460,9 @@ makeLogicEnvs impAvails thisModule spec dependencies =
     mkAliasEnv (m, lhnames) =
       let aliases = moduleAliases m
        in fromListSEnv
-            [ (s,  map (,lhname) aliases)
-              -- Note that only non-reflected names go to the InScope environment
+            [ (s, map (,(m, lhname)) aliases)
+              -- Note that only non-reflected names go to the InScope environment.
+              -- See the local function resolveVarName for more details.
             | lhname@(LHNResolved (LHRLogic (LogicName s _ Nothing)) _) <- lhnames
             ]
 
