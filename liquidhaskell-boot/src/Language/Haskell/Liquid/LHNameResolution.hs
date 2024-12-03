@@ -442,9 +442,8 @@ makeLogicEnvs impAvails thisModule spec dependencies =
               , HS.toList (inlines spec)
               , HS.toList (hmeas spec)
               ]
-          ] ++ concat
-          [ [ makeLogicLHName (val (msName m)) thisModule Nothing | m <- measures spec ]
-          ]
+          ] ++
+          [ makeLogicLHName (val (msName m)) thisModule Nothing | m <- measures spec ]
         privateReflectNames =
           mconcat $
             privateReflects spec : map (liftedPrivateReflects . snd) dependencyPairs
@@ -522,10 +521,8 @@ collectUnhandledLiftedSpecLogicNames sp =
 
 collectLiftedSpecLogicNames :: LiftedSpec -> [LHName]
 collectLiftedSpecLogicNames sp =
-    concat
-      [ map fst $ HS.toList $ liftedExpSigs sp
-      , map fst $ HM.toList $ liftedMeasures sp
-      ]
+    map fst (HS.toList $ liftedExpSigs sp) ++
+    map fst (HM.toList $ liftedMeasures sp)
 
 -- | Resolves names in the logic namespace
 --
