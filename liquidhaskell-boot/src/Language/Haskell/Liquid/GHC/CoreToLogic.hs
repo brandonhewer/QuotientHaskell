@@ -20,7 +20,7 @@ coreToLogic = unlines
   , "define Data.Set.Internal.null x           = (Set_emp x)"
   , "define Data.Set.Internal.member x xs      = (Set_mem x xs)"
   , "define Data.Set.Internal.isSubsetOf x y   = (Set_sub x y)"
-  , "define Data.Set.Internal.fromList xs      = (listElts xs)"
+  , "define Data.Set.Internal.fromList xs      = (Data.Set_LHAssumptions.listElts xs)"
   , ""
   , "define GHC.Internal.Real.fromIntegral x = (x)"
   , ""

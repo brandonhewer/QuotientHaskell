@@ -1032,12 +1032,12 @@ makeInvariants env sigEnv (name, spec) =
     , let ts = Bare.cookSpecType env sigEnv name Bare.GenTV <$> bts
   ]
 
-makeSizeInv :: F.LocSymbol -> Located SpecType -> Located SpecType
+makeSizeInv :: F.Symbol -> Located SpecType -> Located SpecType
 makeSizeInv s lst = lst{val = go (val lst)}
   where go (RApp c ts rs r) = RApp c ts rs (r `meet` nat)
         go (RAllT a t r)    = RAllT a (go t) r
         go t = t
-        nat  = MkUReft (Reft (vv_, PAtom Le (ECon $ I 0) (EApp (EVar $ val s) (eVar vv_))))
+        nat  = MkUReft (Reft (vv_, PAtom Le (ECon $ I 0) (EApp (EVar s) (eVar vv_))))
                        mempty
 
 makeMeasureInvariants :: Bare.Env -> ModName -> GhcSpecSig -> Ms.BareSpec

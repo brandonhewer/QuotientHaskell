@@ -422,7 +422,7 @@ data Spec lname ty = Spec
   , termexprs  :: ![(F.Located LHName, [F.Located (F.ExprV lname)])]  -- ^ Terminating Conditions for functions
   , rinstance  :: ![RInstance (F.Located ty)]
   , dvariance  :: ![(F.Located LHName, [Variance])]                   -- ^ TODO ? Where do these come from ?!
-  , dsize      :: ![([F.Located ty], F.LocSymbol)]                    -- ^ Size measure to enforce fancy termination
+  , dsize      :: ![([F.Located ty], lname)]                          -- ^ Size measure to enforce fancy termination
   , bounds     :: !(RRBEnvV lname (F.Located ty))
   , axeqs      :: ![F.EquationV lname]                                -- ^ Equalities used for Proof-By-Evaluation
   } deriving (Data, Generic)
@@ -485,7 +485,7 @@ emapSpecM bscp lenv vf f sp = do
         )
         (termexprs sp)
     rinstance <- mapM (traverse (traverse fnull)) (rinstance sp)
-    dsize <- mapM (firstM (mapM (traverse fnull))) (dsize sp)
+    dsize <- mapM (bimapM (mapM (traverse fnull)) (vf [])) (dsize sp)
     bounds <- M.fromList <$>
       mapM
         (traverse (emapBoundM (traverse . f) (\e -> emapExprVM (vf . (++ e)))))
@@ -524,7 +524,6 @@ emapSpecM bscp lenv vf f sp = do
       e0' <- emapRelExprV (vf1 . (++ bs)) e0
       e1' <- emapRelExprV (vf1 . (++ bs)) e1
       return (n0, n1, t0', t1', e0', e1')
-    firstM f1 (a, b) = (, b) <$> f1 a
 
     tArgs t =
       let rt = toRTypeRep t
@@ -583,6 +582,7 @@ mapSpecLName f Spec {..} =
       , termexprs = map (fmap (map (fmap (fmap f)))) termexprs
       , bounds = M.map (fmap (fmap f)) bounds
       , axeqs = map (fmap f) axeqs
+      , dsize = map (fmap f) dsize
       , ..
       }
   where
@@ -741,7 +741,7 @@ data LiftedSpec = LiftedSpec
   , liftedClasses    :: HashSet (RClass LocBareTypeLHName)
     -- ^ Refined Type-Classes
   , liftedRinstance  :: HashSet (RInstance LocBareTypeLHName)
-  , liftedDsize      :: [([LocBareTypeLHName], F.LocSymbol)]
+  , liftedDsize      :: [([LocBareTypeLHName], LHName)]
   , liftedDvariance  :: HashSet (F.Located LHName, [Variance])
     -- ^ ? Where do these come from ?!
   , liftedBounds     :: RRBEnvV LHName LocBareTypeLHName
