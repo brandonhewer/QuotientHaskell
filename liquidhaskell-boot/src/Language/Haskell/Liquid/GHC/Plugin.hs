@@ -288,7 +288,6 @@ typecheckHook cfg0 ms tcGblEnv = swapBreadcrumb thisModule Nothing >>= \case
   where
     thisModule = ms_mod ms
 
-
 typecheckHook' :: Config -> ModSummary -> TcGblEnv -> [SpecComment] -> TcM (Either LiquidCheckException TcGblEnv)
 typecheckHook' cfg ms tcGblEnv specComments = do
   debugLog $ "We are in module: " <> show (toStableModule thisModule)
@@ -384,7 +383,7 @@ processInputSpec cfg pipelineData modSummary inputSpec = do
   let lhContext = LiquidHaskellContext {
         lhGlobalCfg       = cfg
       , lhInputSpec       = inputSpec
-      , lhModuleLogicMap  = logicMap
+      , lhModuleLogicMap  = logicMap <> toLogicMap [ d | Define d <- pdSpecComments pipelineData ]
       , lhModuleSummary   = modSummary
       , lhModuleTcData    = pdTcData pipelineData
       , lhModuleGuts      = pdUnoptimisedCore pipelineData

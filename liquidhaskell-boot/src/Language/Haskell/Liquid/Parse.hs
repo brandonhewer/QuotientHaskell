@@ -190,13 +190,13 @@ toLogicP :: Parser LogicMap
 toLogicP
   = toLogicMap <$> many toLogicOneP
 
-toLogicOneP :: Parser  (LocSymbol, [Symbol], Expr)
+toLogicOneP :: Parser (LocSymbol, [Symbol], Expr)
 toLogicOneP
   = do reserved "define"
        (x:xs) <- some locSymbolP
        reservedOp "="
        e      <- exprP <|> predP
-       return (x, val <$> xs, fmap val e)
+       return (x, val <$> xs, val <$> e)
 
 
 --------------------------------------------------------------------------------
@@ -930,7 +930,7 @@ data BPspec
   | Varia   (Located LHName, [Variance])                  -- ^ 'variance' annotations, marking type constructor params as co-, contra-, or in-variant
   | DSize   ([LocBareTypeParsed], LocSymbol)              -- ^ 'data size' annotations, generating fancy termination metric
   | BFix    ()                                            -- ^ fixity annotation
-  | Define  (LocSymbol, Symbol)                           -- ^ 'define' annotation for specifying aliases c.f. `include-CoreToLogic.lg`
+  | Define  (LocSymbol, [Symbol], Expr)                   -- ^ 'define' annotation for specifying logic aliases
   deriving (Data, Typeable)
 
 instance PPrint BPspec where
@@ -1020,7 +1020,7 @@ ppPspec _ (Pragma  (Loc _ _ s))
 ppPspec k (CMeas   m)
   = "class measure" <+> pprintTidy k (unLocMeasureV m)
 ppPspec k (IMeas   m)
-  = "instance  measure" <+> pprintTidy k (val <$> unLocMeasureV m)
+  = "instance measure" <+> pprintTidy k (val <$> unLocMeasureV m)
 ppPspec k (Class   cls)
   = pprintTidy k $ fmap (fmap parsedToBareType) cls
 ppPspec k (RInst   inst)
@@ -1031,8 +1031,8 @@ ppPspec k (DSize   (ds, ss))
   = "data size" <+> splice " " (pprintTidy k <$> map (fmap parsedToBareType) ds) <+> pprintTidy k (val ss)
 ppPspec _ (BFix    _)           --
   = "fixity"
-ppPspec k (Define  (lx, y))
-  = "define" <+> pprintTidy k (val lx) <+> "=" <+> pprintTidy k y
+ppPspec k (Define  (lx, ys , e))
+  = "define" <+> pprintTidy k (val lx) <+> " " <+> pprintTidy k ys <+> "=" <+> pprintTidy k e
 ppPspec k (Relational (lxl, lxr, tl, tr, q, p))
   = "relational"
         <+> pprintTidy k (val lxl) <+> "::" <+> pprintTidy k (parsedToBareType <$> tl) <+> "~"
@@ -1149,7 +1149,8 @@ specP
     <|> (reserved "private-reflect" >> fmap PrivateReflect axiomP  )
     <|> (reserved "opaque-reflect" >> fmap OpaqueReflect locBinderLHNameP  )
 
-    <|> fallbackSpecP "measure"    hmeasureP
+    <|> fallbackSpecP "define"  logDefineP
+    <|> fallbackSpecP "measure" hmeasureP
 
     <|> (reserved "infixl"        >> fmap BFix    infixlP  )
     <|> (reserved "infixr"        >> fmap BFix    infixrP  )
@@ -1321,6 +1322,14 @@ rtAliasP f bodyP
        posE <- getSourcePos
        let (tArgs, vArgs) = partition (isSmall . headSym) args
        return $ Loc pos posE (RTA name (f <$> tArgs) vArgs body)
+
+logDefineP :: Parser BPspec
+logDefineP =
+    do s <- locBinderP
+       args <- many locSymbolP
+       reservedOp "="
+       e <- exprP <|> predP
+       return (Define (s, val <$> args, val <$> e))
 
 hmeasureP :: Parser BPspec
 hmeasureP = do
