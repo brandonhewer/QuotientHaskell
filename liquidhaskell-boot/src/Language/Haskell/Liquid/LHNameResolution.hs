@@ -72,7 +72,7 @@ import           Data.Generics (extT)
 
 import qualified Data.HashSet                            as HS
 import qualified Data.HashMap.Strict                     as HM
-import           Data.List (find, isSuffixOf, nub)
+import           Data.List (find, isSuffixOf, nubBy)
 import           Data.List.Extra (dropEnd)
 import           Data.Maybe (fromMaybe, listToMaybe, mapMaybe, maybeToList)
 import qualified Data.Text                               as Text
@@ -469,9 +469,9 @@ makeLogicEnvs impAvails thisModule spec dependencies =
     unionAliasEnvs :: [InScopeNonReflectedEnv] -> InScopeNonReflectedEnv
     unionAliasEnvs =
       coerce .
-      HM.map nub .
+      HM.map (nubBy (\(alias1, (_, n1)) (alias2, (_, n2)) -> alias1 == alias2 && n1 == n2)) .
       foldl' (HM.unionWith (++)) HM.empty .
-      coerce @_ @[HM.HashMap Symbol [(GHC.ModuleName, LHName)]]
+      coerce @_ @[HM.HashMap Symbol [(GHC.ModuleName, (GHC.Module, LHName))]]
 
     moduleAliases m =
       case GHC.lookupModuleEnv impAvails m of
@@ -579,10 +579,18 @@ resolveLogicNames cfg env globalRdrEnv unhandledNames lmap0 localVars lnameEnv p
                 unless (HS.member s unhandledNames) $
                   addError (errResolveLogicName ls alts)
                 return $ makeLocalLHName s
-          Right [lhname] ->
+          Right [(_, lhname)] ->
             return lhname
           Right names -> do
-            addError (ErrDupNames (LH.fSrcSpan ls) (pprint s) (map pprint names))
+            addError $
+              ErrDupNames
+                (LH.fSrcSpan ls)
+                (pprint s)
+                [ pprint (logicNameToSymbol n) PJ.<+>
+                  PJ.text
+                    ("imported from " ++ GHC.moduleNameString (GHC.moduleName m))
+                | (m, n) <- names
+                ]
             return $ makeLocalLHName s
       where
         s = val ls
