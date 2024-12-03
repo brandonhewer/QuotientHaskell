@@ -2437,10 +2437,12 @@ executable ple-pos
                     , NegNormalForm
                     , NNFPiotr
                     , PadLeft
+                    , Permutations
                     , Ple0
                     , PleORM
                     , Ple_sum
-                    , Permutations
+                    , PolySetFoo
+                    , PolySetBar
                     , ReflectDefault
                     , RegexpDerivative
                     , RosePLEDiv
