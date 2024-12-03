@@ -173,9 +173,7 @@ resolveLHNames cfg thisModule localVars impMods globalRdrEnv lmap bareSpec0 depe
               (fmap (either id GHC.getName) . Resolve.lookupLocalVar localVars (atLoc lname s))
       LHNUnresolved ns s -> lookupGRELHName ns lname s listToMaybe
       n@(LHNResolved (LHRLocal _) _) -> pure n
-      n ->
-        let sp = Just $ LH.sourcePosSrcSpan $ loc lname
-         in panic sp $ "resolveLHNames: Unexpected resolved name: " ++ show n
+      n -> pure n
 
     lookupGRELHName ns lname s localNameLookup =
       case maybeDropImported ns $ GHC.lookupGRE globalRdrEnv (mkLookupGRE ns s) of

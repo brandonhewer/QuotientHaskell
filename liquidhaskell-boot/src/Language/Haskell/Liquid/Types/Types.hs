@@ -951,7 +951,7 @@ liquidEnd :: String
 liquidEnd = ['@', '-', '}']
 
 data MSpec ty ctor = MSpec
-  { ctorMap  :: M.HashMap Symbol [Def ty ctor]
+  { ctorMap  :: M.HashMap LHName [Def ty ctor]
   , measMap  :: M.HashMap F.LocSymbol (Measure ty ctor)
   , cmeasMap :: M.HashMap F.LocSymbol (Measure ty ())
   , imeas    :: ![Measure ty ctor]

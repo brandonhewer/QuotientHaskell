@@ -36,6 +36,7 @@ import qualified Data.HashMap.Strict                   as M
 import qualified Language.Fixpoint.Types               as F 
 import qualified Language.Haskell.Liquid.Measure       as Ms
 import           Language.Haskell.Liquid.Types.DataDecl
+import           Language.Haskell.Liquid.Types.Names
 import qualified Language.Haskell.Liquid.Types.RefType as RT 
 import           Language.Haskell.Liquid.Types.RType
 import           Language.Haskell.Liquid.Types.Types
@@ -153,7 +154,7 @@ data MeasEnv = MeasEnv
   , meDataCons    :: ![(Ghc.Var,  LocSpecType)]           
   , meClasses     :: ![DataConP]                           
   , meMethods     :: ![(ModName, Ghc.Var, LocSpecType)]  
-  , meOpaqueRefl  :: ![(Ghc.Var, Measure (Located BareType) LocSymbol)] -- the opaque-reflected symbols and the corresponding measures
+  , meOpaqueRefl  :: ![(Ghc.Var, Measure (Located BareType) (F.Located LHName))] -- the opaque-reflected symbols and the corresponding measures
   }
 
 instance Semigroup MeasEnv where

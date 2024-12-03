@@ -358,8 +358,8 @@ instance Monoid GhcSpecRefl where
                   mempty mempty
 
 type VarOrLocSymbol = Either Var LocSymbol
-type BareMeasure   = Measure LocBareType F.LocSymbol
-type BareDef       = Def     LocBareType F.LocSymbol
+type BareMeasure   = Measure LocBareType (F.Located LHName)
+type BareDef       = Def     LocBareType (F.Located LHName)
 type SpecMeasure   = Measure LocSpecType DataCon
 
 -- $bareSpec
@@ -384,7 +384,7 @@ type BareSpecParsed = Spec LocSymbol BareTypeParsed
 -- @lname@ corresponds to the names used for entities only known to LH like
 -- non-interpreted functions and type aliases.
 data Spec lname ty = Spec
-  { measures   :: ![MeasureV lname (F.Located ty) LocSymbol]          -- ^ User-defined properties for ADTs
+  { measures   :: ![MeasureV lname (F.Located ty) (F.Located LHName)] -- ^ User-defined properties for ADTs
   , expSigs    :: ![(lname, F.Sort)]                                  -- ^ Exported logic symbols originated by reflecting functions
   , asmSigs    :: ![(F.Located LHName, F.Located ty)]                 -- ^ Assumed (unchecked) types; including reflected signatures
   , asmReflectSigs :: ![(F.Located LHName, F.Located LHName)]         -- ^ Assume reflects : left is the actual function and right the pretended one
@@ -412,8 +412,8 @@ data Spec lname ty = Spec
   , autosize   :: !(S.HashSet (F.Located LHName))                     -- ^ Type Constructors that get automatically sizing info
   , pragmas    :: ![F.Located String]                                 -- ^ Command-line configurations passed in through source
   , cmeasures  :: ![MeasureV lname (F.Located ty) ()]                 -- ^ Measures attached to a type-class
-  , imeasures  :: ![MeasureV lname (F.Located ty) LocSymbol]          -- ^ Mappings from (measure,type) -> measure
-  , omeasures  :: ![MeasureV lname (F.Located ty) LocSymbol]          -- ^ Opaque reflection measures.
+  , imeasures  :: ![MeasureV lname (F.Located ty) (F.Located LHName)] -- ^ Mappings from (measure,type) -> measure
+  , omeasures  :: ![MeasureV lname (F.Located ty) (F.Located LHName)] -- ^ Opaque reflection measures.
   -- Separate field bc measures are checked for duplicates, and we want to allow for opaque-reflected measures to be duplicated.
   -- See Note [Duplicate measures and opaque reflection] in "Language.Haskell.Liquid.Measure".
   , classes    :: ![RClass (F.Located ty)]                            -- ^ Refined Type-Classes
@@ -700,7 +700,7 @@ instance Monoid (Spec lname ty) where
 -- Apart from less fields, a 'LiftedSpec' /replaces all instances of lists with sets/, to enforce
 -- duplicate detection and removal on what we serialise on disk.
 data LiftedSpec = LiftedSpec
-  { liftedMeasures   :: HashMap LHName (MeasureV LHName LocBareTypeLHName F.LocSymbol)
+  { liftedMeasures   :: HashMap LHName (MeasureV LHName LocBareTypeLHName (F.Located LHName))
     -- ^ User-defined properties for ADTs
   , liftedExpSigs    :: HashSet (LHName, F.Sort)
     -- ^ Exported logic symbols originated from reflecting functions
@@ -734,9 +734,9 @@ data LiftedSpec = LiftedSpec
     -- ^ Type Constructors that get automatically sizing info
   , liftedCmeasures  :: HashSet (MeasureV LHName LocBareTypeLHName ())
     -- ^ Measures attached to a type-class
-  , liftedImeasures  :: HashSet (MeasureV LHName LocBareTypeLHName F.LocSymbol)
+  , liftedImeasures  :: HashSet (MeasureV LHName LocBareTypeLHName (F.Located LHName))
     -- ^ Mappings from (measure,type) -> measure
-  , liftedOmeasures  :: HashSet (MeasureV LHName LocBareTypeLHName F.LocSymbol)
+  , liftedOmeasures  :: HashSet (MeasureV LHName LocBareTypeLHName (F.Located LHName))
     -- ^ Lifted opaque reflection measures
   , liftedClasses    :: HashSet (RClass LocBareTypeLHName)
     -- ^ Refined Type-Classes

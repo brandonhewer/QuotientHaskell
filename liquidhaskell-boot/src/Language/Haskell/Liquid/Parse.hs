@@ -52,13 +52,13 @@ import           Language.Haskell.Liquid.Types.Variance
 import qualified Language.Haskell.Liquid.Misc           as Misc
 import qualified Language.Haskell.Liquid.Measure        as Measure
 import           Language.Fixpoint.Parse                hiding (Parser, dataDeclP, refBindP, refP, refDefP, parseTest')
-import           Liquid.GHC.API                         (ModuleName)
+import qualified Liquid.GHC.API                         as GHC
 
 import Control.Monad.State
 
 -- * Top-level parsing API
 
-hsSpecificationP :: ModuleName -> [BPspec] -> (ModName, BareSpecParsed)
+hsSpecificationP :: GHC.ModuleName -> [BPspec] -> (ModName, BareSpecParsed)
 hsSpecificationP modName specs = (ModName SrcImport modName, mkSpec specs)
 
 -- | Parse comments in .hs and .lhs files
@@ -893,7 +893,7 @@ dummyTyId = ""
 
 -- | The AST for a single parsed spec.
 data BPspec
-  = Meas    (MeasureV LocSymbol LocBareTypeParsed LocSymbol) -- ^ 'measure' definition
+  = Meas    (MeasureV LocSymbol LocBareTypeParsed (Located LHName)) -- ^ 'measure' definition
   | Assm    (Located LHName, LocBareTypeParsed)              -- ^ 'assume' signature (unchecked)
   | AssmReflect (Located LHName, Located LHName)             -- ^ 'assume reflects' signature (unchecked)
   | Asrt    (Located LHName, LocBareTypeParsed)              -- ^ 'assert' signature (checked)
@@ -926,7 +926,7 @@ data BPspec
   | PBound  (Bound LocBareTypeParsed (ExprV LocSymbol))   -- ^ 'bound' definition
   | Pragma  (Located String)                              -- ^ 'LIQUID' pragma, used to save configuration options in source files
   | CMeas   (MeasureV LocSymbol LocBareTypeParsed ())     -- ^ 'class measure' definition
-  | IMeas   (MeasureV LocSymbol LocBareTypeParsed LocSymbol) -- ^ 'instance measure' definition
+  | IMeas   (MeasureV LocSymbol LocBareTypeParsed (Located LHName)) -- ^ 'instance measure' definition
   | Varia   (Located LHName, [Variance])                  -- ^ 'variance' annotations, marking type constructor params as co-, contra-, or in-variant
   | DSize   ([LocBareTypeParsed], LocSymbol)              -- ^ 'data size' annotations, generating fancy termination metric
   | BFix    ()                                            -- ^ fixity annotation
@@ -1334,7 +1334,7 @@ hmeasureP = do
    do b <- locBinderLHNameP
       popLayout >> popLayout >> return (HMeas b)
 
-measureP :: Parser (MeasureV LocSymbol (Located BareTypeParsed) LocSymbol)
+measureP :: Parser (MeasureV LocSymbol (Located BareTypeParsed) (Located LHName))
 measureP = do
   (x, ty) <- indentedLine tyBindP
   _ <- optional semi
@@ -1347,7 +1347,7 @@ cMeasureP
   = do (x, ty) <- tyBindP
        return $ Measure.mkM x ty [] MsClass mempty
 
-iMeasureP :: Parser (MeasureV LocSymbol (Located BareTypeParsed) LocSymbol)
+iMeasureP :: Parser (MeasureV LocSymbol (Located BareTypeParsed) (Located LHName))
 iMeasureP = measureP
 
 
@@ -1459,49 +1459,47 @@ binderP =
   -- Note: It is important that we do *not* use the LH/fixpoint reserved words here,
   -- because, for example, we must be able to use "assert" as an identifier.
 
-measureDefP :: Parser (BodyV LocSymbol) -> Parser (DefV LocSymbol (Located BareTypeParsed) LocSymbol)
+measureDefP :: Parser (BodyV LocSymbol) -> Parser (DefV LocSymbol (Located BareTypeParsed) (Located LHName))
 measureDefP bodyP
   = do mname   <- locSymbolP
        (c, xs) <- measurePatP
        reservedOp "="
        body    <- bodyP
        let xs'  = symbol . val <$> xs
-       return   $ Def mname (symbol <$> c) Nothing ((, Nothing) <$> xs') body
+       return   $ Def mname c Nothing ((, Nothing) <$> xs') body
 
-measurePatP :: Parser (LocSymbol, [LocSymbol])
+measurePatP :: Parser (Located LHName, [LocSymbol])
 measurePatP
   =  parens (try conPatP <|> try consPatP <|> nilPatP <|> tupPatP)
  <|> nullaryConPatP
  <?> "measurePatP"
 
-tupPatP :: Parser (Located Symbol, [Located Symbol])
-tupPatP  = mkTupPat  <$> sepBy1 locLowerIdP comma
+tupPatP :: Parser (Located LHName, [Located Symbol])
+tupPatP  = mkTupPat  <$> located (sepBy1 locLowerIdP comma)
 
-conPatP :: Parser (Located Symbol, [Located Symbol])
-conPatP  = (,)       <$> dataConNameP <*> many locLowerIdP
+conPatP :: Parser (Located LHName, [Located Symbol])
+conPatP  = (,)       <$> dataConLHNameP <*> many locLowerIdP
 
-consPatP :: Parser (Located Symbol, [Located Symbol])
-consPatP = mkConsPat <$> locLowerIdP  <*> reservedOp ":" <*> locLowerIdP
+consPatP :: Parser (Located LHName, [Located Symbol])
+consPatP = mkConsPat <$> locLowerIdP  <*> located (reservedOp ":") <*> locLowerIdP
 
-nilPatP :: Parser (Located Symbol, [t])
-nilPatP  = mkNilPat  <$> brackets (pure ())
+nilPatP :: Parser (Located LHName, [t])
+nilPatP  = mkNilPat  <$> located (brackets (pure ()))
 
-nullaryConPatP :: Parser (Located Symbol, [t])
-nullaryConPatP = nilPatP <|> ((,[]) <$> dataConNameP)
+nullaryConPatP :: Parser (Located LHName, [t])
+nullaryConPatP = nilPatP <|> ((,[]) <$> dataConLHNameP)
                  <?> "nullaryConPatP"
 
-mkTupPat :: Foldable t => t a -> (Located Symbol, t a)
-mkTupPat zs     = (tupDataCon (length zs), zs)
+mkTupPat :: Foldable t => Located (t a) -> (Located LHName, t a)
+mkTupPat lzs =
+    let tupledDC = GHC.tupleDataCon GHC.Boxed (length (val lzs))
+     in (makeGHCLHName (GHC.getName tupledDC) (symbol tupledDC) <$ lzs, val lzs)
 
-mkNilPat :: t -> (Located Symbol, [t1])
-mkNilPat _      = (dummyLoc "[]", []    )
+mkNilPat :: Located t -> (Located LHName, [t1])
+mkNilPat lx     = (makeGHCLHName (GHC.getName GHC.nilDataCon) (symbol GHC.nilDataCon) <$ lx, [])
 
-mkConsPat :: t1 -> t -> t1 -> (Located Symbol, [t1])
-mkConsPat x _ y = (dummyLoc ":" , [x, y])
-
-tupDataCon :: Int -> Located Symbol
-tupDataCon n    = dummyLoc $ symbol $ "(" <> replicate (n - 1) ',' <> ")"
-
+mkConsPat :: t1 -> Located t -> t1 -> (Located LHName, [t1])
+mkConsPat x lc y = (makeGHCLHName (GHC.getName GHC.consDataCon) (symbol GHC.consDataCon) <$ lc, [x, y])
 
 -------------------------------------------------------------------------------
 --------------------------------- Predicates ----------------------------------
