@@ -104,6 +104,9 @@ wiredTheorySortedSyms =
       , "Bag_union"
       , "Bag_union_max"
 
+      , "Map_select"
+      , "Map_store"
+
       , "Set_cup"
       , "Set_cap"
       , "Set_dif"
