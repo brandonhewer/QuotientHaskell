@@ -1566,9 +1566,9 @@ dataConNameP
 dataConLHNameP :: Parser (Located LHName)
 dataConLHNameP = fmap (makeUnresolvedLHName (LHDataConName LHAnyModuleNameF)) <$> dataConNameP
 
-dataSizeP :: Parser (Maybe SizeFun)
+dataSizeP :: Parser (Maybe (SizeFunV LocSymbol))
 dataSizeP
-  = brackets (Just . SymSizeFun <$> locLowerIdP)
+  = brackets (Just . SymSizeFun <$> located locLowerIdP)
   <|> return Nothing
 
 relationalP :: Parser (Located LHName, Located LHName, LocBareTypeParsed, LocBareTypeParsed, RelExprV LocSymbol, RelExprV LocSymbol)
@@ -1593,7 +1593,7 @@ dataDeclP = do
   fsize <- dataSizeP
   dataDeclBodyP pos x fsize <|> return (emptyDecl x pos fsize)
 
-emptyDecl :: LocSymbol -> SourcePos -> Maybe SizeFun -> DataDeclParsed
+emptyDecl :: LocSymbol -> SourcePos -> Maybe (SizeFunV LocSymbol) -> DataDeclParsed
 emptyDecl x pos fsize@(Just _)
   = DataDecl (DnName $ makeUnresolvedLHName LHTcName <$> x) [] [] Nothing pos fsize Nothing DataUser
 emptyDecl x pos _
@@ -1601,7 +1601,7 @@ emptyDecl x pos _
   where
     msg = "You should specify either a default [size] or one or more fields in the data declaration"
 
-dataDeclBodyP :: SourcePos -> LocSymbol -> Maybe SizeFun -> Parser DataDeclParsed
+dataDeclBodyP :: SourcePos -> LocSymbol -> Maybe (SizeFunV LocSymbol) -> Parser DataDeclParsed
 dataDeclBodyP pos x fsize = do
   vanilla    <- null <$> many locUpperIdP
   as         <- many noWhere -- TODO: check this again
