@@ -1,10 +1,10 @@
 {-
 
-Without the 
+Without the
   define GHC.Internal.Num.fromInteger x = (x)
-  define GHC.Num.Integer.IS             = (x)
+  define GHC.Num.Integer.IS x           = (x)
 
-this program crashes with: 
+this program crashes with:
 
     Illegal type specification for `NumRefl.toNum`
     NumRefl.toNum :: forall p .
@@ -19,6 +19,9 @@ Because the resule type (Num p) => p cannot be decided to be a numeric type.
 -}
 
 module NumRefl where
+
+{-@ define GHC.Internal.Num.fromInteger x = (x) @-}
+{-@ define GHC.Num.Integer.IS x           = (x) @-}
 
 {-@ reflect toNum @-}
 toNum :: Num p => () -> p

@@ -6,8 +6,10 @@ coreToLogic = unlines
   , "define GHC.Internal.Real.div x y        = (x / y)"
   , "define GHC.Internal.Real.mod x y        = (x mod y)"
   , "define GHC.Internal.Real.fromIntegral x = (x)"
-  , "define GHC.Internal.Num.fromInteger x   = (x)"
-  , "define GHC.Num.Integer.IS x             = (x)"
+
+--  , "define GHC.Internal.Num.fromInteger x   = (x)"
+--  , "define GHC.Num.Integer.IS x             = (x)"
+
   , "define GHC.Classes.not x                = (~ x)"
   , "define GHC.Internal.Base.$ f x          = (f x)"
   , ""
@@ -21,7 +23,9 @@ coreToLogic = unlines
   , ""
   , "define Language.Haskell.Liquid.String.stringEmp = (stringEmp)"
   , "define Language.Haskell.Liquid.Equational.eq x y = (y)"
-  , "define Language.Haskell.Liquid.ProofCombinators.withProof x y = (x)"
+
+  --, "define Language.Haskell.Liquid.ProofCombinators.withProof x y = (x)"
+
   , "define Language.Haskell.Liquid.ProofCombinators.cast x y = (y)"
   , "define Liquid.ProofCombinators.cast x y = (y)"
   , "define ProofCombinators.cast x y = (y)"
