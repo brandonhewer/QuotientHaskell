@@ -10,35 +10,6 @@ import Prelude hiding (null)
 
 embed Set as Set_Set
 
-//  ----------------------------------------------------------------------------------------------
-//  -- | Logical Set Operators: Interpreted "natively" by the SMT solver -------------------------
-//  ----------------------------------------------------------------------------------------------
-
-
-//  union
-measure Set_cup  :: (Set a) -> (Set a) -> (Set a)
-
-//  intersection
-measure Set_cap  :: (Set a) -> (Set a) -> (Set a)
-
-//  difference
-measure Set_dif   :: (Set a) -> (Set a) -> (Set a)
-
-//  singleton
-measure Set_sng   :: a -> (Set a)
-
-//  emptiness test
-measure Set_emp   :: (Set a) -> Bool
-
-//  empty set
-measure Set_empty :: forall a. Int -> (Set a)
-
-//  membership test
-measure Set_mem  :: a -> (Set a) -> Bool
-
-//  inclusion test
-measure Set_sub  :: (Set a) -> (Set a) -> Bool
-
 //  ---------------------------------------------------------------------------------------------
 //  -- | Refined Types for Data.Set Operations --------------------------------------------------
 //  ---------------------------------------------------------------------------------------------

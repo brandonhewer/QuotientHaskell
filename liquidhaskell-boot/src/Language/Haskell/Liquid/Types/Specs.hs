@@ -85,7 +85,11 @@ import           Data.HashSet            (HashSet)
 import qualified Data.HashMap.Lazy       as Lazy.M
 import qualified Data.HashMap.Strict     as M
 import           Data.HashMap.Strict     (HashMap)
+import           Data.Maybe
+import           Language.Haskell.Liquid.GHC.Misc (fSrcSpan)
+import           Language.Haskell.Liquid.Name.LogicNameEnv
 import           Language.Haskell.Liquid.Types.DataDecl
+import           Language.Haskell.Liquid.Types.Errors
 import           Language.Haskell.Liquid.Types.Names
 import           Language.Haskell.Liquid.Types.RType
 import           Language.Haskell.Liquid.Types.RTypeOp
@@ -93,7 +97,7 @@ import           Language.Haskell.Liquid.Types.Types
 import           Language.Haskell.Liquid.Types.Variance
 import           Language.Haskell.Liquid.Types.Bounds
 import           Language.Haskell.Liquid.UX.Config
-import           Liquid.GHC.API hiding (Binary, text, (<+>))
+import           Liquid.GHC.API hiding (Binary, text, (<+>), panic)
 import           Language.Haskell.Liquid.GHC.Types
 import           Text.PrettyPrint.HughesPJ              (text, (<+>))
 import           Text.PrettyPrint.HughesPJ as HughesPJ (($$))
@@ -354,8 +358,8 @@ instance Monoid GhcSpecRefl where
                   mempty mempty
 
 type VarOrLocSymbol = Either Var LocSymbol
-type BareMeasure   = Measure LocBareType F.LocSymbol
-type BareDef       = Def     LocBareType F.LocSymbol
+type BareMeasure   = Measure LocBareType (F.Located LHName)
+type BareDef       = Def     LocBareType (F.Located LHName)
 type SpecMeasure   = Measure LocSpecType DataCon
 
 -- $bareSpec
@@ -380,7 +384,7 @@ type BareSpecParsed = Spec LocSymbol BareTypeParsed
 -- @lname@ corresponds to the names used for entities only known to LH like
 -- non-interpreted functions and type aliases.
 data Spec lname ty = Spec
-  { measures   :: ![MeasureV lname (F.Located ty) LocSymbol]          -- ^ User-defined properties for ADTs
+  { measures   :: ![MeasureV lname (F.Located ty) (F.Located LHName)] -- ^ User-defined properties for ADTs
   , expSigs    :: ![(lname, F.Sort)]                                  -- ^ Exported logic symbols originated by reflecting functions
   , asmSigs    :: ![(F.Located LHName, F.Located ty)]                 -- ^ Assumed (unchecked) types; including reflected signatures
   , asmReflectSigs :: ![(F.Located LHName, F.Located LHName)]         -- ^ Assume reflects : left is the actual function and right the pretended one
@@ -408,8 +412,8 @@ data Spec lname ty = Spec
   , autosize   :: !(S.HashSet (F.Located LHName))                     -- ^ Type Constructors that get automatically sizing info
   , pragmas    :: ![F.Located String]                                 -- ^ Command-line configurations passed in through source
   , cmeasures  :: ![MeasureV lname (F.Located ty) ()]                 -- ^ Measures attached to a type-class
-  , imeasures  :: ![MeasureV lname (F.Located ty) LocSymbol]          -- ^ Mappings from (measure,type) -> measure
-  , omeasures  :: ![MeasureV lname (F.Located ty) LocSymbol]          -- ^ Opaque reflection measures.
+  , imeasures  :: ![MeasureV lname (F.Located ty) (F.Located LHName)] -- ^ Mappings from (measure,type) -> measure
+  , omeasures  :: ![MeasureV lname (F.Located ty) (F.Located LHName)] -- ^ Opaque reflection measures.
   -- Separate field bc measures are checked for duplicates, and we want to allow for opaque-reflected measures to be duplicated.
   -- See Note [Duplicate measures and opaque reflection] in "Language.Haskell.Liquid.Measure".
   , classes    :: ![RClass (F.Located ty)]                            -- ^ Refined Type-Classes
@@ -418,7 +422,7 @@ data Spec lname ty = Spec
   , termexprs  :: ![(F.Located LHName, [F.Located (F.ExprV lname)])]  -- ^ Terminating Conditions for functions
   , rinstance  :: ![RInstance (F.Located ty)]
   , dvariance  :: ![(F.Located LHName, [Variance])]                   -- ^ TODO ? Where do these come from ?!
-  , dsize      :: ![([F.Located ty], F.LocSymbol)]                    -- ^ Size measure to enforce fancy termination
+  , dsize      :: ![([F.Located ty], lname)]                          -- ^ Size measure to enforce fancy termination
   , bounds     :: !(RRBEnvV lname (F.Located ty))
   , axeqs      :: ![F.EquationV lname]                                -- ^ Equalities used for Proof-By-Evaluation
   } deriving (Data, Generic)
@@ -481,7 +485,7 @@ emapSpecM bscp lenv vf f sp = do
         )
         (termexprs sp)
     rinstance <- mapM (traverse (traverse fnull)) (rinstance sp)
-    dsize <- mapM (firstM (mapM (traverse fnull))) (dsize sp)
+    dsize <- mapM (bimapM (mapM (traverse fnull)) (vf [])) (dsize sp)
     bounds <- M.fromList <$>
       mapM
         (traverse (emapBoundM (traverse . f) (\e -> emapExprVM (vf . (++ e)))))
@@ -520,7 +524,6 @@ emapSpecM bscp lenv vf f sp = do
       e0' <- emapRelExprV (vf1 . (++ bs)) e0
       e1' <- emapRelExprV (vf1 . (++ bs)) e1
       return (n0, n1, t0', t1', e0', e1')
-    firstM f1 (a, b) = (, b) <$> f1 a
 
     tArgs t =
       let rt = toRTypeRep t
@@ -579,6 +582,7 @@ mapSpecLName f Spec {..} =
       , termexprs = map (fmap (map (fmap (fmap f)))) termexprs
       , bounds = M.map (fmap (fmap f)) bounds
       , axeqs = map (fmap f) axeqs
+      , dsize = map (fmap f) dsize
       , ..
       }
   where
@@ -696,7 +700,7 @@ instance Monoid (Spec lname ty) where
 -- Apart from less fields, a 'LiftedSpec' /replaces all instances of lists with sets/, to enforce
 -- duplicate detection and removal on what we serialise on disk.
 data LiftedSpec = LiftedSpec
-  { liftedMeasures   :: HashSet (MeasureV LHName LocBareTypeLHName F.LocSymbol)
+  { liftedMeasures   :: HashMap LHName (MeasureV LHName LocBareTypeLHName (F.Located LHName))
     -- ^ User-defined properties for ADTs
   , liftedExpSigs    :: HashSet (LHName, F.Sort)
     -- ^ Exported logic symbols originated from reflecting functions
@@ -730,14 +734,14 @@ data LiftedSpec = LiftedSpec
     -- ^ Type Constructors that get automatically sizing info
   , liftedCmeasures  :: HashSet (MeasureV LHName LocBareTypeLHName ())
     -- ^ Measures attached to a type-class
-  , liftedImeasures  :: HashSet (MeasureV LHName LocBareTypeLHName F.LocSymbol)
+  , liftedImeasures  :: HashSet (MeasureV LHName LocBareTypeLHName (F.Located LHName))
     -- ^ Mappings from (measure,type) -> measure
-  , liftedOmeasures  :: HashSet (MeasureV LHName LocBareTypeLHName F.LocSymbol)
+  , liftedOmeasures  :: HashSet (MeasureV LHName LocBareTypeLHName (F.Located LHName))
     -- ^ Lifted opaque reflection measures
   , liftedClasses    :: HashSet (RClass LocBareTypeLHName)
     -- ^ Refined Type-Classes
   , liftedRinstance  :: HashSet (RInstance LocBareTypeLHName)
-  , liftedDsize      :: [([LocBareTypeLHName], F.LocSymbol)]
+  , liftedDsize      :: [([LocBareTypeLHName], LHName)]
   , liftedDvariance  :: HashSet (F.Located LHName, [Variance])
     -- ^ ? Where do these come from ?!
   , liftedBounds     :: RRBEnvV LHName LocBareTypeLHName
@@ -931,9 +935,15 @@ toTargetSpec ghcSpec = TargetSpec
       , gsConfig = _gsConfig ghcSpec
       }
 
-toLiftedSpec :: BareSpecLHName -> LiftedSpec
-toLiftedSpec a = LiftedSpec
-  { liftedMeasures   = S.fromList . measures $ a
+toLiftedSpec :: LogicNameEnv -> BareSpecLHName -> LiftedSpec
+toLiftedSpec lenv a = LiftedSpec
+  { liftedMeasures   =
+      M.fromList
+        [ (n, m)
+        | m <- measures a
+        , let n = fromMaybe (panic (Just $ fSrcSpan (msName m)) "cannot find logic name") $
+                    F.lookupSEnv (val $ msName m) (lneLHName lenv)
+        ]
   , liftedExpSigs    = S.fromList . expSigs  $ a
   , liftedPrivateReflects = privateReflects a
   , liftedAsmSigs    = S.fromList . asmSigs  $ a
@@ -964,7 +974,7 @@ toLiftedSpec a = LiftedSpec
 -- suitable for 'makeGhcSpec'.
 unsafeFromLiftedSpec :: LiftedSpec -> BareSpecLHName
 unsafeFromLiftedSpec a = Spec
-  { measures   = S.toList . liftedMeasures $ a
+  { measures   = M.elems . liftedMeasures $ a
   , expSigs    = S.toList . liftedExpSigs $ a
   , asmSigs    = S.toList . liftedAsmSigs $ a
   , asmReflectSigs = mempty

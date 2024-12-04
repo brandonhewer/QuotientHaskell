@@ -11,8 +11,6 @@ import GHC.Types_LHAssumptions()
 _f = unpackCString#
 
 {-@
-measure strLen :: Addr# -> Int
-
 assume GHC.CString.unpackCString#
   :: x:Addr#
   -> {v:[Char] | v ~~ x && len v == strLen x}

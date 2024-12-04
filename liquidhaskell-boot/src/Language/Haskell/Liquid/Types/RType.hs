@@ -70,7 +70,7 @@ module Language.Haskell.Liquid.Types.RType (
   , emapUReftVM
 
   -- * Parse-time entities describing refined data types
-  , SizeFun  (..), szFun
+  , SizeFun, SizeFunV (..), szFun
   , TyConP   (..)
 
   -- * Pre-instantiated RType
@@ -237,26 +237,26 @@ instance F.PPrint TyCon where
   pprintTidy F.Full  =                pprDoc
 
 -- | Termination expressions
-data SizeFun
+type SizeFun = SizeFunV F.Symbol
+data SizeFunV v
   = IdSizeFun              -- ^ \x -> F.EVar x
-  | SymSizeFun F.LocSymbol -- ^ \x -> f x
-  deriving (Data, Typeable, Generic, Eq)
-  deriving Hashable via Generically SizeFun
+  | SymSizeFun (F.Located v) -- ^ \x -> f x
+  deriving (Data, Typeable, Generic, Eq, Functor, Foldable, Traversable)
+  deriving (B.Binary, Hashable) via Generically (SizeFunV v)
 
-instance NFData   SizeFun
-instance B.Binary SizeFun
+instance NFData v => NFData (SizeFunV v)
 
-instance Show SizeFun where
+instance Show v => Show (SizeFunV v) where
   show IdSizeFun      = "IdSizeFun"
   show (SymSizeFun x) = "SymSizeFun " ++ show (F.val x)
 
 szFun :: SizeFun -> Symbol -> Expr
 szFun IdSizeFun      = F.EVar
-szFun (SymSizeFun f) = \x -> F.mkEApp (F.symbol <$> f) [F.EVar x]
+szFun (SymSizeFun f) = \x -> F.mkEApp f [F.EVar x]
 
-instance F.PPrint SizeFun where
+instance F.PPrint v => F.PPrint (SizeFunV v) where
   pprintTidy _ IdSizeFun      = "[id]"
-  pprintTidy _ (SymSizeFun x) = brackets (F.pprint (F.val x))
+  pprintTidy _ (SymSizeFun x) = brackets (F.pprint $ F.val x)
 
 
 --------------------------------------------------------------------

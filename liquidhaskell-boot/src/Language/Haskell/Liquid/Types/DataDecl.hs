@@ -63,12 +63,11 @@ data DataDeclP v ty  = DataDecl
   , tycPVars  :: [PVarV v (BSortV v)]  -- ^ PVar  Parameters
   , tycDCons  :: Maybe [DataCtorP ty]  -- ^ Data Constructors (Nothing is reserved for non-GADT style empty data declarations)
   , tycSrcPos :: !F.SourcePos          -- ^ Source Position
-  , tycSFun   :: Maybe SizeFun         -- ^ Default termination measure
+  , tycSFun   :: Maybe (SizeFunV v)    -- ^ Default termination measure
   , tycPropTy :: Maybe ty              -- ^ Type of Ind-Prop
   , tycKind   :: !DataDeclKind         -- ^ User-defined or Auto-lifted
   } deriving (Data, Typeable, Generic, Functor, Foldable, Traversable)
-  deriving Hashable via Generically (DataDeclP v ty)
-  deriving B.Binary via Generically (DataDeclP v ty)
+  deriving (B.Binary, Hashable) via Generically (DataDeclP v ty)
 
 -- | The name of the `TyCon` corresponding to a `DataDecl`
 data DataName
@@ -139,7 +138,7 @@ instance F.Loc DataName where
 
 
 -- | For debugging.
-instance Show ty => Show (DataDeclP v ty) where
+instance (Show v, Show ty) => Show (DataDeclP v ty) where
   show dd = printf "DataDecl: data = %s, tyvars = %s, sizeFun = %s, kind = %s" -- [at: %s]"
               (show $ tycName   dd)
               (show $ tycTyVars dd)
@@ -194,7 +193,7 @@ data DataConP = DataConP
 instance F.Loc DataConP where
   srcSpan d = F.SS (dcpLoc d) (dcpLocE d)
 
-instance F.PPrint ty => F.PPrint (DataDeclP v ty) where
+instance (F.PPrint lname, F.PPrint ty) => F.PPrint (DataDeclP lname ty) where
   pprintTidy k dd =
     let
       prefix = "data" <+> F.pprint (tycName dd) <+> ppMbSizeFun (tycSFun dd) <+> F.pprint (tycTyVars dd)
@@ -210,7 +209,7 @@ instance F.PPrint ty => F.PPrint (DataCtorP ty) where
       ppThetas [] = empty
       ppThetas ts = parens (hcat $ punctuate ", " (F.pprintTidy k <$> ts)) <+> "=>"
 
-ppMbSizeFun :: Maybe SizeFun -> Doc
+ppMbSizeFun :: F.PPrint v => Maybe (SizeFunV v) -> Doc
 ppMbSizeFun Nothing  = ""
 ppMbSizeFun (Just z) = F.pprint z
 

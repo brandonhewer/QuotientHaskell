@@ -768,6 +768,7 @@ import GHC.Unit.Module                as Ghc
     , stableModuleCmp
     , fsToUnit
     , mkModuleNameFS
+    , moduleEnvKeys
     , moduleNameFS
     , moduleStableString
     , toUnitId

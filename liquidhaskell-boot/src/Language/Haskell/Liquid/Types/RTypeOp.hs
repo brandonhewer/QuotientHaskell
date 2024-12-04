@@ -387,6 +387,7 @@ mapDataDeclV :: (v -> v') -> DataDeclP v ty -> DataDeclP v' ty
 mapDataDeclV f DataDecl {..} =
     DataDecl
       { tycPVars = map (mapPVarV f (mapRTypeV f)) tycPVars
+      , tycSFun = fmap (fmap f) tycSFun
       , ..
       }
 
@@ -403,8 +404,9 @@ emapDataDeclM
 emapDataDeclM bscp vf f d = do
     tycPVars <- mapM (emapPVarVM vf (emapReftM bscp vf (const pure))) $ tycPVars d
     tycDCons <- traverse (mapM (emapDataCtorTyM f)) (tycDCons d)
+    tycSFun <- traverse (traverse (vf [])) (tycSFun d)
     tycPropTy <- traverse (f []) $ tycPropTy d
-    return d{tycDCons, tycPVars, tycPropTy}
+    return d{tycDCons, tycPVars, tycSFun, tycPropTy}
 
 emapDataCtorTyM
   :: Monad m
