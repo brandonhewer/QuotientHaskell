@@ -2261,6 +2261,9 @@ executable basic-pos
                     , Inc04
                     , Infer00
                     , List00
+                    , MeasureOverlapA
+                    , MeasureOverlapB
+                    , MeasureOverlapC
                     , OpaqueRefl01
                     , OpaqueRefl02
                     , OpaqueRefl03A

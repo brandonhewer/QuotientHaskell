@@ -524,7 +524,7 @@ collectUnhandledLiftedSpecLogicNames sp =
 collectLiftedSpecLogicNames :: LiftedSpec -> [LHName]
 collectLiftedSpecLogicNames sp =
     map fst (HS.toList $ liftedExpSigs sp) ++
-    map fst (HM.toList $ liftedMeasures sp)
+    map (fst . snd) (HM.toList $ liftedMeasures sp)
 
 -- | Resolves names in the logic namespace
 --
