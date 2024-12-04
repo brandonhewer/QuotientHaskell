@@ -114,7 +114,13 @@ makeTargetSpec cfg localVars lnameEnv lmap targetSrc bareSpec dependencies = do
     toLegacyDep (sm, ls) = (ModName SrcImport (Ghc.moduleName . Ghc.unStableModule $ sm), fromBareSpecLHName $ unsafeFromLiftedSpec ls)
 
     legacyDependencies :: [(ModName, BareSpec)]
-    legacyDependencies = map toLegacyDep . M.toList . getDependencies $ dependencies
+    legacyDependencies =
+      -- Dependencies are sorted lexicographically to make predictable which
+      -- logic names will have preference when exporting conflicting measures.
+      --
+      -- At the moment it is the measure from the last module after sorting.
+      -- But if there is a local conflicting measure, that one is used.
+      L.sortOn fst $ map toLegacyDep $ M.toList $ getDependencies dependencies
 
     -- Assumptions about local functions that are not exported aren't useful for
     -- other modules.
