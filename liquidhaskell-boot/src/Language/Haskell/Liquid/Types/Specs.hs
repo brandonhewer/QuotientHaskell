@@ -700,7 +700,7 @@ instance Monoid (Spec lname ty) where
 -- Apart from less fields, a 'LiftedSpec' /replaces all instances of lists with sets/, to enforce
 -- duplicate detection and removal on what we serialise on disk.
 data LiftedSpec = LiftedSpec
-  { -- | Measures (a.k.a.  user-defined properties for ADTs
+  { -- | Measures (a.k.a.  user-defined properties for ADTs)
     --
     -- The key of the HashMap is the unqualified name of the measure.
     -- Constructing such a map discards preceding measures with the same name
