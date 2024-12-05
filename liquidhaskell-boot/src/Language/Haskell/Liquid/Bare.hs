@@ -260,6 +260,8 @@ makeGhcSpec0 cfg ghcTyLookupEnv tcg instEnvs lenv localVars src lmap targetSpec 
                     | v <- gsReflects refl
                     ]
                 , dataDecls = Bare.dataDeclSize mySpec $ dataDecls mySpec
+                  -- Placing mySpec at the end causes local measures to take precedence over
+                  -- imported measures when their names clash.
                 , measures  = mconcat $ map Ms.measures $ map snd dependencySpecs ++ [mySpec]
                   -- We want to export measures in a 'LiftedSpec', especially if they are
                   -- required to check termination of some 'liftedSigs' we export. Due to the fact
