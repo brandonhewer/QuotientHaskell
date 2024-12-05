@@ -86,7 +86,7 @@ import qualified Data.HashMap.Lazy       as Lazy.M
 import qualified Data.HashMap.Strict     as M
 import           Data.HashMap.Strict     (HashMap)
 import           Data.Maybe
-import           Language.Haskell.Liquid.GHC.Misc (fSrcSpan)
+import           Language.Haskell.Liquid.GHC.Misc (dropModuleNames, fSrcSpan)
 import           Language.Haskell.Liquid.Name.LogicNameEnv
 import           Language.Haskell.Liquid.Types.DataDecl
 import           Language.Haskell.Liquid.Types.Errors
@@ -700,8 +700,15 @@ instance Monoid (Spec lname ty) where
 -- Apart from less fields, a 'LiftedSpec' /replaces all instances of lists with sets/, to enforce
 -- duplicate detection and removal on what we serialise on disk.
 data LiftedSpec = LiftedSpec
-  { liftedMeasures   :: HashMap LHName (MeasureV LHName LocBareTypeLHName (F.Located LHName))
-    -- ^ User-defined properties for ADTs
+  { -- | Measures (a.k.a.  user-defined properties for ADTs)
+    --
+    -- The key of the HashMap is the unqualified name of the measure.
+    -- Constructing such a map discards preceding measures with the same name
+    -- as later measures, which makes possible to predict which of a few
+    -- conflicting measures will be exported.
+    --
+    -- Tested in MeasureOverlapC.hs
+    liftedMeasures   :: HashMap F.Symbol (LHName, MeasureV LHName LocBareTypeLHName (F.Located LHName))
   , liftedExpSigs    :: HashSet (LHName, F.Sort)
     -- ^ Exported logic symbols originated from reflecting functions
   , liftedPrivateReflects :: HashSet F.LocSymbol
@@ -939,7 +946,7 @@ toLiftedSpec :: LogicNameEnv -> BareSpecLHName -> LiftedSpec
 toLiftedSpec lenv a = LiftedSpec
   { liftedMeasures   =
       M.fromList
-        [ (n, m)
+        [ (dropModuleNames $ logicNameToSymbol n, (n, m))
         | m <- measures a
         , let n = fromMaybe (panic (Just $ fSrcSpan (msName m)) "cannot find logic name") $
                     F.lookupSEnv (val $ msName m) (lneLHName lenv)
@@ -974,7 +981,7 @@ toLiftedSpec lenv a = LiftedSpec
 -- suitable for 'makeGhcSpec'.
 unsafeFromLiftedSpec :: LiftedSpec -> BareSpecLHName
 unsafeFromLiftedSpec a = Spec
-  { measures   = M.elems . liftedMeasures $ a
+  { measures   = map snd $ M.elems $ liftedMeasures a
   , expSigs    = S.toList . liftedExpSigs $ a
   , asmSigs    = S.toList . liftedAsmSigs $ a
   , asmReflectSigs = mempty

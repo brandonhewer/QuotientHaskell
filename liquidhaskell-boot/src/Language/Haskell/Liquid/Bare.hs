@@ -114,7 +114,13 @@ makeTargetSpec cfg localVars lnameEnv lmap targetSrc bareSpec dependencies = do
     toLegacyDep (sm, ls) = (ModName SrcImport (Ghc.moduleName . Ghc.unStableModule $ sm), fromBareSpecLHName $ unsafeFromLiftedSpec ls)
 
     legacyDependencies :: [(ModName, BareSpec)]
-    legacyDependencies = map toLegacyDep . M.toList . getDependencies $ dependencies
+    legacyDependencies =
+      -- Dependencies are sorted lexicographically to make predictable which
+      -- logic names will have preference when exporting conflicting measures.
+      --
+      -- At the moment it is the measure from the last module after sorting.
+      -- But if there is a local conflicting measure, that one is used.
+      L.sortOn fst $ map toLegacyDep $ M.toList $ getDependencies dependencies
 
     -- Assumptions about local functions that are not exported aren't useful for
     -- other modules.
@@ -254,7 +260,9 @@ makeGhcSpec0 cfg ghcTyLookupEnv tcg instEnvs lenv localVars src lmap targetSpec 
                     | v <- gsReflects refl
                     ]
                 , dataDecls = Bare.dataDeclSize mySpec $ dataDecls mySpec
-                , measures  = mconcat $ map Ms.measures $ mySpec : map snd dependencySpecs
+                  -- Placing mySpec at the end causes local measures to take precedence over
+                  -- imported measures when their names clash.
+                , measures  = mconcat $ map Ms.measures $ map snd dependencySpecs ++ [mySpec]
                   -- We want to export measures in a 'LiftedSpec', especially if they are
                   -- required to check termination of some 'liftedSigs' we export. Due to the fact
                   -- that 'lSpec1' doesn't contain the measures that we compute via 'makeHaskellMeasures',
