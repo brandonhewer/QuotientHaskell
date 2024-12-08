@@ -136,7 +136,7 @@ getGlobalSyms (_, spec)
       ++ (mbName <$> imeasures spec)
       ++ (mbName <$> omeasures spec)
   where
-    mbName = F.val . msName
+    mbName = logicNameToSymbol . F.val . msName
 
 makeLocalVars :: [Ghc.CoreBind] -> LocalVars
 makeLocalVars = localVarMap . localBinds
@@ -392,7 +392,7 @@ instance Qualify RTyCon where
 
 instance Qualify (Measure SpecType Ghc.DataCon) where
   qualify env name _ bs m = m -- FIXME substEnv env name bs $
-    { msName = qualify env name l bs     lname
+    { msName = updateLHNameSymbol (qualify env name l bs) <$> lname
     , msEqns = qualify env name l bs <$> msEqns m
     }
     where
@@ -951,7 +951,7 @@ lookupTyThingMaybe env lc@(Loc _ _ c0) = unsafePerformIO $ do
       LHNResolved rn _ -> case rn of
         LHRLocal _ -> panic (Just $ GM.fSrcSpan lc) $ "cannot resolve a local name: " ++ show c0
         LHRIndex i -> panic (Just $ GM.fSrcSpan lc) $ "cannot resolve a LHRIndex " ++ show i
-        LHRLogic (LogicName s _ _) -> panic (Just $ GM.fSrcSpan lc) $ "lookupTyThing: cannot resolve a LHRLogic name " ++ show s
+        LHRLogic _ -> panic (Just $ GM.fSrcSpan lc) $ "lookupTyThing: cannot resolve a LHRLogic name " ++ show (logicNameToSymbol c0)
         LHRGHC n ->
           Ghc.reflectGhc (Interface.lookupTyThing (gtleTypeEnv env) n) (gtleSession env)
 

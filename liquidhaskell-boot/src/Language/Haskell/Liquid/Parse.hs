@@ -1246,6 +1246,10 @@ tyBindP :: Parser (LocSymbol, Located BareTypeParsed)
 tyBindP =
   (,) <$> locBinderP <* reservedOp "::" <*> located genBareTypeP
 
+tyBindLogicNameP :: Parser (Located LHName, Located BareTypeParsed)
+tyBindLogicNameP =
+  (,) <$> locBinderLogicNameP <* reservedOp "::" <*> located genBareTypeP
+
 tyBindLHNameP :: Parser (Located LHName, Located BareTypeParsed)
 tyBindLHNameP = do
     x <- locBinderLHNameP
@@ -1325,31 +1329,27 @@ rtAliasP f bodyP
 hmeasureP :: Parser BPspec
 hmeasureP = do
   setLayout
-  do b <- try (locBinderP <* reservedOp "::")
+  do b <- try (locBinderLogicNameP <* reservedOp "::")
      ty <- located genBareTypeP
      popLayout >> popLayout
-     eqns <- block $ try $ measureDefP (rawBodyP <|> tyBodyP ty)
+     eqns <- block $ try $ measureDefP LHLogicNameBinder (rawBodyP <|> tyBodyP ty)
      return (Meas $ Measure.mkM b ty eqns MsMeasure mempty)
     <|>
    do b <- locBinderLHNameP
       popLayout >> popLayout >> return (HMeas b)
 
-measureP :: Parser (MeasureV LocSymbol (Located BareTypeParsed) (Located LHName))
-measureP = do
+iMeasureP :: Parser (MeasureV LocSymbol (Located BareTypeParsed) (Located LHName))
+iMeasureP = do
   (x, ty) <- indentedLine tyBindP
   _ <- optional semi
-  eqns    <- block $ measureDefP (rawBodyP <|> tyBodyP ty)
-  return   $ Measure.mkM x ty eqns MsMeasure mempty
+  eqns    <- block $ measureDefP LHLogicName (rawBodyP <|> tyBodyP ty)
+  return   $ Measure.mkM (makeUnresolvedLHName LHLogicName <$> x) ty eqns MsMeasure mempty
 
 -- | class measure
 cMeasureP :: Parser (MeasureV LocSymbol (Located BareTypeParsed) ())
 cMeasureP
-  = do (x, ty) <- tyBindP
+  = do (x, ty) <- tyBindLogicNameP
        return $ Measure.mkM x ty [] MsClass mempty
-
-iMeasureP :: Parser (MeasureV LocSymbol (Located BareTypeParsed) (Located LHName))
-iMeasureP = measureP
-
 
 oneClassArg :: Parser [Located BareTypeParsed]
 oneClassArg
@@ -1430,6 +1430,10 @@ locBinderP :: Parser (Located Symbol)
 locBinderP =
   located binderP -- TODO
 
+locBinderLogicNameP :: Parser (Located LHName)
+locBinderLogicNameP =
+  fmap (makeUnresolvedLHName LHLogicNameBinder) <$> located binderP
+
 locBinderLHNameP :: Parser (Located LHName)
 locBinderLHNameP =
   located $ makeUnresolvedLHName (LHVarName LHAnyModuleNameF) <$> binderP
@@ -1459,9 +1463,9 @@ binderP =
   -- Note: It is important that we do *not* use the LH/fixpoint reserved words here,
   -- because, for example, we must be able to use "assert" as an identifier.
 
-measureDefP :: Parser (BodyV LocSymbol) -> Parser (DefV LocSymbol (Located BareTypeParsed) (Located LHName))
-measureDefP bodyP
-  = do mname   <- locSymbolP
+measureDefP :: LHNameSpace -> Parser (BodyV LocSymbol) -> Parser (DefV LocSymbol (Located BareTypeParsed) (Located LHName))
+measureDefP ns bodyP
+  = do mname   <- fmap (makeUnresolvedLHName ns) <$> locSymbolP
        (c, xs) <- measurePatP
        reservedOp "="
        body    <- bodyP

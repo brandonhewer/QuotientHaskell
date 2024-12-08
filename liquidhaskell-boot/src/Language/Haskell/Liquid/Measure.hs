@@ -31,6 +31,7 @@ import           Text.PrettyPrint.HughesPJ              hiding ((<>))
 import qualified Data.HashMap.Strict                    as M
 import qualified Data.List                              as L
 import qualified Data.Maybe                             as Mb -- (fromMaybe, isNothing)
+import GHC.Stack
 
 import           Language.Fixpoint.Misc
 import           Language.Fixpoint.Types                as F hiding (panic, R, DataDecl, SrcSpan, LocSymbol)
@@ -48,7 +49,7 @@ import           Language.Haskell.Liquid.Types.Specs
 import           Language.Haskell.Liquid.UX.Tidy
 
 
-mkM ::  LocSymbol -> ty -> [DefV v ty bndr] -> MeasureKind -> UnSortedExprs -> MeasureV v ty bndr
+mkM :: HasCallStack => F.Located LHName -> ty -> [DefV v ty bndr] -> MeasureKind -> UnSortedExprs -> MeasureV v ty bndr
 mkM name typ eqns kind u
   | all ((name ==) . measure) eqns
   = M name typ eqns kind u
@@ -87,7 +88,7 @@ checkDuplicateMeasure measures
       mkError m ms = ErrDupMeas (fSrcSpan m) (pprint (val m)) (fSrcSpan <$> ms)
 
 
-dataConTypes :: Bool -> MSpec (RRType Reft) DataCon -> ([(Var, RRType Reft)], [(LocSymbol, RRType Reft)])
+dataConTypes :: Bool -> MSpec (RRType Reft) DataCon -> ([(Var, RRType Reft)], [(F.Located LHName, RRType Reft)])
 dataConTypes allowTC  s = (ctorTys, measTys)
   where
     measTys     = [(msName m, msSort m) | m <- M.elems (measMap s) ++ imeas s]
@@ -239,14 +240,15 @@ panicDataCon sp dc d
 
 refineWithCtorBody :: Outputable a
                    => a
-                   -> LocSymbol
+                   -> F.Located LHName
                    -> Body
                    -> RType c tv Reft
                    -> RType c tv Reft
 refineWithCtorBody dc f body t =
   case stripRTypeBase t of
     Just (Reft (v, _)) ->
-      strengthen t $ Reft (v, bodyPred (mkEApp f [eVar v]) body)
+      strengthen t $
+        Reft (v, bodyPred (eApps (EVar $ logicNameToSymbol $ val f) [eVar v]) body)
     Nothing ->
       panic Nothing $ "measure mismatch " ++ showpp f ++ " on con " ++ showPpr dc
 

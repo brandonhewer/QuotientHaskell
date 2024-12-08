@@ -49,6 +49,7 @@ import           Language.Haskell.Liquid.Bare.DataType
 import           Language.Haskell.Liquid.Bare.Misc     (simpleSymbolVar)
 import           Language.Haskell.Liquid.GHC.Play
 import           Language.Haskell.Liquid.Types.Errors
+import           Language.Haskell.Liquid.Types.Names
 import           Language.Haskell.Liquid.Types.RefType
 import           Language.Haskell.Liquid.Types.RType
 import           Language.Haskell.Liquid.Types.RTypeOp
@@ -165,7 +166,7 @@ runToLogicWithBoolBinds xs tce lmap dm ferror m
       , lsDCMap  = dm
       }
 
-coreAltToDef :: (Reftable r) => Bool -> LocSymbol -> Var -> [Var] -> Var -> Type -> [C.CoreAlt]
+coreAltToDef :: (Reftable r) => Bool -> Located LHName -> Var -> [Var] -> Var -> Type -> [C.CoreAlt]
              -> LogicM [Def (Located (RRType r)) DataCon]
 coreAltToDef allowTC locSym z zs y t alts
   | not (null litAlts) = measureFail locSym "Cannot lift definition with literal alternatives"
@@ -203,13 +204,13 @@ coreAltToDef allowTC locSym z zs y t alts
 toArgs :: Reftable r => (Located (RRType r) -> b) -> [Var] -> [(Symbol, b)]
 toArgs f args = [(symbol x, f $ varRType x) | x <- args]
 
-defArgs :: Monoid r => LocSymbol -> [Type] -> [(Symbol, Maybe (Located (RRType r)))]
+defArgs :: Monoid r => Located LHName -> [Type] -> [(Symbol, Maybe (Located (RRType r)))]
 defArgs x     = zipWith (\i t -> (defArg i, defRTyp t)) [0..]
   where
-    defArg    = tempSymbol (val x)
+    defArg    = tempSymbol (logicNameToSymbol $ val x)
     defRTyp   = Just . F.atLoc x . ofType
 
-coreToDef :: Reftable r => Bool -> LocSymbol -> Var -> C.CoreExpr
+coreToDef :: Reftable r => Bool -> Located LHName -> Var -> C.CoreExpr
           -> LogicM [Def (Located (RRType r)) DataCon]
 coreToDef allowTC locSym _                   = go [] . inlinePreds . simplify allowTC
   where
@@ -222,7 +223,7 @@ coreToDef allowTC locSym _                   = go [] . inlinePreds . simplify al
 
     inlinePreds   = inline (eqType boolTy . GM.expandVarType)
 
-measureFail       :: LocSymbol -> String -> a
+measureFail       :: Located LHName -> String -> a
 measureFail x msg = panic sp e
   where
     sp            = Just (GM.fSrcSpan x)

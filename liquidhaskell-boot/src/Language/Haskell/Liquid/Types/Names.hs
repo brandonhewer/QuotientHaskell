@@ -22,6 +22,7 @@ module Language.Haskell.Liquid.Types.Names
   , makeGHCLHNameLocatedFromId
   , makeLocalLHName
   , makeLogicLHName
+  , makeGeneratedLogicLHName
   , makeUnresolvedLHName
   , mapLHNames
   , mapMLocLHNames
@@ -59,14 +60,16 @@ selfSymbol = symbol ("liquid_internal_this" :: String)
 --
 -- For instance, this can be used to represent predicate aliases
 -- or uninterpreted functions.
-data LogicName = LogicName
-    { -- | Unqualified symbol
-      lnSymbol :: !Symbol
-      -- | Module where the entity was defined
-    , lnModule :: !GHC.Module
-      -- | If the named entity is the reflection of some Haskell name
-    , lnReflected :: !(Maybe GHC.Name)
-    }
+data LogicName =
+    LogicName
+      { -- | Unqualified symbol
+        lnSymbol :: !Symbol
+        -- | Module where the entity was defined
+      , lnModule :: !GHC.Module
+        -- | If the named entity is the reflection of some Haskell name
+      , lnReflected :: !(Maybe GHC.Name)
+      }
+    | GeneratedLogicName Symbol
   deriving (Data, Eq, Generic)
 
 -- | A name whose procedence is known.
@@ -114,6 +117,8 @@ data LHNameSpace
     = LHTcName
     | LHDataConName LHThisModuleNameFlag
     | LHVarName LHThisModuleNameFlag
+    | LHLogicNameBinder
+    | LHLogicName
   deriving (Data, Eq, Generic, Ord, Show)
 
 instance B.Binary LHNameSpace
@@ -134,6 +139,9 @@ instance Ord LogicName where
     case compare s1 s2 of
       EQ -> GHC.stableModuleCmp m1 m2
       x -> x
+  compare LogicName{} GeneratedLogicName{} = LT
+  compare GeneratedLogicName{} LogicName{} = GT
+  compare (GeneratedLogicName s1) (GeneratedLogicName s2) = compare s1 s2
 
 instance Show LHName where
   show (LHNResolved _ s) = symbolString s
@@ -154,6 +162,8 @@ instance Hashable LogicName where
   hashWithSalt s (LogicName sym m _) =
         s `hashWithSalt` sym
           `hashWithSalt` GHC.moduleStableString m
+  hashWithSalt s (GeneratedLogicName sym) =
+        s `hashWithSalt` sym
 
 instance B.Binary LHName
 instance B.Binary LHResolvedName where
@@ -182,9 +192,18 @@ instance GHC.Binary LHResolvedName where
   put_ _bh (LHRIndex _n) = error "GHC.Binary: cannot serialize LHRIndex"
 
 instance GHC.Binary LogicName where
-  get bh = LogicName . fromString <$> GHC.get bh <*> GHC.get bh <*> GHC.get bh
-  put_ bh (LogicName s m r) =
+  get bh = do
+    tag <- GHC.getByte bh
+    case tag of
+      0 -> LogicName . fromString <$> GHC.get bh <*> GHC.get bh <*> GHC.get bh
+      1 -> GeneratedLogicName . fromString <$> GHC.get bh
+      _ -> error "GHC.Binary: invalid tag for LogicName"
+  put_ bh (LogicName s m r) = do
+    GHC.putByte bh 0
     GHC.put_ bh (symbolString s) >> GHC.put_ bh m >> GHC.put_ bh r
+  put_ bh (GeneratedLogicName s) = do
+    GHC.putByte bh 1
+    GHC.put_ bh (symbolString s)
 
 instance PPrint LHName where
   pprintTidy _ = text . show
@@ -208,6 +227,9 @@ makeLocalLHName s = LHNResolved (LHRLocal s) s
 
 makeLogicLHName :: Symbol -> GHC.Module -> Maybe GHC.Name -> LHName
 makeLogicLHName s m r = LHNResolved (LHRLogic (LogicName s m r)) s
+
+makeGeneratedLogicLHName :: Symbol -> LHName
+makeGeneratedLogicLHName s = LHNResolved (LHRLogic (GeneratedLogicName s)) s
 
 makeGHCLHNameLocated :: (GHC.NamedThing a, Symbolic a) => a -> Located LHName
 makeGHCLHNameLocated x =
@@ -280,6 +302,7 @@ logicNameToSymbol (LHNResolved (LHRLogic (LogicName s om mReflectionOf)) _) =
           GHC.moduleUnitId m
      in symbol $ mconcat ["u", munique, "##", msymbol, ".", symbolText s]
           -}
+logicNameToSymbol (LHNResolved (LHRLogic (GeneratedLogicName s)) _) = s
 logicNameToSymbol (LHNResolved (LHRLocal s) _) = s
 logicNameToSymbol n = error $ "logicNameToSymbol: unexpected name: " ++ show n
 

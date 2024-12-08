@@ -135,7 +135,7 @@ makeTargetSpec cfg localVars lnameEnv lmap targetSrc bareSpec dependencies = do
           exportedAssumption _ = True
       return lspec { liftedAsmSigs = S.filter (exportedAssumption . val . fst) (liftedAsmSigs lspec) }
 
-    ghcSpecToLiftedSpec = toLiftedSpec lnameEnv . toBareSpecLHName cfg lnameEnv . _gsLSpec
+    ghcSpecToLiftedSpec = toLiftedSpec . toBareSpecLHName cfg lnameEnv . _gsLSpec
 
 
 -------------------------------------------------------------------------------------
@@ -1210,12 +1210,14 @@ makeMeasEnv env tycEnv sigEnv specs = do
   let (cs, ms) = Bare.makeMeasureSpec'  (typeclass $ getConfig env)   measures
   let cms      = Bare.makeClassMeasureSpec measures
   let cms'     = [ (val l, cSort t <$ l)  | (l, t) <- cms ]
-  let ms'      = [ (F.val lx, F.atLoc lx t) | (lx, t) <- ms
-                                            , Mb.isNothing (lookup (val lx) cms') ]
+  let ms'      = [ (logicNameToSymbol (F.val lx), F.atLoc lx t)
+                 | (lx, t) <- ms
+                 , Mb.isNothing (lookup (val lx) cms')
+                 ]
   let cs'      = [ (v, txRefs v t) | (v, t) <- Bare.meetDataConSpec (typeclass (getConfig env)) embs cs (datacons ++ cls)]
   return Bare.MeasEnv
     { meMeasureSpec = measures
-    , meClassSyms   = cms'
+    , meClassSyms   = map (first logicNameToSymbol) cms'
     , meSyms        = ms'
     , meDataCons    = cs'
     , meClasses     = cls
@@ -1256,7 +1258,7 @@ addOpaqueReflMeas cfg tycEnv env spec measEnv specs eqs = do
   -- `meSyms` (no class, data constructor or other stuff here).
   let measures = mconcat (Ms.mkMSpec' dcSelectors : measures0)
   let (cs, ms) = Bare.makeMeasureSpec'  (typeclass $ getConfig env)   measures
-  let ms'      = [ (F.val lx, F.atLoc lx t) | (lx, t) <- ms ]
+  let ms'      = [ (logicNameToSymbol (F.val lx), F.atLoc lx t) | (lx, t) <- ms ]
   let cs'      = [ (v, txRefs v t) | (v, t) <- Bare.meetDataConSpec (typeclass (getConfig env)) embs cs (val <$> datacons)]
   return $ measEnv <> mempty
     { Bare.meMeasureSpec = measures
