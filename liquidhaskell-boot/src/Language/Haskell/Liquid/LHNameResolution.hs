@@ -421,12 +421,9 @@ makeLogicEnvs impAvails thisModule spec dependencies =
         unhandledNamesList = concat $
           [ map (rtName . val) $ ealiases spec
           , map fst $
-             concatMap (DataDecl.dcpTyArgs . val) wiredDataCons
-          , map fst $
              concatMap DataDecl.dcFields $ concat $
              mapMaybe DataDecl.tycDCons $
              dataDecls spec
-          , map fst wiredSortedSyms
           ] ++ map (map getLHNameSymbol . snd) unhandledLogicNames
         unhandledLogicNames =
           map (fmap collectUnhandledLiftedSpecLogicNames) dependencyPairs
@@ -578,10 +575,13 @@ resolveLogicNames cfg env globalRdrEnv unhandledNames lmap0 localVars lnameEnv p
             -- or they must be reflected functions, or they must be in the logicmap.
             case resolveDataConName ls `mplus` resolveVarName lmap0 ls of
               Just m -> m
-              Nothing -> do
-                unless (HS.member s unhandledNames) $
-                  addError (errResolveLogicName ls alts)
-                return $ makeLocalLHName s
+              Nothing
+                | elem s wiredInNames ->
+                  return $ makeLocalLHName s
+                | otherwise -> do
+                  unless (HS.member s unhandledNames) $
+                    addError (errResolveLogicName ls alts)
+                  return $ makeLocalLHName s
           Right [(_, lhname)] ->
             return lhname
           Right names -> do
@@ -597,6 +597,9 @@ resolveLogicNames cfg env globalRdrEnv unhandledNames lmap0 localVars lnameEnv p
             return $ makeLocalLHName s
       where
         s = val ls
+        wiredInNames =
+           map fst wiredSortedSyms ++
+           map fst (concatMap (DataDecl.dcpTyArgs . val) wiredDataCons)
 
     errResolveLogicName s alts =
       ErrResolve
