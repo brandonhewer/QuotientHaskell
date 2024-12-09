@@ -43,6 +43,7 @@
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE LambdaCase                 #-}
+{-# LANGUAGE NamedFieldPuns             #-}
 {-# LANGUAGE TupleSections              #-}
 {-# LANGUAGE TypeApplications           #-}
 
@@ -418,8 +419,7 @@ makeLogicEnvs impAvails thisModule spec dependencies =
         unhandledNames = HS.fromList $
           map unqualify unhandledNamesList ++ map (LH.qualifySymbol (symbol $ GHC.moduleName thisModule)) unhandledNamesList
         unhandledNamesList = concat $
-          [ map (val . msName) $ cmeasures spec
-          , map (rtName . val) $ ealiases spec
+          [ map (rtName . val) $ ealiases spec
           , map fst $
              concatMap (DataDecl.dcpTyArgs . val) wiredDataCons
           , map fst $
@@ -434,17 +434,19 @@ makeLogicEnvs impAvails thisModule spec dependencies =
           (thisModule, thisModuleNames) :
           map (fmap collectLiftedSpecLogicNames) dependencyPairs
           ++ unhandledLogicNames
-        thisModuleNames =
-          [ reflectLHName thisModule (val n)
-          | n <- concat
+        thisModuleNames = concat
+          [ [ reflectLHName thisModule (val n)
+            | n <- concat
               [ map fst (asmReflectSigs spec)
               , HS.toList (reflects spec)
               , HS.toList (opaqueReflects spec)
               , HS.toList (inlines spec)
               , HS.toList (hmeas spec)
               ]
-          ] ++
-          [ makeLogicLHName (val (msName m)) thisModule Nothing | m <- measures spec ]
+            ]
+          , [ makeLogicLHName (val (msName m)) thisModule Nothing | m <- measures spec ]
+          , [ makeLogicLHName (val (msName m)) thisModule Nothing | m <- cmeasures spec ]
+          ]
         privateReflectNames =
           mconcat $
             privateReflects spec : map (liftedPrivateReflects . snd) dependencyPairs
@@ -510,11 +512,11 @@ makeLogicEnvs impAvails thisModule spec dependencies =
         , lneReflected = GHC.mkNameEnv [(rn, n) | n <- names, Just rn <- [maybeReflectedLHName n]]
         }
 
+{- HLINT ignore collectUnhandledLiftedSpecLogicNames "Use ++" -}
 collectUnhandledLiftedSpecLogicNames :: LiftedSpec -> [LHName]
 collectUnhandledLiftedSpecLogicNames sp =
     concat
-      [ map (makeLocalLHName . LH.dropModuleNames . val . msName) $ HS.toList $ liftedCmeasures sp
-      , map (makeLocalLHName . LH.dropModuleNames . rtName . val) $ HS.toList $ liftedEaliases sp
+      [ map (makeLocalLHName . LH.dropModuleNames . rtName . val) $ HS.toList $ liftedEaliases sp
       , map (makeLocalLHName . LH.dropModuleNames . fst) $
         concatMap DataDecl.dcFields $ concat $
         mapMaybe DataDecl.tycDCons $
@@ -522,9 +524,11 @@ collectUnhandledLiftedSpecLogicNames sp =
       ]
 
 collectLiftedSpecLogicNames :: LiftedSpec -> [LHName]
-collectLiftedSpecLogicNames sp =
-    map fst (HS.toList $ liftedExpSigs sp) ++
-    map (fst . snd) (HM.toList $ liftedMeasures sp)
+collectLiftedSpecLogicNames sp = concat
+    [ map fst (HS.toList $ liftedExpSigs sp)
+    , map (fst . snd) (HM.toList $ liftedMeasures sp)
+    , map (fst . snd) (HM.toList $ liftedCmeasures sp)
+    ]
 
 -- | Resolves names in the logic namespace
 --
@@ -543,26 +547,25 @@ resolveLogicNames
   -> GHC.Module
   -> BareSpecParsed
   -> State RenameOutput BareSpecLHName
-resolveLogicNames cfg env globalRdrEnv unhandledNames lmap0 localVars lnameEnv privateReflectNames thisModule sp =
+resolveLogicNames cfg env globalRdrEnv unhandledNames lmap0 localVars lnameEnv privateReflectNames thisModule sp = do
+    -- Instance measures must be defined for names of class measures.
+    -- The names of class measures should be in @env@
+    imeasures <- mapM (mapMeasureNamesM (\lx -> (<$ lx) . logicNameToSymbol <$> resolveLogicName [] lx)) (imeasures sp)
     emapSpecM
       (bscope cfg)
       (map localVarToSymbol . maybe [] lvdLclEnv . (GHC.lookupNameEnv (lvNames localVars) <=< getLHGHCName))
       resolveLogicName
       (emapBareTypeVM (bscope cfg) resolveLogicName)
-      sp { measures = map qualifyMeasureName (measures sp)
+      sp { -- Measures and cmeasures aren't parametric on the type used for
+           -- logic names. We make sure that they are properly qualified here.
+           measures = runIdentity $ mapM (mapMeasureNamesM (return . fmap qualifyName)) (measures sp)
+         , cmeasures = runIdentity $ mapM (mapMeasureNamesM (return . fmap qualifyName)) (cmeasures sp)
+         , imeasures
          }
   where
     localVarToSymbol = F.symbol . GHC.occNameString . GHC.nameOccName . GHC.varName
 
     qualifyName = LH.qualifySymbol (symbol $ GHC.moduleNameString $ GHC.moduleName thisModule)
-
-    qualifyMeasureName m =
-      m { msName = qualifyName <$> msName m
-        , msEqns = qualifyDefName <$> msEqns m
-        }
-
-    qualifyDefName d =
-      d { measure = qualifyName <$> measure d }
 
     resolveLogicName :: [Symbol] -> LocSymbol -> State RenameOutput LHName
     resolveLogicName ss ls
@@ -681,6 +684,16 @@ resolveLogicNames cfg env globalRdrEnv unhandledNames lmap0 localVars lnameEnv p
 
     findReflection :: GHC.Name -> Maybe LHName
     findReflection n = GHC.lookupNameEnv (lneReflected lnameEnv) n
+
+mapMeasureNamesM :: Monad m => (LocSymbol -> m LocSymbol) -> MeasureV v ty ctor -> m (MeasureV v ty ctor)
+mapMeasureNamesM f m = do
+    msName <- f (msName m)
+    msEqns <- mapM mapDefNameM (msEqns m)
+    return m {msName, msEqns}
+  where
+    mapDefNameM d = do
+      measure <- f (measure d)
+      return d {measure}
 
 toBareSpecLHName :: Config -> LogicNameEnv -> BareSpec -> BareSpecLHName
 toBareSpecLHName cfg env sp0 = runIdentity $ go sp0
