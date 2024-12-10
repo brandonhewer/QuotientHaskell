@@ -64,6 +64,7 @@ import Data.Hashable (Hashable)
 import Data.Bifunctor (bimap, first)
 import Data.Function (on)
 
+-- import Debug.Trace
 
 {- $creatingTargetSpecs
 
@@ -101,13 +102,16 @@ makeTargetSpec cfg localVars lnameEnv lmap targetSrc bareSpec dependencies = do
   where
     secondPhase :: [Warning] -> Ghc.TcRn (Either Diagnostics ([Warning], TargetSpec, LiftedSpec))
     secondPhase phaseOneWarns = do
+      --let bs' = trace ("bareDefines @" ++ show (giTargetMod targetSrc) ++ " = " ++ show (defines bareSpec)) $ bareSpec
       diagOrSpec <- makeGhcSpec cfg localVars (fromTargetSrc targetSrc) lmap bareSpec legacyDependencies
       case diagOrSpec of
         Left d -> return $ Left d
         Right (warns, ghcSpec) -> do
           let targetSpec = toTargetSpec ghcSpec
-              liftedSpec = ghcSpecToLiftedSpec ghcSpec
-          liftedSpec' <- removeUnexportedLocalAssumptions liftedSpec
+              bareSpec1 = ghcSpecToBareSpec ghcSpec
+              liftedSpec = toLiftedSpec (bareSpec1 { defines = defines bareSpec })
+              -- ls' = trace ("liftedDefines @" ++ show (giTargetMod targetSrc) ++ " = " ++ show (liftedDefines liftedSpec)) $ liftedSpec
+          liftedSpec' <- removeUnexportedLocalAssumptions liftedSpec --ls'
           return $ Right (phaseOneWarns <> warns, targetSpec, liftedSpec')
 
     toLegacyDep :: (Ghc.StableModule, LiftedSpec) -> (ModName, BareSpec)
@@ -129,7 +133,8 @@ makeTargetSpec cfg localVars lnameEnv lmap targetSrc bareSpec dependencies = do
           exportedAssumption _ = True
       return lspec { liftedAsmSigs = S.filter (exportedAssumption . val . fst) (liftedAsmSigs lspec) }
 
-    ghcSpecToLiftedSpec = toLiftedSpec . toBareSpecLHName cfg lnameEnv . _gsLSpec
+    ghcSpecToBareSpec = toBareSpecLHName cfg lnameEnv . _gsLSpec
+    --ghcSpecToLiftedSpec = toLiftedSpec . foo
 
 
 -------------------------------------------------------------------------------------
