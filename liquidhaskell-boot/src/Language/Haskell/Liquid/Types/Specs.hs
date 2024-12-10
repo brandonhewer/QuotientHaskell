@@ -421,6 +421,7 @@ data Spec lname ty = Spec
   , dsize      :: ![([F.Located ty], F.LocSymbol)]                    -- ^ Size measure to enforce fancy termination
   , bounds     :: !(RRBEnvV lname (F.Located ty))
   , axeqs      :: ![F.EquationV lname]                                -- ^ Equalities used for Proof-By-Evaluation
+  , defines    :: ![(F.LocSymbol, ([F.Symbol], F.Expr))]              -- ^ Logic aliases
   } deriving (Data, Generic)
 
 instance (Show lname, F.PPrint lname, Show ty, F.PPrint ty, F.PPrint (RTypeV lname BTyCon BTyVar (RReftV lname))) => F.PPrint (Spec lname ty) where
@@ -487,6 +488,7 @@ emapSpecM bscp lenv vf f sp = do
         (traverse (emapBoundM (traverse . f) (\e -> emapExprVM (vf . (++ e)))))
         (M.toList $ bounds sp)
     axeqs <- mapM (emapEquationM vf) $ axeqs sp
+--    defines <- mapM (emapEquationM vf) $ defines sp
     return sp
       { measures
       , expSigs
@@ -510,6 +512,7 @@ emapSpecM bscp lenv vf f sp = do
       , dsize
       , bounds
       , axeqs
+--      , defines
       }
   where
     fnull = f []
@@ -628,6 +631,7 @@ instance Semigroup (Spec lname ty) where
            , autosize   = S.union   (autosize s1)  (autosize s2)
            , bounds     = M.union   (bounds   s1)  (bounds   s2)
            , autois     = S.union   (autois s1)      (autois s2)
+           , defines    =            defines  s1 ++ defines  s2
            }
 
 instance Monoid (Spec lname ty) where
@@ -672,6 +676,7 @@ instance Monoid (Spec lname ty) where
            , dsize      = []
            , axeqs      = []
            , bounds     = M.empty
+           , defines    = []
            }
 
 -- $liftedSpec
@@ -743,6 +748,8 @@ data LiftedSpec = LiftedSpec
   , liftedBounds     :: RRBEnvV LHName LocBareTypeLHName
   , liftedAxeqs      :: HashSet (F.EquationV LHName)
     -- ^ Equalities used for Proof-By-Evaluation
+  , liftedDefines    :: M.HashMap F.Symbol LMap
+    -- ^ Logical synonyms
   } deriving (Eq, Data, Generic)
     deriving Hashable via Generically LiftedSpec
     deriving Binary   via Generically LiftedSpec
@@ -794,6 +801,7 @@ emptyLiftedSpec = LiftedSpec
   , liftedDsize      = mempty
   , liftedBounds     = mempty
   , liftedAxeqs      = mempty
+  , liftedDefines    = mempty
   }
 
 -- $trackingDeps
@@ -958,6 +966,7 @@ toLiftedSpec a = LiftedSpec
   , liftedDsize      = dsize a
   , liftedBounds     = bounds a
   , liftedAxeqs      = S.fromList . axeqs $ a
+  , liftedDefines    = M.fromList . map toLMap . defines $ a
   }
 
 -- This is a temporary internal function that we use to convert the input dependencies into a format
@@ -1003,4 +1012,5 @@ unsafeFromLiftedSpec a = Spec
   , dsize      = liftedDsize  a
   , bounds     = liftedBounds a
   , axeqs      = S.toList . liftedAxeqs $ a
+  , defines    = map (fromLMap . snd) . M.toList . liftedDefines $ a
   }

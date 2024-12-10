@@ -44,6 +44,7 @@ import Language.Fixpoint.Types
 import Language.Haskell.Liquid.GHC.Misc (locNamedThing) -- Symbolic GHC.Name
 import qualified Liquid.GHC.API as GHC
 import Text.PrettyPrint.HughesPJ.Compat
+-- import qualified GHC.Plugins as GHC
 
 -- RJ: Please add docs
 lenLocSymbol :: Located Symbol
@@ -228,7 +229,7 @@ getLHNameSymbol :: LHName -> Symbol
 getLHNameSymbol (LHNResolved _ s) = s
 getLHNameSymbol (LHNUnresolved _ s) = s
 
--- | Get the unresolved Symbol from an LHName.
+-- | Get the resolved data from an LHName.
 getLHNameResolved :: HasCallStack => LHName -> LHResolvedName
 getLHNameResolved (LHNResolved n _) = n
 getLHNameResolved n@LHNUnresolved{} = error $ "getLHNameResolved: unresolved name: " ++ show n

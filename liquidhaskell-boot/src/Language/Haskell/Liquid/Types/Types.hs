@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveDataTypeable         #-}
 {-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE DeriveTraversable          #-}
+{-# LANGUAGE DerivingVia                #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses      #-}
 {-# LANGUAGE FlexibleInstances          #-}
@@ -8,7 +9,6 @@
 {-# LANGUAGE UndecidableInstances       #-}
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE ConstraintKinds            #-}
-{-# LANGUAGE DerivingVia                #-}
 {-# LANGUAGE NamedFieldPuns             #-}
 {-# LANGUAGE TupleSections              #-}
 
@@ -128,7 +128,7 @@ module Language.Haskell.Liquid.Types.Types (
   , mapRTAVars
 
   -- * CoreToLogic
-  , LogicMap(..), toLogicMap, eAppWithMap, LMap(..)
+  , LogicMap(..), toLMap, fromLMap, toLogicMap, {- toLogicMapWith, -} eAppWithMap, LMap(..)
 
   -- * Refined Instances
   , RDEnv, DEnv(..), RInstance(..), RISig(..)
@@ -143,31 +143,33 @@ module Language.Haskell.Liquid.Types.Types (
   )
   where
 
-import           Liquid.GHC.API as Ghc hiding ( Expr
-                                                               , isFunTy
-                                                               , ($+$)
-                                                               , nest
-                                                               , text
-                                                               , blankLine
-                                                               , (<+>)
-                                                               , vcat
-                                                               , hsep
-                                                               , comma
-                                                               , colon
-                                                               , parens
-                                                               , empty
-                                                               , char
-                                                               , panic
-                                                               , int
-                                                               , hcat
-                                                               , showPpr
-                                                               , punctuate
-                                                               , ($$)
-                                                               , braces
-                                                               , angleBrackets
-                                                               , brackets
-                                                               )
+import           Liquid.GHC.API as Ghc hiding ( Binary
+                                              , Expr
+                                              , isFunTy
+                                              , ($+$)
+                                              , nest
+                                              , text
+                                              , blankLine
+                                              , (<+>)
+                                              , vcat
+                                              , hsep
+                                              , comma
+                                              , colon
+                                              , parens
+                                              , empty
+                                              , char
+                                              , panic
+                                              , int
+                                              , hcat
+                                              , showPpr
+                                              , punctuate
+                                              , ($$)
+                                              , braces
+                                              , angleBrackets
+                                              , brackets
+                                              )
 import           Data.String
+import           Data.Binary
 import           GHC.Generics
 import           Prelude                          hiding  (error)
 
@@ -193,6 +195,8 @@ import           Language.Haskell.Liquid.Types.Errors
 import           Language.Haskell.Liquid.Types.Names
 import           Language.Haskell.Liquid.Types.RType
 import           Language.Haskell.Liquid.Misc
+
+-- import Debug.Trace
 
 
 -----------------------------------------------------------------------------
@@ -265,16 +269,41 @@ data LMap = LMap
   { lmVar  :: F.LocSymbol
   , lmArgs :: [Symbol]
   , lmExpr :: Expr
-  }
+  } deriving (Eq, Data, Generic)
+    deriving Hashable via Generically LMap
+    deriving Binary   via Generically LMap
 
 instance Show LMap where
   show (LMap x xs e) = show x ++ " " ++ show xs ++ "\t |-> \t" ++ show e
 
-toLogicMap :: [(F.LocSymbol, [Symbol], Expr)] -> LogicMap
-toLogicMap ls = mempty {lmSymDefs = M.fromList $ map toLMap ls}
-  where
-    toLMap (x, ys, e) = (F.val x, LMap {lmVar = x, lmArgs = ys, lmExpr = e})
+toLMap :: (F.LocSymbol, ([Symbol], Expr)) -> (Symbol, LMap)
+toLMap (x, (ys, e)) = (F.val x, LMap {lmVar = x, lmArgs = ys, lmExpr = e})
 
+fromLMap :: LMap -> (F.LocSymbol, ([Symbol], Expr))
+fromLMap (LMap x ys e) = (x, (ys, e))
+
+toLogicMap :: [(F.LocSymbol, ([Symbol], Expr))] -> LogicMap
+toLogicMap ls = mempty {lmSymDefs = M.fromList $ map toLMap ls}
+
+{-
+toLogicMapWith :: (Symbol -> Symbol) -> [(F.LocSymbol, ([Symbol], Expr))] -> LogicMap
+toLogicMapWith f ls = mempty {lmSymDefs = M.fromList $ map toLMap ls}
+  where
+    toLMap (x, (ys, e)) =
+      let x' = f <$> x in
+      (F.val x', LMap {lmVar = x', lmArgs = ys, lmExpr = e})
+-}
+{-
+defsToLogicMap :: Symbol -> M.HashMap (F.LocSymbol) ([Symbol], Expr) -> LogicMap
+defsToLogicMap modsym ls = mempty {lmSymDefs = M.fromList $ map toLMap $ M.toList ls}
+  where
+    toLMap (x, (ys, e)) =
+        let qx = qualifySymbol modsym <$> x in
+        ( F.val qx
+        , LMap { lmVar = qx
+               , lmArgs = ys
+               , lmExpr = e})
+-}
 eAppWithMap :: LogicMap -> Symbol -> [Expr] -> Expr -> Expr
 eAppWithMap lmap f es expr
   | Just (LMap _ xs e) <- M.lookup f (lmSymDefs lmap)

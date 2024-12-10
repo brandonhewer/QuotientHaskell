@@ -91,6 +91,8 @@ import           Language.Haskell.Liquid.WiredIn
 import qualified Text.PrettyPrint.HughesPJ as PJ
 import qualified Text.Printf               as Printf
 
+-- import Debug.Trace (trace)
+
 -- | Collects type aliases from the current module and its dependencies.
 --
 -- It doesn't matter at the moment in which module a type alias is defined.

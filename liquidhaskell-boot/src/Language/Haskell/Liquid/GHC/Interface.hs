@@ -274,8 +274,8 @@ makeLogicMap = do
     Right lm -> return (lm <> listLMap)
 
 listLMap :: LogicMap -- TODO-REBARE: move to wiredIn
-listLMap  = toLogicMap [ (dummyLoc nilName , []     , hNil)
-                       , (dummyLoc consName, [x, xs], hCons (EVar <$> [x, xs])) ]
+listLMap  = toLogicMap [ (dummyLoc nilName , ([]     , hNil))
+                       , (dummyLoc consName, ([x, xs], hCons (EVar <$> [x, xs]))) ]
   where
     x     = "x"
     xs    = "xs"

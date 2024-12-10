@@ -24,7 +24,7 @@ coreToLogic = unlines
   , "define Language.Haskell.Liquid.String.stringEmp = (stringEmp)"
   , "define Language.Haskell.Liquid.Equational.eq x y = (y)"
 
-  --, "define Language.Haskell.Liquid.ProofCombinators.withProof x y = (x)"
+  -- , "define Language.Haskell.Liquid.ProofCombinators.withProof x y = (x)"
 
   , "define Language.Haskell.Liquid.ProofCombinators.cast x y = (y)"
   , "define Liquid.ProofCombinators.cast x y = (y)"

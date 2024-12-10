@@ -10,7 +10,7 @@ module Language.Haskell.Liquid.ProofCombinators (
 
   -- * Proof is just a () alias
   Proof
-  , toProof 
+  , toProof
 
   -- * Proof constructors
   , trivial, unreachable, (***), QED(..)
@@ -21,18 +21,18 @@ module Language.Haskell.Liquid.ProofCombinators (
   -- * These two operators check all intermediate equalities
   , (===) -- proof of equality is implicit eg. x === y
   , (=<=) -- proof of equality is implicit eg. x <= y
-  , (=>=)  -- proof of equality is implicit eg. x =>= y 
+  , (=>=)  -- proof of equality is implicit eg. x =>= y
 
   -- * This operator does not check intermediate equalities
-  , (==.) 
+  , (==.)
 
   -- Uncheck operator used only for proof debugging
   , (==!) -- x ==! y always succeeds
 
   -- * Combining Proofs
   , (&&&)
-  , withProof 
-  , impossible 
+  , withProof
+  , impossible
 
   -- * PLE-specific
   , pleUnfold
@@ -120,9 +120,9 @@ _ =>= y  = y
 infixl 3 ?
 
 {-@ (?) :: forall a b <pa :: a -> Bool, pb :: b -> Bool>. a<pa> -> b<pb> -> a<pa> @-}
-(?) :: a -> b -> a 
-x ? _ = x 
-{-# INLINE (?)   #-} 
+(?) :: a -> b -> a
+x ? _ = x
+{-# INLINE (?)   #-}
 
 -------------------------------------------------------------------------------
 -- | Assumed equality
@@ -149,13 +149,13 @@ infixl 3 ==!
 -- | The above operators check each intermediate proof step.
 --   The operator `==.` below accepts an optional proof term
 --   argument, but does not check intermediate steps.
---   So, using `==.` the proofs are faster, but the error messages worse. 
+--   So, using `==.` the proofs are faster, but the error messages worse.
 
 infixl 3 ==.
 
-{-# INLINE (==.) #-} 
-(==.) :: a -> a -> a 
-_ ==. x = x 
+{-# INLINE (==.) #-}
+(==.) :: a -> a -> a
+_ ==. x = x
 
 -------------------------------------------------------------------------------
 -- | * Combining Proof Certificates -------------------------------------------
@@ -165,7 +165,8 @@ _ ==. x = x
 x &&& _ = x
 
 
-{-@ withProof :: x:a -> b -> {v:a | v = x} @-}
+{-@        withProof :: x:a -> b -> {v:a | v = x} @-}
+{-@ define withProof    x      y            = (x) @-}
 withProof :: a -> b -> a
 withProof x _ = x
 
@@ -174,7 +175,7 @@ impossible :: a -> b
 impossible _ = undefined
 
 -------------------------------------------------------------------------------
--- | Convenient Syntax for Inductive Propositions 
+-- | Convenient Syntax for Inductive Propositions
 -------------------------------------------------------------------------------
 
 {-@ measure prop :: a -> b           @-}

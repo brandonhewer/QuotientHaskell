@@ -19,11 +19,13 @@ import qualified Liquid.GHC.API         as O
 import           Liquid.GHC.API         as GHC hiding (Type)
 import qualified Text.PrettyPrint.HughesPJ               as PJ
 import qualified Language.Fixpoint.Types                 as F
-import qualified  Language.Haskell.Liquid.GHC.Misc        as LH
+-- import qualified Language.Fixpoint.Types.Refinements     as F
+import qualified Language.Haskell.Liquid.GHC.Misc        as LH
 import qualified Language.Haskell.Liquid.UX.CmdLine      as LH
 import qualified Language.Haskell.Liquid.GHC.Interface   as LH
 import           Language.Haskell.Liquid.LHNameResolution (resolveLHNames)
 import qualified Language.Haskell.Liquid.Liquid          as LH
+-- import qualified Language.Haskell.Liquid.Types.Names     as LH
 import qualified Language.Haskell.Liquid.Types.PrettyPrint as LH ( filterReportErrors
                                                                  , filterReportErrorsWith
                                                                  , defaultFilterReporter
@@ -378,12 +380,10 @@ processInputSpec cfg pipelineData modSummary inputSpec = do
 
   logicMap :: LogicMap <- liftIO LH.makeLogicMap
 
-  -- debugLog $ "Logic map:\n" ++ show logicMap
-
   let lhContext = LiquidHaskellContext {
         lhGlobalCfg       = cfg
       , lhInputSpec       = inputSpec
-      , lhModuleLogicMap  = logicMap <> toLogicMap [ d | Define d <- pdSpecComments pipelineData ]
+      , lhModuleLogicMap  = logicMap -- <> toLogicMap defines
       , lhModuleSummary   = modSummary
       , lhModuleTcData    = pdTcData pipelineData
       , lhModuleGuts      = pdUnoptimisedCore pipelineData
@@ -544,14 +544,20 @@ processModule LiquidHaskellContext{..} = do
 
     tcg <- getGblEnv
     let localVars = Resolve.makeLocalVars preNormalizedCore
+        modsym = symbol $ GHC.moduleName thisModule
+        -- we do this here because we 1) have the module name 2) process dependencies here
+        defs = map (\(ls , ae) -> (LH.qualifySymbol modsym <$> ls , ae)) $ defines bareSpec0
+        localLogicMap = toLogicMap defs
+        depsLogicMap = foldr (\h l -> l <> mempty {lmSymDefs = h}) mempty (liftedDefines <$> (HM.elems . getDependencies) dependencies)
+        lm = lhModuleLogicMap <> depsLogicMap <> localLogicMap
         eBareSpec = resolveLHNames
           moduleCfg
           thisModule
           localVars
           (imp_mods $ tcg_imports tcg)
           (tcg_rdr_env tcg)
-          lhModuleLogicMap
-          bareSpec0
+          lm
+          bareSpec0 { defines = defs }
           dependencies
     result <-
       case eBareSpec of
@@ -562,7 +568,7 @@ processModule LiquidHaskellContext{..} = do
               moduleCfg
               localVars
               lnameEnv
-              lhModuleLogicMap
+              lm
               targetSrc
               bareSpec
               dependencies
