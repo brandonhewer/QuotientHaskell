@@ -739,8 +739,11 @@ data LiftedSpec = LiftedSpec
     -- ^ Automatically instantiate axioms in these Functions
   , liftedAutosize   :: HashSet (F.Located LHName)
     -- ^ Type Constructors that get automatically sizing info
-  , liftedCmeasures  :: HashSet (MeasureV LHName LocBareTypeLHName ())
-    -- ^ Measures attached to a type-class
+
+    -- | Measures attached to a type-class
+    --
+    -- Imitates the arrangement for 'liftedMeasures'
+  , liftedCmeasures  :: HashMap F.Symbol (LHName, MeasureV LHName LocBareTypeLHName ())
   , liftedImeasures  :: HashSet (MeasureV LHName LocBareTypeLHName (F.Located LHName))
     -- ^ Mappings from (measure,type) -> measure
   , liftedOmeasures  :: HashSet (MeasureV LHName LocBareTypeLHName (F.Located LHName))
@@ -966,7 +969,14 @@ toLiftedSpec lenv a = LiftedSpec
   , liftedLvars      = lvars a
   , liftedAutois     = autois a
   , liftedAutosize   = autosize a
-  , liftedCmeasures  = S.fromList . cmeasures $ a
+  , liftedCmeasures  =
+      M.fromList
+        [ (dropModuleNames $ logicNameToSymbol n, (n, m))
+        | m <- cmeasures a
+        , let n = fromMaybe (panic (Just $ fSrcSpan (msName m)) "cannot find logic name") $
+                    F.lookupSEnv (val $ msName m) (lneLHName lenv)
+        ]
+
   , liftedImeasures  = S.fromList . imeasures $ a
   , liftedOmeasures  = S.fromList . omeasures $ a
   , liftedClasses    = S.fromList . classes $ a
@@ -1010,7 +1020,7 @@ unsafeFromLiftedSpec a = Spec
   , ignores    = mempty
   , autosize   = liftedAutosize a
   , pragmas    = mempty
-  , cmeasures  = S.toList . liftedCmeasures $ a
+  , cmeasures  = map snd $ M.elems $ liftedCmeasures a
   , imeasures  = S.toList . liftedImeasures $ a
   , omeasures  = S.toList . liftedOmeasures $ a
   , classes    = S.toList . liftedClasses $ a

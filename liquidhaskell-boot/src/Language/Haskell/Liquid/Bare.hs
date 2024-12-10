@@ -280,7 +280,7 @@ makeGhcSpec0 cfg ghcTyLookupEnv tcg instEnvs lenv localVars src lmap targetSpec 
                   -- Preserve rinstances.
                 , asmReflectSigs = Ms.asmReflectSigs mySpec
                 , reflects = Ms.reflects mySpec0
-                , cmeasures = Ms.cmeasures targetSpec
+                , cmeasures  = mconcat $ map Ms.cmeasures $ map snd dependencySpecs ++ [targetSpec]
                 , embeds = Ms.embeds targetSpec
                 , privateReflects = mconcat $ map (privateReflects . snd) mspecs
                 }
