@@ -95,16 +95,16 @@ checkBareSpec sp
     hmeasures = S.map (fmap getLHNameSymbol) (Ms.hmeas sp)
     reflects  = S.map (fmap getLHNameSymbol) (Ms.reflects sp)
     measures  = fmap getLHNameSymbol . msName <$> Ms.measures sp
-    fields    = concatMap dataDeclFields (Ms.dataDecls sp)
+    fields    = map (fmap getLHNameSymbol) $ concatMap dataDeclFields (Ms.dataDecls sp)
 
-dataDeclFields :: DataDecl -> [F.LocSymbol]
-dataDeclFields = filter (not . GM.isTmpSymbol . F.val)
+dataDeclFields :: DataDecl -> [F.Located LHName]
+dataDeclFields = filter (not . GM.isTmpSymbol . getLHNameSymbol . F.val)
                . Misc.hashNubWith val
                . concatMap dataCtorFields
                . fromMaybe []
                . tycDCons
 
-dataCtorFields :: DataCtor -> [F.LocSymbol]
+dataCtorFields :: DataCtor -> [F.Located LHName]
 dataCtorFields c
   | isGadt c  = []
   | otherwise = F.atLoc c <$> [ f | (f,_) <- dcFields c ]

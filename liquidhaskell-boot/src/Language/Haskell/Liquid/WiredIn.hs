@@ -33,16 +33,17 @@ import Language.Haskell.Liquid.GHC.Misc
 import qualified Liquid.GHC.API as Ghc
 import Liquid.GHC.API (Var, Arity, TyVar, Bind(..), Boxity(..), Expr(..), ForAllTyFlag(Required))
 import Language.Haskell.Liquid.Types.Errors
+import Language.Haskell.Liquid.Types.Names
 import Language.Haskell.Liquid.Types.RType
 import Language.Haskell.Liquid.Types.Types
 import Language.Haskell.Liquid.Types.RefType
 import Language.Haskell.Liquid.Types.Variance
 import Language.Haskell.Liquid.Types.PredType
-import Language.Haskell.Liquid.Types.Names (selfSymbol)
 
 -- import Language.Fixpoint.Types hiding (panic)
 import qualified Language.Fixpoint.Smt.Theories as F
 import qualified Language.Fixpoint.Types as F
+import           Data.Bifunctor (first)
 import qualified Data.HashSet as S
 import           Data.Maybe
 
@@ -165,7 +166,7 @@ wiredTyDataCons = (concat tcs, dummyLoc <$> concat dcs)
     (tcs, dcs)  = unzip $ listTyDataCons : map tupleTyDataCons [2..maxArity]
 
 charDataCon :: Located DataConP
-charDataCon = dummyLoc (DataConP l0 Ghc.charDataCon  [] [] [] [("charX",lt)] lt False wiredInName l0)
+charDataCon = dummyLoc (DataConP l0 Ghc.charDataCon  [] [] [] [(makeGeneratedLogicLHName "charX",lt)] lt False wiredInName l0)
   where
     l0 = F.dummyPos "LH.Bare.charTyDataCons"
     c  = Ghc.charTyCon
@@ -188,7 +189,7 @@ listTyDataCons   = ( [TyConP l0 c [RTV tyv] [p] [Covariant] [Covariant] (Just fs
       lt         = rApp c [xt] [rPropP [] $ pdVarReft p] mempty
       xt         = rVar tyv
       xst        = rApp c [RVar (RTV tyv) px] [rPropP [] $ pdVarReft p] mempty
-      cargs      = [(xTail, xst), (xHead, xt)]
+      cargs      = map (first makeGeneratedLogicLHName) $ [(xTail, xst), (xHead, xt)]
       fsize      = SymSizeFun (dummyLoc "GHC.Types_LHAssumptions.len")
 
 wiredInName :: F.Symbol
@@ -213,7 +214,7 @@ tupleTyDataCons n = ( [TyConP   l0 c  (RTV <$> tyvs) ps tyvarinfo pdvarinfo Noth
     pxs           = mkps pnames (ta:ts) ((fld, F.EVar x1) : zip flds (F.EVar <$> xs))
     lt            = rApp c (rVar <$> tyvs) (rPropP [] . pdVarReft <$> ups) mempty
     xts           = zipWith (\v p -> RVar (RTV v) (pdVarReft p)) tvs pxs
-    cargs         = reverse $ (x1, rVar tv) : zip xs xts
+    cargs         = map (first makeGeneratedLogicLHName) $ reverse $ (x1, rVar tv) : zip xs xts
     pnames        = mks_ "p"
     mks  x        = (\i -> F.symbol (x++ show i)) <$> [1..n]
     mks_ x        = (\i -> F.symbol (x++ show i)) <$> [2..n]

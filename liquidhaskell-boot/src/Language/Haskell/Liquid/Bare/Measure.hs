@@ -241,7 +241,7 @@ dataConDecl d     = {- F.notracepp msg $ -} DataCtor dx (F.symbol <$> as) [] xts
   where
     isGadt        = not (Ghc.isVanillaDataCon d)
     -- msg           = printf "dataConDecl (gadt = %s)" (show isGadt)
-    xts           = [(Bare.makeDataConSelector Nothing d i, RT.bareOfType t) | (i, t) <- its ]
+    xts           = [(makeGeneratedLogicLHName $ Bare.makeDataConSelector Nothing d i, RT.bareOfType t) | (i, t) <- its ]
     dx            = makeGHCLHNameLocated d
     its           = zip [1..] ts
     (as,_ps,ts,ty)  = Ghc.dataConSig d
@@ -275,7 +275,7 @@ makeMeasureSelectors cfg dm (Loc l l' c)
       = Nothing
       | otherwise
         -- TODO: Use as origin module the module where the measure is created
-      = Just $ makeMeasureSelector (Loc l l' (makeGeneratedLogicLHName x)) (projT i) dc n i
+      = Just $ makeMeasureSelector (Loc l l' x) (projT i) dc n i
 
     go' ((_,t), i)
       -- do not make selectors for functional fields
@@ -393,19 +393,18 @@ getDefinedSymbolsInLogic env measEnv specs =
   S.unions (uncurry getFromAxioms <$> specsList) -- reflections that ended up in equations
     `S.union` getLocReflects (Just env) specs -- reflected symbols
     `S.union` measVars -- Get the data constructors, ex. for Lit00.0
-    `S.union` S.unions (uncurry getDataDecls <$> specsList) -- get the Predicated type defs, ex. for T1669.CSemigroup
+    `S.union` S.unions (getDataDecls . snd <$> specsList) -- get the Predicated type defs, ex. for T1669.CSemigroup
     `S.union` S.unions (getAliases . snd <$> specsList) -- aliases, ex. for T1738Lib.incr
   where
     specsList = M.toList specs
     getFromAxioms modName spec = S.fromList $
       Bare.qualifyLocSymbolTop env modName . localize . F.eqName <$> Ms.axeqs spec
     measVars     = S.fromList $ localize . fst <$> getMeasVars env measEnv
-    getDataDecls modName spec = S.unions $
-      getFromDataCtor modName <$>
+    getDataDecls spec = S.unions $
+      getFromDataCtor <$>
         concat (tycDCons `Mb.mapMaybe` (dataDecls spec ++ newtyDecls spec))
-    getFromDataCtor modName decl = S.fromList $
-      Bare.qualifyLocSymbolTop env modName <$>
-        (fmap getLHNameSymbol (dcName decl) : (localize . fst <$> dcFields decl))
+    getFromDataCtor decl = S.fromList $
+      map (dummyLoc . logicNameToSymbol) $ val (dcName decl) : (fst <$> dcFields decl)
     getAliases spec = S.fromList $ fmap rtName <$> Ms.ealiases spec
     localize :: F.Symbol -> F.LocSymbol
     localize sym = maybe (dummyLoc sym) varLocSym $ L.lookup sym (Bare.reSyms env)

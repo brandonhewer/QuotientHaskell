@@ -131,12 +131,18 @@ resolveLHNames cfg thisModule localVars impMods globalRdrEnv lmap bareSpec0 depe
             -- A generic traversal that resolves names of Haskell entities
             sp1 <- mapMLocLHNames (\l -> (<$ l) <$> resolveLHName l) $
                      fixExpressionArgsOfTypeAliases taliases bareSpec0
+            -- Data decls contain fieldnames that introduce measures with the
+            -- same names. We resolved them before constructing the logic
+            -- environment.
+            dataDecls <- mapM (mapDataDeclFieldNamesM resolveFieldLogicName) (dataDecls sp1)
+            let sp2 = sp1 {dataDecls}
+
             (es0,_) <- get
             if null es0 then do
               -- Now we do a second traversal to resolve logic names
               let (inScopeEnv, logicNameEnv0, privateReflectNames, unhandledNames) =
-                    makeLogicEnvs impMods thisModule sp1 dependencies
-              sp2 <- fromBareSpecLHName <$>
+                    makeLogicEnvs impMods thisModule sp2 dependencies
+              sp3 <- fromBareSpecLHName <$>
                        resolveLogicNames
                          cfg
                          inScopeEnv
@@ -146,8 +152,8 @@ resolveLHNames cfg thisModule localVars impMods globalRdrEnv lmap bareSpec0 depe
                          localVars
                          logicNameEnv0
                          privateReflectNames
-                         sp1
-              return (sp2, logicNameEnv0)
+                         sp2
+              return (sp3, logicNameEnv0)
             else
               return (error "resolveLHNames: invalid spec", error "resolveLHNames: invalid logic environment")
         logicNameEnv' = extendLogicNameEnv logicNameEnv ns
@@ -157,6 +163,11 @@ resolveLHNames cfg thisModule localVars impMods globalRdrEnv lmap bareSpec0 depe
       Left es
   where
     taliases = collectTypeAliases thisModule bareSpec0 dependencies
+
+    resolveFieldLogicName n =
+      case n of
+        LHNUnresolved LHLogicNameBinder s -> pure $ makeLogicLHName s thisModule Nothing
+        _ -> panic Nothing $ "unexpected name: " ++ show n
 
     resolveLHName lname = case val lname of
       LHNUnresolved LHTcName s
@@ -433,13 +444,9 @@ makeLogicEnvs impAvails thisModule spec dependencies =
         -- by renaming.
         unhandledNames = HS.fromList $
           map unqualify unhandledNamesList ++ map (LH.qualifySymbol (symbol $ GHC.moduleName thisModule)) unhandledNamesList
-        unhandledNamesList = concat $
-          [ map (rtName . val) $ ealiases spec
-          , map fst $
-             concatMap DataDecl.dcFields $ concat $
-             mapMaybe DataDecl.tycDCons $
-             dataDecls spec
-          ] ++ map (map getLHNameSymbol . snd) unhandledLogicNames
+        unhandledNamesList =
+          map (rtName . val) (ealiases spec)
+          ++ concatMap (map getLHNameSymbol . snd) unhandledLogicNames
         unhandledLogicNames =
           map (fmap collectUnhandledLiftedSpecLogicNames) dependencyPairs
         logicNames =
@@ -458,6 +465,10 @@ makeLogicEnvs impAvails thisModule spec dependencies =
             ]
           , [ val (msName m) | m <- measures spec ]
           , [ val (msName m) | m <- cmeasures spec ]
+          , map fst $
+             concatMap DataDecl.dcFields $ concat $
+             mapMaybe DataDecl.tycDCons $
+             dataDecls spec
           ]
         privateReflectNames =
           mconcat $
@@ -527,19 +538,16 @@ makeLogicEnvs impAvails thisModule spec dependencies =
 {- HLINT ignore collectUnhandledLiftedSpecLogicNames "Use ++" -}
 collectUnhandledLiftedSpecLogicNames :: LiftedSpec -> [LHName]
 collectUnhandledLiftedSpecLogicNames sp =
-    concat
-      [ map (makeLocalLHName . LH.dropModuleNames . rtName . val) $ HS.toList $ liftedEaliases sp
-      , map (makeLocalLHName . LH.dropModuleNames . fst) $
-        concatMap DataDecl.dcFields $ concat $
-        mapMaybe DataDecl.tycDCons $
-        HS.toList $ liftedDataDecls sp
-      ]
+    map (makeLocalLHName . LH.dropModuleNames . rtName . val) $ HS.toList $ liftedEaliases sp
 
 collectLiftedSpecLogicNames :: LiftedSpec -> [LHName]
 collectLiftedSpecLogicNames sp = concat
     [ map fst (HS.toList $ liftedExpSigs sp)
     , map (val . msName) (HM.elems $ liftedMeasures sp)
     , map (val . msName) (HM.elems $ liftedCmeasures sp)
+    , map fst $ concatMap DataDecl.dcFields $ concat $
+        mapMaybe DataDecl.tycDCons $
+        HS.toList $ liftedDataDecls sp
     ]
 
 -- | Resolves names in the logic namespace
@@ -567,7 +575,7 @@ resolveLogicNames cfg env globalRdrEnv unhandledNames lmap0 localVars lnameEnv p
       (map localVarToSymbol . maybe [] lvdLclEnv . (GHC.lookupNameEnv (lvNames localVars) <=< getLHGHCName))
       resolveLogicName
       (emapBareTypeVM (bscope cfg) resolveLogicName)
-      sp { imeasures }
+      sp {imeasures}
   where
     resolveIMeasLogicName lx =
       case val lx of
@@ -611,7 +619,7 @@ resolveLogicNames cfg env globalRdrEnv unhandledNames lmap0 localVars lnameEnv p
         s = val ls
         wiredInNames =
            map fst wiredSortedSyms ++
-           map fst (concatMap (DataDecl.dcpTyArgs . val) wiredDataCons)
+           map (logicNameToSymbol . fst) (concatMap (DataDecl.dcpTyArgs . val) wiredDataCons)
 
     errResolveLogicName s alts =
       ErrResolve
@@ -709,6 +717,16 @@ mapMeasureNamesM f m = do
     mapDefNameM d = do
       measure <- f (measure d)
       return d {measure}
+
+mapDataDeclFieldNamesM :: Monad m => (LHName -> m LHName) -> DataDecl.DataDeclP v ty -> m (DataDecl.DataDeclP v ty)
+mapDataDeclFieldNamesM f d = do
+    tycDCons <- traverse (mapM (mapDataCtorFieldsM f)) (DataDecl.tycDCons d)
+    return d{DataDecl.tycDCons}
+  where
+    mapDataCtorFieldsM :: Monad m => (LHName -> m LHName) -> DataDecl.DataCtorP ty -> m (DataDecl.DataCtorP ty)
+    mapDataCtorFieldsM f1 c = do
+      dcFields <- mapM (\(n, t) -> (, t) <$> f1 n) (DataDecl.dcFields c)
+      return c{DataDecl.dcFields}
 
 toBareSpecLHName :: Config -> LogicNameEnv -> BareSpec -> BareSpecLHName
 toBareSpecLHName cfg env sp0 = runIdentity $ go sp0

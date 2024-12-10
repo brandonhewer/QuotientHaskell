@@ -21,6 +21,7 @@ module Language.Haskell.Liquid.Parse
 import           Control.Arrow                          (second)
 import           Control.Monad
 import           Control.Monad.Identity
+import           Data.Bifunctor                         (first)
 import qualified Data.Char                              as Char
 import qualified Data.Foldable                          as F
 import           Data.String
@@ -1509,11 +1510,13 @@ mkConsPat x lc y = (makeGHCLHName (GHC.getName GHC.consDataCon) (symbol GHC.cons
 --------------------------------- Predicates ----------------------------------
 -------------------------------------------------------------------------------
 
-dataConFieldsP :: Parser [(Symbol, BareTypeParsed)]
+dataConFieldsP :: Parser [(LHName, BareTypeParsed)]
 dataConFieldsP
-   =  explicitCommaBlock predTypeDDP -- braces (sepBy predTypeDDP comma)
-  <|> many dataConFieldP
-  <?> "dataConFieldP"
+   = map (first (makeUnresolvedLHName LHLogicNameBinder)) <$>
+     (explicitCommaBlock predTypeDDP -- braces (sepBy predTypeDDP comma)
+       <|> many dataConFieldP
+       <?> "dataConFieldP"
+     )
 
 dataConFieldP :: Parser (Symbol, BareTypeParsed)
 dataConFieldP
@@ -1551,8 +1554,8 @@ tRepVars as tr = case fst <$> ty_vars tr of
   [] -> as
   vs -> symbol . ty_var_value <$> vs
 
-tRepFields :: RTypeRepV v c tv r -> [(Symbol, RTypeV v c tv r)]
-tRepFields tr = zip (ty_binds tr) (ty_args tr)
+tRepFields :: RTypeRepV v c tv r -> [(LHName, RTypeV v c tv r)]
+tRepFields tr = zip (map (makeUnresolvedLHName LHLogicNameBinder) $ ty_binds tr) (ty_args tr)
 
 -- TODO: fix Located
 dataConNameP :: Parser (Located Symbol)

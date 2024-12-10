@@ -16,6 +16,7 @@ module Language.Haskell.Liquid.Types.Names
   , getLHNameResolved
   , getLHNameSymbol
   , logicNameToSymbol
+  , lhNameToUnqualifiedSymbol
   , makeGHCLHName
   , makeGHCLHNameFromId
   , makeGHCLHNameLocated
@@ -250,7 +251,7 @@ getLHNameSymbol :: LHName -> Symbol
 getLHNameSymbol (LHNResolved _ s) = s
 getLHNameSymbol (LHNUnresolved _ s) = s
 
--- | Get the unresolved Symbol from an LHName.
+-- | Get the resolved Symbol from an LHName.
 getLHNameResolved :: HasCallStack => LHName -> LHResolvedName
 getLHNameResolved (LHNResolved n _) = n
 getLHNameResolved n@LHNUnresolved{} = error $ "getLHNameResolved: unresolved name: " ++ showLHNameDebug n
@@ -316,7 +317,15 @@ logicNameToSymbol (LHNResolved (LHRLogic (LogicName s om mReflectionOf)) _) =
           -}
 logicNameToSymbol (LHNResolved (LHRLogic (GeneratedLogicName s)) _) = s
 logicNameToSymbol (LHNResolved (LHRLocal s) _) = s
+logicNameToSymbol (LHNResolved (LHRGHC n) _) = symbol $ GHC.getOccString n
 logicNameToSymbol n = error $ "logicNameToSymbol: unexpected name: " ++ show n
+
+lhNameToUnqualifiedSymbol :: HasCallStack => LHName -> Symbol
+lhNameToUnqualifiedSymbol (LHNResolved (LHRLogic (LogicName s _ _)) _) = s
+lhNameToUnqualifiedSymbol (LHNResolved (LHRLogic (GeneratedLogicName s)) _) = s
+lhNameToUnqualifiedSymbol (LHNResolved (LHRLocal s) _) = s
+lhNameToUnqualifiedSymbol (LHNResolved (LHRGHC n) _) = symbol $ GHC.getOccString n
+lhNameToUnqualifiedSymbol n = error $ "lhNameToUnqualifiedSymbol: unexpected name: " ++ show n
 
 -- | Creates a name in the logic namespace for the given Haskell name.
 reflectLHName :: HasCallStack => GHC.Module -> LHName -> LHName

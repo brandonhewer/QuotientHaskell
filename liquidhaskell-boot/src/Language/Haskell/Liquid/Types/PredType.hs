@@ -56,6 +56,7 @@ import           Language.Haskell.Liquid.GHC.Misc
 import           Language.Haskell.Liquid.Misc
 import           Language.Haskell.Liquid.Types.DataDecl
 import           Language.Haskell.Liquid.Types.Errors
+import           Language.Haskell.Liquid.Types.Names
 import           Language.Haskell.Liquid.Types.RefType hiding (generalize)
 import           Language.Haskell.Liquid.Types.RType
 import           Language.Haskell.Liquid.Types.RTypeOp
@@ -183,16 +184,18 @@ dcWrapSpecType allowTC dc (DataConP _ _ vs ps cs yts rt _ _ _)
     mkArrow makeVars' ps ts' rt'
   where
     isCls    = Ghc.isClassTyCon $ Ghc.dataConTyCon dc
-    (as, sts) = unzip (reverse yts)
+    (as0, sts) = unzip (reverse yts)
+    as = map logicNameToSymbol as0
+    as1 = map lhNameToUnqualifiedSymbol as0
     mkDSym z = F.symbol z `F.suffixSymbol` F.symbol dc
     bs       = mkDSym <$> as
     tx _  []     []     []     = []
     tx su (x:xs) (y:ys) (t:ts) = (y, classRFInfo allowTC , if allowTC && isCls then t else F.subst (F.mkSubst su) t, mempty)
                                : tx ((x, F.EVar y):su) xs ys ts
     tx _ _ _ _ = panic Nothing "PredType.dataConPSpecType.tx called on invalid inputs"
-    yts'     = tx [] as bs sts
+    yts'     = tx [] as1 bs sts
     ts'      = map ("" , classRFInfo allowTC , , mempty) cs ++ yts'
-    subst    = F.mkSubst [(x, F.EVar y) | (x, y) <- zip as bs]
+    subst    = F.mkSubst [(x, F.EVar y) | (x, y) <- zip as1 bs]
     rt'      = F.subst subst rt
     makeVars = filter (`elem` fvs) $ zipWith (\v a -> RTVar v (rTVarInfo a :: RTVInfo RSort)) vs (fst $ splitForAllTyCoVars $ dataConRepType dc)
     makeVars' = map (, mempty) makeVars 

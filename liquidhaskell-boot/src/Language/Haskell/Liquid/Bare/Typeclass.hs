@@ -162,9 +162,9 @@ classDeclToDataDecl cls refinedIds = DataDecl
   fields = fmap attachRef classIds
   attachRef sid
     | Just ref <- L.lookup sid refinedIds
-    = (F.symbol sid, RT.subts tyVarSubst (F.val ref))
+    = (makeGHCLHNameFromId sid, RT.subts tyVarSubst (F.val ref))
     | otherwise
-    = (F.symbol sid, RT.bareOfType . dropTheta . Ghc.varType $ sid)
+    = (makeGHCLHNameFromId sid, RT.bareOfType . dropTheta . Ghc.varType $ sid)
 
   tyVarSubst = [ (GM.dropModuleUnique v, v) | v <- tyVars ]
 
@@ -189,10 +189,10 @@ elaborateClassDcp
 elaborateClassDcp coreToLg simplifier dcp = do
   t' <- flip (zipWith addCoherenceOblig) prefts
     <$> forM fts (elaborateSpecType coreToLg simplifier)
-  let ts' = elaborateMethod (F.symbol dc) (S.fromList xs) <$> t'
+  let ts' = elaborateMethod (F.symbol dc) (S.fromList $ map logicNameToSymbol xs) <$> t'
   pure
     ( dcp { dcpTyArgs = zip xs (stripPred <$> ts') }
-    , dcp { dcpTyArgs = fmap (\(x, t) -> (x, strengthenTy x t)) (zip xs t') }
+    , dcp { dcpTyArgs = fmap (\(x, t) -> (x, strengthenTy (logicNameToSymbol x) t)) (zip xs t') }
     )
  where
   addCoherenceOblig :: SpecType -> Maybe RReft -> SpecType
@@ -393,7 +393,7 @@ makeClassAuxTypesOne elab (ldcp, inst, methods) =
     -- Monoid.mappend, ...
     clsMethods = filter (\x -> GM.dropModuleNames (F.symbol x) `elem` fmap mkSymbol methods) $
       Ghc.classAllSelIds (Ghc.is_cls inst)
-    yts = [(GM.dropModuleNames y, t) | (y, t) <- dcpTyArgs dcp]
+    yts = [(logicNameToSymbol y, t) | (y, t) <- dcpTyArgs dcp]
     mkSymbol x
       | -- F.notracepp ("isDictonaryId:" ++ GM.showPpr x) $
         Ghc.isDictonaryId x = F.mappendSym "$" (F.dropSym 2 $ GM.simplesymbol x)
