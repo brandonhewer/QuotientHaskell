@@ -131,21 +131,25 @@ resolveLHNames cfg thisModule localVars impMods globalRdrEnv lmap bareSpec0 depe
             -- A generic traversal that resolves names of Haskell entities
             sp1 <- mapMLocLHNames (\l -> (<$ l) <$> resolveLHName l) $
                      fixExpressionArgsOfTypeAliases taliases bareSpec0
-            -- Now we do a second traversal to resolve logic names
-            let (inScopeEnv, logicNameEnv0, privateReflectNames, unhandledNames) =
-                  makeLogicEnvs impMods thisModule sp1 dependencies
-            sp2 <- fromBareSpecLHName <$>
-                     resolveLogicNames
-                       cfg
-                       inScopeEnv
-                       globalRdrEnv
-                       unhandledNames
-                       lmap
-                       localVars
-                       logicNameEnv0
-                       privateReflectNames
-                       sp1
-            return (sp2, logicNameEnv0)
+            (es0,_) <- get
+            if null es0 then do
+              -- Now we do a second traversal to resolve logic names
+              let (inScopeEnv, logicNameEnv0, privateReflectNames, unhandledNames) =
+                    makeLogicEnvs impMods thisModule sp1 dependencies
+              sp2 <- fromBareSpecLHName <$>
+                       resolveLogicNames
+                         cfg
+                         inScopeEnv
+                         globalRdrEnv
+                         unhandledNames
+                         lmap
+                         localVars
+                         logicNameEnv0
+                         privateReflectNames
+                         sp1
+              return (sp2, logicNameEnv0)
+            else
+              return (error "invalid spec", error "invalid logic environment")
         logicNameEnv' = extendLogicNameEnv logicNameEnv ns
     if null es then
       Right (bs, logicNameEnv')
