@@ -7,9 +7,6 @@ coreToLogic = unlines
   , "define GHC.Internal.Real.mod x y        = (x mod y)"
   , "define GHC.Internal.Real.fromIntegral x = (x)"
 
---  , "define GHC.Internal.Num.fromInteger x   = (x)"
---  , "define GHC.Num.Integer.IS x             = (x)"
-
   , "define GHC.Classes.not x                = (~ x)"
   , "define GHC.Internal.Base.$ f x          = (f x)"
   , ""
@@ -23,8 +20,6 @@ coreToLogic = unlines
   , ""
   , "define Language.Haskell.Liquid.String.stringEmp = (stringEmp)"
   , "define Language.Haskell.Liquid.Equational.eq x y = (y)"
-
-  -- , "define Language.Haskell.Liquid.ProofCombinators.withProof x y = (x)"
 
   , "define Language.Haskell.Liquid.ProofCombinators.cast x y = (y)"
   , "define Liquid.ProofCombinators.cast x y = (y)"
@@ -49,12 +44,4 @@ coreToLogic = unlines
   , "define Data.Set.Internal.member x xs      = (Set_mem x xs)"
   , "define Data.Set.Internal.isSubsetOf x y   = (Set_sub x y)"
   , "define Data.Set.Internal.fromList xs      = (listElts xs)"
---  , ""
---  , "define Language.Haskell.Liquid.Bag.get k b      = (Bag_count b k)"
---  , "define Language.Haskell.Liquid.Bag.put k b      = (Bag_union b (Bag_sng k 1))"
---  , "define Language.Haskell.Liquid.Bag.union a b    = (Bag_union a b)"
---  , "define Language.Haskell.Liquid.Bag.unionMax a b = (Bag_union_max a b)"
---  , "define Language.Haskell.Liquid.Bag.interMin a b = (Bag_inter_min a b)"
---  , "define Language.Haskell.Liquid.Bag.sub a b      = (Bag_sub a b)"
---  , "define Language.Haskell.Liquid.Bag.empty        = (Bag_empty 0)"
   ]

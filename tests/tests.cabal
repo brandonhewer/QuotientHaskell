@@ -2014,7 +2014,6 @@ executable unit-pos-3
                     , WBL0
                     , WBL
                     , WhyLH
-                    , WithProofRefl
                     , Words1
                     , Words
                     , Wrap0

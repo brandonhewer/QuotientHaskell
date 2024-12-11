@@ -930,7 +930,7 @@ data BPspec
   | Varia   (Located LHName, [Variance])                  -- ^ 'variance' annotations, marking type constructor params as co-, contra-, or in-variant
   | DSize   ([LocBareTypeParsed], LocSymbol)              -- ^ 'data size' annotations, generating fancy termination metric
   | BFix    ()                                            -- ^ fixity annotation
-  | Define  (LocSymbol, [Symbol], Expr)              -- ^ 'define' annotation for specifying logic aliases
+  | Define  (LocSymbol, ([Symbol], Expr))              -- ^ 'define' annotation for specifying logic aliases
   deriving (Data, Typeable)
 
 instance PPrint BPspec where
@@ -1031,7 +1031,7 @@ ppPspec k (DSize   (ds, ss))
   = "data size" <+> splice " " (pprintTidy k <$> map (fmap parsedToBareType) ds) <+> pprintTidy k (val ss)
 ppPspec _ (BFix    _)           --
   = "fixity"
-ppPspec k (Define  (lx, ys , e))
+ppPspec k (Define  (lx, (ys, e)))
   = "define" <+> pprintTidy k (val lx) <+> " " <+> pprintTidy k ys <+> "=" <+> pprintTidy k e
 ppPspec k (Relational (lxl, lxr, tl, tr, q, p))
   = "relational"
@@ -1132,7 +1132,7 @@ mkSpec xs = Measure.Spec
   , Measure.ignores    = S.fromList [s | Ignore s <- xs]
   , Measure.autosize   = S.fromList [s | ASize  s <- xs]
   , Measure.axeqs      = []
-  , Measure.defines    = [ (x , (as , e)) | Define (x , as , e) <- xs]
+  , Measure.defines    = [ d | Define d <- xs]
   }
 
 -- | Parse a single top level liquid specification
@@ -1326,11 +1326,11 @@ rtAliasP f bodyP
 
 logDefineP :: Parser BPspec
 logDefineP =
-    do s <- locBinderP -- locBinderLHNameP
+    do s <- locBinderP
        args <- many locSymbolP
        reservedOp "="
        e <- exprP <|> predP
-       return (Define (s, val <$> args, val <$> e))
+       return (Define (s, (val <$> args, val <$> e)))
 
 hmeasureP :: Parser BPspec
 hmeasureP = do

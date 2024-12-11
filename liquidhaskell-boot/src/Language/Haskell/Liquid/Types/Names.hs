@@ -44,7 +44,6 @@ import Language.Fixpoint.Types
 import Language.Haskell.Liquid.GHC.Misc (locNamedThing) -- Symbolic GHC.Name
 import qualified Liquid.GHC.API as GHC
 import Text.PrettyPrint.HughesPJ.Compat
--- import qualified GHC.Plugins as GHC
 
 -- RJ: Please add docs
 lenLocSymbol :: Located Symbol

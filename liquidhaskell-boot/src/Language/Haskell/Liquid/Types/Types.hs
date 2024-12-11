@@ -128,7 +128,7 @@ module Language.Haskell.Liquid.Types.Types (
   , mapRTAVars
 
   -- * CoreToLogic
-  , LogicMap(..), toLMap, fromLMap, toLogicMap, {- toLogicMapWith, -} eAppWithMap, LMap(..)
+  , LogicMap(..), toLMap, fromLMap, toLogicMap, eAppWithMap, LMap(..)
 
   -- * Refined Instances
   , RDEnv, DEnv(..), RInstance(..), RISig(..)
@@ -285,25 +285,6 @@ fromLMap (LMap x ys e) = (x, (ys, e))
 toLogicMap :: [(F.LocSymbol, ([Symbol], Expr))] -> LogicMap
 toLogicMap ls = mempty {lmSymDefs = M.fromList $ map toLMap ls}
 
-{-
-toLogicMapWith :: (Symbol -> Symbol) -> [(F.LocSymbol, ([Symbol], Expr))] -> LogicMap
-toLogicMapWith f ls = mempty {lmSymDefs = M.fromList $ map toLMap ls}
-  where
-    toLMap (x, (ys, e)) =
-      let x' = f <$> x in
-      (F.val x', LMap {lmVar = x', lmArgs = ys, lmExpr = e})
--}
-{-
-defsToLogicMap :: Symbol -> M.HashMap (F.LocSymbol) ([Symbol], Expr) -> LogicMap
-defsToLogicMap modsym ls = mempty {lmSymDefs = M.fromList $ map toLMap $ M.toList ls}
-  where
-    toLMap (x, (ys, e)) =
-        let qx = qualifySymbol modsym <$> x in
-        ( F.val qx
-        , LMap { lmVar = qx
-               , lmArgs = ys
-               , lmExpr = e})
--}
 eAppWithMap :: LogicMap -> Symbol -> [Expr] -> Expr -> Expr
 eAppWithMap lmap f es expr
   | Just (LMap _ xs e) <- M.lookup f (lmSymDefs lmap)

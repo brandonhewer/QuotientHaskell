@@ -488,7 +488,6 @@ emapSpecM bscp lenv vf f sp = do
         (traverse (emapBoundM (traverse . f) (\e -> emapExprVM (vf . (++ e)))))
         (M.toList $ bounds sp)
     axeqs <- mapM (emapEquationM vf) $ axeqs sp
---    defines <- mapM (emapEquationM vf) $ defines sp
     return sp
       { measures
       , expSigs
@@ -512,7 +511,6 @@ emapSpecM bscp lenv vf f sp = do
       , dsize
       , bounds
       , axeqs
---      , defines
       }
   where
     fnull = f []
@@ -749,7 +747,7 @@ data LiftedSpec = LiftedSpec
   , liftedAxeqs      :: HashSet (F.EquationV LHName)
     -- ^ Equalities used for Proof-By-Evaluation
   , liftedDefines    :: M.HashMap F.Symbol LMap
-    -- ^ Logical synonyms
+    -- ^ Logic aliases
   } deriving (Eq, Data, Generic)
     deriving Hashable via Generically LiftedSpec
     deriving Binary   via Generically LiftedSpec
