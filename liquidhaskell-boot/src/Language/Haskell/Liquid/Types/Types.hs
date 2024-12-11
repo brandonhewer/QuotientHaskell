@@ -196,8 +196,6 @@ import           Language.Haskell.Liquid.Types.Names
 import           Language.Haskell.Liquid.Types.RType
 import           Language.Haskell.Liquid.Misc
 
--- import Debug.Trace
-
 
 -----------------------------------------------------------------------------
 -- | Information about Type Constructors
