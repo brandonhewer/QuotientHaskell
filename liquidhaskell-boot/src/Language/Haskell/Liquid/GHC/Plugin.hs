@@ -43,6 +43,7 @@ import           Control.Monad
 import qualified Control.Monad.Catch as Ex
 import           Control.Monad.IO.Class (MonadIO)
 
+import           Data.Bifunctor                           ( first )
 import           Data.Coerce
 import           Data.Function                            ((&))
 import qualified Data.List                               as L
@@ -543,8 +544,7 @@ processModule LiquidHaskellContext{..} = do
     tcg <- getGblEnv
     let localVars = Resolve.makeLocalVars preNormalizedCore
         modsym = symbol $ GHC.moduleName thisModule
-        defs = map (\(ls , ae) -> (LH.qualifySymbol modsym <$> ls , ae)) $
-               defines bareSpec0
+        defs = first (fmap (LH.qualifySymbol modsym)) <$> defines bareSpec0
         depsLogicMap = foldr (\ls lmp -> lmp <> mempty {lmSymDefs = liftedDefines ls}) mempty $
                        (HM.elems . getDependencies) dependencies
         lm = lhModuleLogicMap <> depsLogicMap <> toLogicMap defs
