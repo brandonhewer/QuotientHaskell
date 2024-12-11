@@ -29,6 +29,7 @@ module Language.Haskell.Liquid.Types.Names
   , maybeReflectedLHName
   , reflectGHCName
   , reflectLHName
+  , showLHNameDebug
   , updateLHNameSymbol
   ) where
 
@@ -253,7 +254,19 @@ getLHNameSymbol (LHNUnresolved _ s) = s
 -- | Get the unresolved Symbol from an LHName.
 getLHNameResolved :: HasCallStack => LHName -> LHResolvedName
 getLHNameResolved (LHNResolved n _) = n
-getLHNameResolved n@LHNUnresolved{} = error $ "getLHNameResolved: unresolved name: " ++ show n
+getLHNameResolved n@LHNUnresolved{} = error $ "getLHNameResolved: unresolved name: " ++ showLHNameDebug n
+
+showLHNameDebug :: LHName -> String
+showLHNameDebug (LHNResolved n s) = "LHNResolved (" ++ showLHResolved n ++ ") " ++ show s
+  where
+    showLHResolved (LHRGHC n1) = "LHRGHC " ++ GHC.showPprDebug n1
+    showLHResolved (LHRLogic n1) = "LHRLogic (" ++ showLogicName n1 ++ ")"
+    showLHResolved (LHRLocal n1) = "LHRLocal " ++ show n1
+    showLHResolved (LHRIndex i) = "LHRIndex " ++ show i
+
+    showLogicName (LogicName s1 m mr) = "LogicName " ++ show s1 ++ " " ++ GHC.showPprDebug m ++ " " ++ GHC.showPprDebug mr
+    showLogicName (GeneratedLogicName s1) = "GeneratedLogicName " ++ show s1
+showLHNameDebug (LHNUnresolved ns s) = "LHNUnresolved (" ++ show ns ++ ") " ++ show s
 
 getLHGHCName :: LHName -> Maybe GHC.Name
 getLHGHCName (LHNResolved (LHRGHC n) _) = Just n
@@ -309,7 +322,7 @@ logicNameToSymbol n = error $ "logicNameToSymbol: unexpected name: " ++ show n
 -- | Creates a name in the logic namespace for the given Haskell name.
 reflectLHName :: HasCallStack => GHC.Module -> LHName -> LHName
 reflectLHName thisModule (LHNResolved (LHRGHC n) _) = reflectGHCName thisModule n
-reflectLHName _ n = error $ "not a GHC Name: " ++ show n
+reflectLHName _ n = error $ "not a GHC Name: " ++ showLHNameDebug n
 
 -- | Creates a name in the logic namespace for the given Haskell name.
 reflectGHCName :: GHC.Module -> GHC.Name -> LHName
