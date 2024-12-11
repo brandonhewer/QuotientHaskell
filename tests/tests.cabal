@@ -679,7 +679,6 @@ executable errors
                     , LocalHole
                     , MissingAssume
                     -- , MissingField1
-                    , MissingField2
                     , MissingReflect
                     , MissingSizeFun
                     , MultiInstMeasures
@@ -785,6 +784,7 @@ executable names-pos
                     , Capture01
                     , Capture02
                     , ClojurVector
+                    , DataFields
                     , ExpandsDependentPairs
                     , HideName00
                     , HidePrelude
