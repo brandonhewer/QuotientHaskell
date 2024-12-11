@@ -12,13 +12,10 @@ coreToLogic = unlines
   , ""
   , "define GHC.CString.unpackCString# x = x"
   , ""
-  , "define Data.RString.RString.stringEmp = (stringEmp)"
-  , "define String.stringEmp  = (stringEmp)"
   , "define Main.mempty       = (mempty)"
   , ""
   , "define Control.Parallel.Strategies.withStrategy s x = (x)"
   , ""
-  , "define Language.Haskell.Liquid.String.stringEmp = (stringEmp)"
   , "define Language.Haskell.Liquid.Equational.eq x y = (y)"
 
   , "define Language.Haskell.Liquid.ProofCombinators.cast x y = (y)"
@@ -43,5 +40,5 @@ coreToLogic = unlines
   , "define Data.Set.Internal.null x           = (Set_emp x)"
   , "define Data.Set.Internal.member x xs      = (Set_mem x xs)"
   , "define Data.Set.Internal.isSubsetOf x y   = (Set_sub x y)"
-  , "define Data.Set.Internal.fromList xs      = (listElts xs)"
+  , "define Data.Set.Internal.fromList xs      = (Data.Set_LHAssumptions.listElts xs)"
   ]

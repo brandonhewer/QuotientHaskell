@@ -2261,6 +2261,11 @@ executable basic-pos
                     , Inc04
                     , Infer00
                     , List00
+                    , MeasureOverlapA
+                    , MeasureOverlapB
+                    , MeasureOverlapC
+                    , MeasureOverlapD
+                    , MeasureOverlapE
                     , OpaqueRefl01
                     , OpaqueRefl02
                     , OpaqueRefl03A
@@ -2437,10 +2442,12 @@ executable ple-pos
                     , NegNormalForm
                     , NNFPiotr
                     , PadLeft
+                    , Permutations
                     , Ple0
                     , PleORM
                     , Ple_sum
-                    , Permutations
+                    , PolySetFoo
+                    , PolySetBar
                     , ReflectDefault
                     , RegexpDerivative
                     , RosePLEDiv

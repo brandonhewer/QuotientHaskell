@@ -47,8 +47,6 @@ import           Data.Coerce
 import           Data.Function                            ((&))
 import qualified Data.List                               as L
 import           Data.IORef
-import qualified Data.Set                                as S
-import           Data.Set                                 ( Set )
 import qualified Data.Map                                as M
 import           Data.Map                                 ( Map )
 
@@ -374,7 +372,7 @@ processInputSpec
 processInputSpec cfg pipelineData modSummary inputSpec = do
   tcg <- getGblEnv
   debugLog $ " Input spec: \n" ++ show (fromBareSpecParsed inputSpec)
-  debugLog $ "Direct ===> \n" ++ unlines (renderModule <$> S.toList (directImports tcg))
+  debugLog $ "Direct ===> \n" ++ unlines (renderModule <$> directImports tcg)
 
   logicMap :: LogicMap <- liftIO LH.makeLogicMap
 
@@ -493,7 +491,7 @@ data LiquidHaskellContext = LiquidHaskellContext {
   , lhModuleSummary    :: ModSummary
   , lhModuleTcData     :: TcData
   , lhModuleGuts       :: ModGuts
-  , lhRelevantModules  :: Set Module
+  , lhRelevantModules  :: [Module]
   }
 
 --------------------------------------------------------------------------------
@@ -523,7 +521,7 @@ processModule LiquidHaskellContext{..} = do
   _                   <- liftIO $ LH.checkFilePragmas $ Ms.pragmas bareSpec0
 
   withPragmas lhGlobalCfg file (Ms.pragmas bareSpec0) $ \moduleCfg -> do
-    dependencies <- loadDependencies moduleCfg (S.toList lhRelevantModules)
+    dependencies <- loadDependencies moduleCfg lhRelevantModules
 
     debugLog $ "Found " <> show (HM.size $ getDependencies dependencies) <> " dependencies:"
     when debugLogs $

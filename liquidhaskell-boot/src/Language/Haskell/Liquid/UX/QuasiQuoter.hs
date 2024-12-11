@@ -12,7 +12,7 @@ module Language.Haskell.Liquid.UX.QuasiQuoter
 
 --     -- * QuasiQuoter Annotations
 --   , LiquidQuote(..)
---   ) 
+--   )
   where
 
 import Data.Data

@@ -62,7 +62,7 @@ import qualified Data.List as L
 
 --------------------------------------------------------------------------------
 makeHaskellMeasures :: Bool -> GhcSrc -> Bare.TycEnv -> LogicMap -> Ms.BareSpec
-                    -> [Measure (Located BareType) LocSymbol]
+                    -> [Measure (Located BareType) (Located LHName)]
 --------------------------------------------------------------------------------
 makeHaskellMeasures allowTC src tycEnv lmap spec
           = Bare.measureToBare <$> ms
@@ -362,7 +362,7 @@ makeMeasureSpec :: Bare.Env -> Bare.SigEnv -> ModName -> (ModName, Ms.BareSpec) 
                    Bare.Lookup (Ms.MSpec SpecType Ghc.DataCon)
 ----------------------------------------------------------------------------------------------
 makeMeasureSpec env sigEnv myName (name, spec)
-  = mkMeasureDCon env               name
+  = mkMeasureDCon env
   . mkMeasureSort env               name
   . first val
   . bareMSpec     env sigEnv myName name
@@ -506,43 +506,39 @@ collectDataCons expr = go expr S.empty
     goBind (Ghc.NonRec _ e) acc = go e acc
     goBind (Ghc.Rec binds) acc = foldr (go . snd) acc binds
 
-bareMSpec :: Bare.Env -> Bare.SigEnv -> ModName -> ModName -> Ms.BareSpec -> Ms.MSpec LocBareType LocSymbol
+bareMSpec :: Bare.Env -> Bare.SigEnv -> ModName -> ModName -> Ms.BareSpec -> Ms.MSpec LocBareType (Located LHName)
 bareMSpec env sigEnv myName name spec = Ms.mkMSpec ms cms ims oms
   where
-    cms        = F.notracepp "CMS" $ filter inScope1 $             Ms.cmeasures spec
-    ms         = F.notracepp "UMS" $ filter inScope2 $ expMeas <$> Ms.measures  spec
-    ims        = F.notracepp "IMS" $ filter inScope2 $ expMeas <$> Ms.imeasures spec
-    oms        = F.notracepp "OMS" $ filter inScope2 $ expMeas <$> Ms.omeasures spec
+    cms        = F.notracepp "CMS" $ filter inScope $             Ms.cmeasures spec
+    ms         = F.notracepp "UMS" $ filter inScope $ expMeas <$> Ms.measures  spec
+    ims        = F.notracepp "IMS" $ filter inScope $ expMeas <$> Ms.imeasures spec
+    oms        = F.notracepp "OMS" $ filter inScope $ expMeas <$> Ms.omeasures spec
     expMeas    = expandMeasure env name  rtEnv
     rtEnv      = Bare.sigRTEnv          sigEnv
     force      = name == myName
-    inScope1 z = F.notracepp ("inScope1: " ++ F.showpp (msName z)) (force ||  okSort z)
-    inScope2 z = F.notracepp ("inScope2: " ++ F.showpp (msName z)) (force || (okSort z && okCtors z))
+    inScope z = F.notracepp ("inScope1: " ++ F.showpp (msName z)) (force ||  okSort z)
     okSort     = Bare.knownGhcType env name . msSort
-    okCtors    = all (Bare.knownGhcDataCon env name . ctor) . msEqns
 
-mkMeasureDCon :: Bare.Env -> ModName -> Ms.MSpec t LocSymbol -> Bare.Lookup (Ms.MSpec t Ghc.DataCon)
-mkMeasureDCon env name m = do
+mkMeasureDCon :: Bare.Env -> Ms.MSpec t (F.Located LHName) -> Bare.Lookup (Ms.MSpec t Ghc.DataCon)
+mkMeasureDCon env m = do
   let ns = measureCtors m
-  dcs   <- mapM (Bare.lookupGhcDataCon env name "measure-datacon") ns
+  dcs   <- mapM (Bare.lookupGhcDataConLHName env) ns
   return $ mkMeasureDCon_ m (zip (val <$> ns) dcs)
 
 -- mkMeasureDCon env name m = mkMeasureDCon_ m [ (val n, symDC n) | n <- measureCtors m ]
 --   where
 --     symDC                = Bare.lookupGhcDataCon env name "measure-datacon"
 
-mkMeasureDCon_ :: Ms.MSpec t LocSymbol -> [(F.Symbol, Ghc.DataCon)] -> Ms.MSpec t Ghc.DataCon
-mkMeasureDCon_ m ndcs = m' {Ms.ctorMap = cm'}
+mkMeasureDCon_ :: Ms.MSpec t (F.Located LHName) -> [(LHName, Ghc.DataCon)] -> Ms.MSpec t Ghc.DataCon
+mkMeasureDCon_ m ndcs = fmap (tx . val) m
   where
-    m'                = fmap (tx.val) m
-    cm'               = Misc.hashMapMapKeys (F.symbol . tx) $ Ms.ctorMap m'
     tx                = Misc.mlookup (M.fromList ndcs)
 
-measureCtors ::  Ms.MSpec t LocSymbol -> [LocSymbol]
+measureCtors ::  Ms.MSpec t (F.Located LHName) -> [F.Located LHName]
 measureCtors = Misc.sortNub . fmap ctor . concat . M.elems . Ms.ctorMap
 
-mkMeasureSort :: Bare.Env -> ModName -> Ms.MSpec BareType LocSymbol
-              -> Ms.MSpec SpecType LocSymbol
+mkMeasureSort :: Bare.Env -> ModName -> Ms.MSpec BareType (F.Located LHName)
+              -> Ms.MSpec SpecType (F.Located LHName)
 mkMeasureSort env name (Ms.MSpec c mm cm im) =
   Ms.MSpec (map txDef <$> c) (tx <$> mm) (tx <$> cm) (tx <$> im)
     where
@@ -568,7 +564,7 @@ expandMeasure env name rtEnv m = m
   , msEqns = expandMeasureDef env name rtEnv <$> msEqns m
   }
 
-expandMeasureDef :: Bare.Env -> ModName -> BareRTEnv -> Def t LocSymbol -> Def t LocSymbol
+expandMeasureDef :: Bare.Env -> ModName -> BareRTEnv -> Def t (Located LHName) -> Def t (Located LHName)
 expandMeasureDef env name rtEnv d = d
   { body  = F.notracepp msg $ Bare.qualifyExpand env name rtEnv l bs (body d) }
   where

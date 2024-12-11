@@ -15,10 +15,10 @@ import           Data.Bifunctor
 import qualified Language.Fixpoint.Types as F
 import           Language.Haskell.Liquid.GHC.Misc
 import           Liquid.GHC.API
+import           Language.Haskell.Liquid.Types.Names
 import           Language.Haskell.Liquid.Types.RefType
 import           Language.Haskell.Liquid.Types.RType
 import           Language.Haskell.Liquid.Types.Specs
-import           Language.Haskell.Liquid.Types.Types
 
 --------------------------------------------------------------------------------
 specToBare :: SpecType -> BareType
@@ -36,12 +36,8 @@ measureToBare :: SpecMeasure -> BareMeasure
 --------------------------------------------------------------------------------
 measureToBare = bimap (fmap specToBare) dataConToBare
 
-dataConToBare :: DataCon -> LocSymbol
-dataConToBare d = dropModuleNames . F.symbol <$> locNamedThing d
-  where
-    _msg  = "dataConToBare dc = " ++ show d ++ " v = " ++ show v ++ " vx = " ++ show vx
-    v     = dataConWorkId d
-    vx    = F.symbol v
+dataConToBare :: DataCon -> F.Located LHName
+dataConToBare d = makeGHCLHNameFromId . dataConWorkId <$> locNamedThing d
 
 specToBareTC :: RTyCon -> BTyCon
 specToBareTC = tyConBTyCon . rtc_tc

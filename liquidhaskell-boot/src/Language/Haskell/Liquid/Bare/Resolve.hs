@@ -339,8 +339,8 @@ instance Qualify TyConMap where
 instance Qualify TyConP where
   qualify env name _ bs tcp = tcp { tcpSizeFun = qualify env name (tcpLoc tcp) bs <$> tcpSizeFun tcp }
 
-instance Qualify SizeFun where
-  qualify env name _ bs (SymSizeFun lx) = SymSizeFun (qualify env name (F.loc lx) bs lx)
+instance Qualify v => Qualify (SizeFunV v) where
+  qualify env name _ bs (SymSizeFun x) = SymSizeFun (qualify env name (F.loc (F.dummyLoc x)) bs x)
   qualify _   _    _ _  sf              = sf
 
 instance Qualify F.Equation where

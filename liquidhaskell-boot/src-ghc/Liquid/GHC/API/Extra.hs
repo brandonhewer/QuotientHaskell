@@ -32,7 +32,6 @@ import Data.Data (Data, gmapQr, gmapT)
 import Data.Generics (extQ, extT)
 import Data.Foldable                  (asum)
 import Data.List                      (sortOn)
-import qualified Data.Set as S
 import GHC.Builtin.Names ( dollarIdKey, minusName )
 import GHC.Core                       as Ghc
 import GHC.Core.Coercion              as Ghc
@@ -81,8 +80,8 @@ dataConSig dc
   = (dataConUnivAndExTyCoVars dc, dataConTheta dc, map irrelevantMult $ dataConOrigArgTys dc, dataConOrigResTy dc)
 
 -- | Extracts the direct imports of a module.
-directImports :: TcGblEnv -> S.Set Module
-directImports = S.fromList . moduleEnvKeys . imp_mods . tcg_imports
+directImports :: TcGblEnv -> [Module]
+directImports = moduleEnvKeys . imp_mods . tcg_imports
 
 -- | Abstraction of 'EpaComment'.
 data ApiComment

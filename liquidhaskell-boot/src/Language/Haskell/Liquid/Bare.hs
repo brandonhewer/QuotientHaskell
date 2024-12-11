@@ -100,13 +100,13 @@ makeTargetSpec cfg localVars lnameEnv lmap targetSrc bareSpec dependencies = do
   where
     secondPhase :: [Warning] -> Ghc.TcRn (Either Diagnostics ([Warning], TargetSpec, LiftedSpec))
     secondPhase phaseOneWarns = do
-      diagOrSpec <- makeGhcSpec cfg localVars (fromTargetSrc targetSrc) lmap bareSpec legacyDependencies
+      diagOrSpec <- makeGhcSpec cfg lnameEnv localVars (fromTargetSrc targetSrc) lmap bareSpec legacyDependencies
       case diagOrSpec of
         Left d -> return $ Left d
         Right (warns, ghcSpec) -> do
           let targetSpec = toTargetSpec ghcSpec
               bareSpec1 = ghcSpecToBareSpec ghcSpec
-              liftedSpec = toLiftedSpec (bareSpec1 { defines = defines bareSpec })
+              liftedSpec = toLiftedSpec lnameEnv (bareSpec1 { defines = defines bareSpec })
           liftedSpec' <- removeUnexportedLocalAssumptions liftedSpec
           return $ Right (phaseOneWarns <> warns, targetSpec, liftedSpec')
 
@@ -114,7 +114,13 @@ makeTargetSpec cfg localVars lnameEnv lmap targetSrc bareSpec dependencies = do
     toLegacyDep (sm, ls) = (ModName SrcImport (Ghc.moduleName . Ghc.unStableModule $ sm), fromBareSpecLHName $ unsafeFromLiftedSpec ls)
 
     legacyDependencies :: [(ModName, BareSpec)]
-    legacyDependencies = map toLegacyDep . M.toList . getDependencies $ dependencies
+    legacyDependencies =
+      -- Dependencies are sorted lexicographically to make predictable which
+      -- logic names will have preference when exporting conflicting measures.
+      --
+      -- At the moment it is the measure from the last module after sorting.
+      -- But if there is a local conflicting measure, that one is used.
+      L.sortOn fst $ map toLegacyDep $ M.toList $ getDependencies dependencies
 
     -- Assumptions about local functions that are not exported aren't useful for
     -- other modules.
@@ -137,6 +143,7 @@ makeTargetSpec cfg localVars lnameEnv lmap targetSrc bareSpec dependencies = do
 --   validates it using @checkGhcSpec@.
 -------------------------------------------------------------------------------------
 makeGhcSpec :: Config
+            -> LogicNameEnv
             -> Bare.LocalVars
             -> GhcSrc
             -> LogicMap
@@ -144,11 +151,11 @@ makeGhcSpec :: Config
             -> [(ModName, Ms.BareSpec)]
             -> Ghc.TcRn (Either Diagnostics ([Warning], GhcSpec))
 -------------------------------------------------------------------------------------
-makeGhcSpec cfg localVars src lmap targetSpec dependencySpecs = do
+makeGhcSpec cfg lenv localVars src lmap targetSpec dependencySpecs = do
   ghcTyLookupEnv <- Bare.makeGHCTyLookupEnv (_giCbs src)
   tcg <- Ghc.getGblEnv
   instEnvs <- Ghc.tcGetInstEnvs
-  (dg0, sp) <- makeGhcSpec0 cfg ghcTyLookupEnv tcg instEnvs localVars src lmap targetSpec dependencySpecs
+  (dg0, sp) <- makeGhcSpec0 cfg ghcTyLookupEnv tcg instEnvs lenv localVars src lmap targetSpec dependencySpecs
   let diagnostics = Bare.checkTargetSpec (targetSpec : map snd dependencySpecs)
                                          (toTargetSrc src)
                                          (ghcSpecEnv sp)
@@ -191,13 +198,14 @@ makeGhcSpec0
   -> Bare.GHCTyLookupEnv
   -> Ghc.TcGblEnv
   -> Ghc.InstEnvs
+  -> LogicNameEnv
   -> Bare.LocalVars
   -> GhcSrc
   -> LogicMap
   -> Ms.BareSpec
   -> [(ModName, Ms.BareSpec)]
   -> Ghc.TcRn (Diagnostics, GhcSpec)
-makeGhcSpec0 cfg ghcTyLookupEnv tcg instEnvs localVars src lmap targetSpec dependencySpecs = do
+makeGhcSpec0 cfg ghcTyLookupEnv tcg instEnvs lenv localVars src lmap targetSpec dependencySpecs = do
   -- build up environments
   tycEnv <- makeTycEnv1 name env (tycEnv0, datacons) coreToLg simplifier
   let tyi      = Bare.tcTyConMap   tycEnv
@@ -219,7 +227,7 @@ makeGhcSpec0 cfg ghcTyLookupEnv tcg instEnvs localVars src lmap targetSpec depen
   let (dg4, measEnv) = withDiagnostics $ addOpaqueReflMeas cfg tycEnv env mySpec measEnv0 specs eqs
   let qual     = makeSpecQual cfg env tycEnv measEnv rtEnv specs
   let (dg5, spcVars) = withDiagnostics $ makeSpecVars cfg src mySpec env measEnv
-  let (dg6, spcTerm) = withDiagnostics $ makeSpecTerm cfg     mySpec env       name
+  let (dg6, spcTerm) = withDiagnostics $ makeSpecTerm cfg     mySpec lenv env
   let sData    = makeSpecData  src env sigEnv measEnv elaboratedSig specs
   let finalLiftedSpec = makeLiftedSpec name src env refl sData elaboratedSig qual myRTE (lSpec0 <> lSpec1)
   let diags    = mconcat [dg0, dg1, dg2, dg3, dg4, dg5, dg6]
@@ -252,7 +260,9 @@ makeGhcSpec0 cfg ghcTyLookupEnv tcg instEnvs localVars src lmap targetSpec depen
                     | v <- gsReflects refl
                     ]
                 , dataDecls = Bare.dataDeclSize mySpec $ dataDecls mySpec
-                , measures  = Ms.measures mySpec
+                  -- Placing mySpec at the end causes local measures to take precedence over
+                  -- imported measures when their names clash.
+                , measures  = mconcat $ map Ms.measures $ map snd dependencySpecs ++ [mySpec]
                   -- We want to export measures in a 'LiftedSpec', especially if they are
                   -- required to check termination of some 'liftedSigs' we export. Due to the fact
                   -- that 'lSpec1' doesn't contain the measures that we compute via 'makeHaskellMeasures',
@@ -270,7 +280,7 @@ makeGhcSpec0 cfg ghcTyLookupEnv tcg instEnvs localVars src lmap targetSpec depen
                   -- Preserve rinstances.
                 , asmReflectSigs = Ms.asmReflectSigs mySpec
                 , reflects = Ms.reflects mySpec0
-                , cmeasures = Ms.cmeasures targetSpec
+                , cmeasures  = mconcat $ map Ms.cmeasures $ map snd dependencySpecs ++ [targetSpec]
                 , embeds = Ms.embeds targetSpec
                 , privateReflects = mconcat $ map (privateReflects . snd) mspecs
                 }
@@ -531,11 +541,11 @@ tyConSortRaw :: F.Located Ghc.TyCon -> F.Sort
 tyConSortRaw = FTC . F.symbolFTycon . fmap F.symbol
 
 ------------------------------------------------------------------------------------------
-makeSpecTerm :: Config -> Ms.BareSpec -> Bare.Env -> ModName ->
+makeSpecTerm :: Config -> Ms.BareSpec -> LogicNameEnv -> Bare.Env ->
                 Bare.Lookup GhcSpecTerm
 ------------------------------------------------------------------------------------------
-makeSpecTerm cfg mySpec env name = do
-  sizes  <- if structuralTerm cfg then pure mempty else makeSize env name mySpec
+makeSpecTerm cfg mySpec lenv env = do
+  sizes  <- if structuralTerm cfg then pure mempty else makeSize lenv env mySpec
   lazies <- makeLazy     env mySpec
   autos  <- makeAutoSize env mySpec
   gfail  <- makeFail env mySpec
@@ -597,12 +607,20 @@ makeAutoSize env
   . S.toList
   . Ms.autosize
 
-makeSize :: Bare.Env -> ModName -> Ms.BareSpec -> Bare.Lookup (S.HashSet Ghc.Var)
-makeSize env name
+makeSize :: LogicNameEnv -> Bare.Env -> Ms.BareSpec -> Bare.Lookup (S.HashSet Ghc.Var)
+makeSize lenv env
   = fmap S.fromList
-  . mapM (Bare.lookupGhcVar env name "Var")
+  . mapM lookupGhcSize
   . Mb.mapMaybe getSizeFuns
   . Ms.dataDecls
+  where
+    lookupGhcSize :: LocSymbol -> Bare.Lookup Ghc.Var
+    lookupGhcSize s =
+      case lookupSEnv (val s) (lneLHName lenv) of
+        Nothing -> panic (Just $ GM.fSrcSpan s) $ "symbol not in scope: " ++ show (val s)
+        Just n -> case maybeReflectedLHName n of
+          Nothing -> panic (Just $ GM.fSrcSpan s) $ "symbol not reflected: " ++ show (val s)
+          Just rn -> Bare.lookupGhcIdLHName env (makeGHCLHName rn (symbol rn) <$ s)
 
 getSizeFuns :: DataDecl -> Maybe LocSymbol
 getSizeFuns decl
@@ -1032,12 +1050,12 @@ makeInvariants env sigEnv (name, spec) =
     , let ts = Bare.cookSpecType env sigEnv name Bare.GenTV <$> bts
   ]
 
-makeSizeInv :: F.LocSymbol -> Located SpecType -> Located SpecType
+makeSizeInv :: F.Symbol -> Located SpecType -> Located SpecType
 makeSizeInv s lst = lst{val = go (val lst)}
   where go (RApp c ts rs r) = RApp c ts rs (r `meet` nat)
         go (RAllT a t r)    = RAllT a (go t) r
         go t = t
-        nat  = MkUReft (Reft (vv_, PAtom Le (ECon $ I 0) (EApp (EVar $ val s) (eVar vv_))))
+        nat  = MkUReft (Reft (vv_, PAtom Le (ECon $ I 0) (EApp (EVar s) (eVar vv_))))
                        mempty
 
 makeMeasureInvariants :: Bare.Env -> ModName -> GhcSpecSig -> Ms.BareSpec
