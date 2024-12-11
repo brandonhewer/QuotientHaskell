@@ -1138,6 +1138,9 @@ makeTycEnv0 :: Config -> ModName -> Bare.Env -> TCEmb Ghc.TyCon -> Ms.BareSpec -
 makeTycEnv0 cfg myName env embs mySpec iSpecs = (diag0 <> diag1, datacons, Bare.TycEnv
   { tcTyCons      = tycons
   , tcDataCons    = mempty -- val <$> datacons
+    -- See the documentation of @addOpaqueReflMeas@. The selectors here are only
+    -- those belonging to types mentioned in the types of functions defined in
+    -- the current module.
   , tcSelMeasures = dcSelectors
   , tcSelVars     = mempty -- recSelectors
   , tcTyConMap    = tyi
@@ -1227,9 +1230,19 @@ makeMeasEnv env tycEnv sigEnv specs = do
     embs          = Bare.tcEmbs        tycEnv
     name          = Bare.tcName        tycEnv
 
--------------------------------------------------------------------------------------------
---- Add the opaque reflections to the measure environment
---- Returns a new environment that is the old one enhanced with the opaque reflections
+
+-- | Adds the opaque reflections to the measure environment
+--
+-- Returns a new environment that is the old one enhanced with the opaque
+-- reflections.
+--
+-- At the moment this function also has the effect of adding selector and
+-- checker measures for data constructors that are needed by reflected
+-- functions. This even adds measures that are needed by functions reflected
+-- from unfoldings (public and private), whose datatypes come from imported
+-- modules. This overlaps a bit with 'makeTycEnv0', which also adds measures for
+-- selectors and checkers, but only for datatypes mentioned in the type
+-- signatures of functions defined in the current module.
 -------------------------------------------------------------------------------------------
 addOpaqueReflMeas :: Config -> Bare.TycEnv -> Bare.Env -> Ms.BareSpec -> Bare.MeasEnv -> Bare.ModSpecs ->
                [(Ghc.Var, LocSpecType, F.Equation)] ->
