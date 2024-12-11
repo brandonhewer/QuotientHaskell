@@ -545,8 +545,8 @@ processModule LiquidHaskellContext{..} = do
         modsym = symbol $ GHC.moduleName thisModule
         defs = map (\(ls , ae) -> (LH.qualifySymbol modsym <$> ls , ae)) $
                defines bareSpec0
-        depsLogicMap = foldr (\h l -> l <> mempty {lmSymDefs = h}) mempty $
-                       liftedDefines <$> (HM.elems . getDependencies) dependencies
+        depsLogicMap = foldr (\ls lmp -> lmp <> mempty {lmSymDefs = liftedDefines ls}) mempty $
+                       (HM.elems . getDependencies) dependencies
         lm = lhModuleLogicMap <> depsLogicMap <> toLogicMap defs
         eBareSpec = resolveLHNames
           moduleCfg
