@@ -149,7 +149,7 @@ resolveLHNames cfg thisModule localVars impMods globalRdrEnv lmap bareSpec0 depe
                          sp1
               return (sp2, logicNameEnv0)
             else
-              return (error "invalid spec", error "invalid logic environment")
+              return (error "resolveLHNames: invalid spec", error "resolveLHNames: invalid logic environment")
         logicNameEnv' = extendLogicNameEnv logicNameEnv ns
     if null es then
       Right (bs, logicNameEnv')
