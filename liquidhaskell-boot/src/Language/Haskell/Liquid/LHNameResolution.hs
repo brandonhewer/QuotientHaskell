@@ -113,6 +113,19 @@ collectTypeAliases m spec deps =
      in
         HM.fromList $ bsAliases ++ depAliases
 
+collectExprAliases
+  :: BareSpecParsed
+  -> TargetDependencies
+  -> HS.HashSet Symbol
+collectExprAliases spec deps =
+    let bsAliases = HS.fromList $ map (rtName . val) (ealiases spec)
+        depAliases =
+          [ HS.map (rtName . val) $ liftedEaliases lspec
+          | (_, lspec) <- HM.toList (getDependencies deps)
+          ]
+     in
+        HS.unions $ bsAliases : depAliases
+
 -- | Converts occurrences of LHNUnresolved to LHNResolved using the provided
 -- type aliases and GlobalRdrEnv.
 resolveLHNames
@@ -152,6 +165,7 @@ resolveLHNames cfg thisModule localVars impMods globalRdrEnv lmap bareSpec0 depe
                          localVars
                          logicNameEnv0
                          privateReflectNames
+                         allEaliases
                          sp2
               return (sp3, logicNameEnv0)
             else
@@ -163,6 +177,7 @@ resolveLHNames cfg thisModule localVars impMods globalRdrEnv lmap bareSpec0 depe
       Left es
   where
     taliases = collectTypeAliases thisModule bareSpec0 dependencies
+    allEaliases = collectExprAliases bareSpec0 dependencies
 
     resolveFieldLogicName n =
       case n of
@@ -564,9 +579,10 @@ resolveLogicNames
   -> LocalVars
   -> LogicNameEnv
   -> HS.HashSet LocSymbol
+  -> HS.HashSet Symbol
   -> BareSpecParsed
   -> State RenameOutput BareSpecLHName
-resolveLogicNames cfg env globalRdrEnv unhandledNames lmap0 localVars lnameEnv privateReflectNames sp = do
+resolveLogicNames cfg env globalRdrEnv unhandledNames lmap0 localVars lnameEnv privateReflectNames allEaliases sp = do
     -- Instance measures must be defined for names of class measures.
     -- The names of class measures should be in @env@
     imeasures <- mapM (mapMeasureNamesM resolveIMeasLogicName) (imeasures sp)
@@ -692,7 +708,9 @@ resolveLogicNames cfg env globalRdrEnv unhandledNames lmap0 localVars lnameEnv p
           -> case gres of
           [e] -> do
             let n = GHC.greName e
-            if HM.member (symbol n) (lmSymDefs lmap) then
+            -- TODO: The check for allEaliases should be redundant when
+            -- ealiases are put in the logic environments
+            if HM.member (symbol n) (lmSymDefs lmap) || HS.member (symbol n) allEaliases then
               Just $ do
                 let lhName = makeLogicLHName (symbol $ GHC.getOccString n) (GHC.nameModule n) Nothing
                 addName lhName
