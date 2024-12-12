@@ -189,7 +189,7 @@ listTyDataCons   = ( [TyConP l0 c [RTV tyv] [p] [Covariant] [Covariant] (Just fs
       lt         = rApp c [xt] [rPropP [] $ pdVarReft p] mempty
       xt         = rVar tyv
       xst        = rApp c [RVar (RTV tyv) px] [rPropP [] $ pdVarReft p] mempty
-      cargs      = map (first makeGeneratedLogicLHName) $ [(xTail, xst), (xHead, xt)]
+      cargs      = map (first makeGeneratedLogicLHName) [(xTail, xst), (xHead, xt)]
       fsize      = SymSizeFun (dummyLoc "GHC.Types_LHAssumptions.len")
 
 wiredInName :: F.Symbol

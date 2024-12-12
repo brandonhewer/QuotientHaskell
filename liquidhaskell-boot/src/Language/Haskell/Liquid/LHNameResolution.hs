@@ -659,8 +659,8 @@ resolveLogicNames cfg env globalRdrEnv unhandledNames lmap0 localVars lnameEnv p
            in return $ makeLogicLHName s (GHC.nameModule dcName) (Just dcName)
       where
         unqualifiedS = LH.dropModuleNames s
-        nilDataConName = GHC.getName $ GHC.dataConWorkId $ GHC.nilDataCon
-        consDataConName = GHC.getName $ GHC.dataConWorkId $ GHC.consDataCon
+        nilDataConName = GHC.getName $ GHC.dataConWorkId GHC.nilDataCon
+        consDataConName = GHC.getName $ GHC.dataConWorkId GHC.consDataCon
         tupleDataConName = GHC.getName . GHC.dataConWorkId . GHC.tupleDataCon GHC.Boxed
         s = val ls
         isTupleDC t
