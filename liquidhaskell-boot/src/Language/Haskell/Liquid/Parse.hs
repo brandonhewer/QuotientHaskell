@@ -953,7 +953,7 @@ ppAsserts k lxs t mles
 
 pprintSymbolWithParens :: LHName -> PJ.Doc
 pprintSymbolWithParens lhname =
-    case show lhname of
+    case symbolString $ getLHNameSymbol lhname of
       n@(c:_) | not (Char.isAlpha c) -> "(" <> PJ.text n <> ")"
       n -> PJ.text n
 

@@ -84,7 +84,10 @@ makeAssumeReflectAxioms src env tycEnv spSig spec = do
   -- Send an error message if we're redefining a reflection
   case findDuplicatePair val reflActSymbols <|> findDuplicateBetweenLists val refSymbols reflActSymbols of
     Just (x , y) -> Ex.throw $ mkError y $
-                      "Duplicate reflection of " ++ show x ++ " and " ++ show y
+                      "Duplicate reflection of " ++
+                      show (lhNameToUnqualifiedSymbol <$> x) ++
+                      " and " ++
+                      show (lhNameToUnqualifiedSymbol <$> y)
     Nothing -> return $ turnIntoAxiom <$> Ms.asmReflectSigs spec
   where
     turnIntoAxiom (actual, pretended) = makeAssumeReflectAxiom spSig env embs (actual, pretended)

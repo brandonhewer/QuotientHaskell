@@ -648,7 +648,7 @@ makeSpecRefl src specs env name sig tycEnv = do
   let impAxioms  = concatMap (filter ((`notElem` asmReflEls) . eqName) . Ms.axeqs . snd) (M.toList specs)
   case anyNonReflFn of
     Just (actSym , preSym) ->
-      let preSym' = show (val preSym) in
+      let preSym' = symbolString $ getLHNameSymbol (val preSym) in
       let errorMsg = preSym' ++ " must be reflected first using {-@ reflect " ++ preSym' ++ " @-}"
       in Ex.throw
            (ErrHMeas
