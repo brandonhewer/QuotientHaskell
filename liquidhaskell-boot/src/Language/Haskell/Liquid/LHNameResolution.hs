@@ -634,26 +634,33 @@ resolveLogicNames cfg env globalRdrEnv unhandledNames lmap0 localVars lnameEnv p
         )
 
     resolveDataConName ls
-      | LH.dropModuleNames s == ":" = Just $
-        return $ makeLocalLHName s
-      | LH.dropModuleNames s == "[]" = Just $
-        return $ makeLocalLHName s
-      | isTupleDC (symbolText s) = Just $
-        return $ makeLocalLHName s
+      | unqualifiedS == ":" = Just $
+        return $ makeLogicLHName unqualifiedS (GHC.nameModule consDataConName) (Just consDataConName)
+      | unqualifiedS == "[]" = Just $
+        return $ makeLogicLHName unqualifiedS (GHC.nameModule nilDataConName) (Just nilDataConName)
+      | Just arity <- isTupleDC (symbolText s) = Just $
+          let dcName = tupleDataConName arity
+           in return $ makeLogicLHName s (GHC.nameModule dcName) (Just dcName)
       where
+        unqualifiedS = LH.dropModuleNames s
+        nilDataConName = GHC.getName $ GHC.dataConWorkId $ GHC.nilDataCon
+        consDataConName = GHC.getName $ GHC.dataConWorkId $ GHC.consDataCon
+        tupleDataConName = GHC.getName . GHC.dataConWorkId . GHC.tupleDataCon GHC.Boxed
         s = val ls
-        isTupleDC t =
-          Text.isPrefixOf "(" t && Text.isSuffixOf ")" t &&
-          Text.all (== ',') (Text.init $ Text.tail t)
+        isTupleDC t
+          | Text.isPrefixOf "(" t && Text.isSuffixOf ")" t &&
+            Text.all (== ',') (Text.init $ Text.tail t)
+          = Just $ Text.length t - 2
+          | otherwise
+          = Nothing
     resolveDataConName s =
       case GHC.lookupGRE globalRdrEnv (mkLookupGRE (LHDataConName LHAnyModuleNameF) $ val s) of
         [e] -> do
           let n = GHC.greName e
           Just $ do
-            let lhName = makeLogicLHName (symbol n) (GHC.nameModule n)  (Just n)
+            let lhName = makeLogicLHName (symbol $ GHC.getOccString n) (GHC.nameModule n) (Just n)
             addName lhName
-            -- return lhName
-            return $ makeLocalLHName $ val s
+            return lhName
         [] ->
           Nothing
         es ->
@@ -687,10 +694,9 @@ resolveLogicNames cfg env globalRdrEnv unhandledNames lmap0 localVars lnameEnv p
             let n = GHC.greName e
             if HM.member (symbol n) (lmSymDefs lmap) then
               Just $ do
-                let lhName = makeLogicLHName (symbol n) (GHC.nameModule n) Nothing
+                let lhName = makeLogicLHName (symbol $ GHC.getOccString n) (GHC.nameModule n) Nothing
                 addName lhName
-                -- return lhName
-                return $ makeLocalLHName $ val s
+                return lhName
             else
               Nothing
           [] ->
