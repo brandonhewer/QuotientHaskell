@@ -607,7 +607,7 @@ instance TyConable BTyCon where
       LHRGHC n -> text $ showPpr n
       LHRLocal s -> ppTycon s
       LHRIndex i -> text $ "(Unknown LHRIndex " ++ show i ++ ")"
-      LHRLogic (LogicName s _ _) -> ppTycon s
+      LHRLogic _ -> ppTycon $ logicNameToSymbol $ F.val $ btc_tc b
 
 instance Eq RTyCon where
   x == y = rtc_tc x == rtc_tc y
@@ -628,7 +628,7 @@ instance F.Fixpoint BTyCon where
       LHRGHC n -> text $ F.symbolString $ F.symbol n
       LHRLocal s -> text $ F.symbolString s
       LHRIndex i -> panic (Just $ fSrcSpan b) $ "toFix BTyCon: Unknown LHRIndex " ++ show i
-      LHRLogic (LogicName s _ _) -> text $ F.symbolString s
+      LHRLogic _ -> text $ F.symbolString $ logicNameToSymbol $ F.val $ btc_tc b
 
 instance F.PPrint RTyCon where
   pprintTidy k c
@@ -645,7 +645,7 @@ instance F.PPrint BTyCon where
       LHRGHC n -> text $ F.symbolString $ F.symbol n
       LHRLocal s -> text $ F.symbolString s
       LHRIndex i -> text $ "(Unknown LHRIndex " ++ show i ++ ")"
-      LHRLogic (LogicName s _ _) -> text $ F.symbolString s
+      LHRLogic _ -> text $ F.symbolString $ logicNameToSymbol $ F.val $ btc_tc b
 
 instance F.PPrint v => F.PPrint (RTVar v s) where
   pprintTidy k (RTVar x _) = F.pprintTidy k x

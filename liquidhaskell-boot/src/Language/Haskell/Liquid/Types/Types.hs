@@ -597,7 +597,7 @@ emapBody f b = case b of
 
 type Def ty ctor = DefV Symbol ty ctor
 data DefV v ty ctor = Def
-  { measure :: F.LocSymbol
+  { measure :: F.Located LHName
   , ctor    :: ctor
   , dsort   :: Maybe ty
   , binds   :: [(Symbol, Maybe ty)]    -- measure binders: the ADT argument fields
@@ -634,7 +634,7 @@ mapDefV f Def{..} =
 
 type Measure ty ctor = MeasureV Symbol ty ctor
 data MeasureV v ty ctor = M
-  { msName :: F.LocSymbol
+  { msName :: F.Located LHName
   , msSort :: ty
   , msEqns :: [DefV v ty ctor]
   , msKind :: !MeasureKind
@@ -704,7 +704,7 @@ instance Bifunctor (MeasureV v) where
 -- deriveBifunctor ''Measure
 
 data CMeasure ty = CM
-  { cName :: F.LocSymbol
+  { cName :: F.Located LHName
   , cSort :: ty
   } deriving (Data, Typeable, Generic, Functor)
 
@@ -952,8 +952,8 @@ liquidEnd = ['@', '-', '}']
 
 data MSpec ty ctor = MSpec
   { ctorMap  :: M.HashMap LHName [Def ty ctor]
-  , measMap  :: M.HashMap F.LocSymbol (Measure ty ctor)
-  , cmeasMap :: M.HashMap F.LocSymbol (Measure ty ())
+  , measMap  :: M.HashMap (F.Located LHName) (Measure ty ctor)
+  , cmeasMap :: M.HashMap (F.Located LHName) (Measure ty ())
   , imeas    :: ![Measure ty ctor]
   } deriving (Data, Typeable, Generic, Functor)
 

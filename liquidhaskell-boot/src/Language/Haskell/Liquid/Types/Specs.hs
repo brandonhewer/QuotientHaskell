@@ -85,11 +85,8 @@ import           Data.HashSet            (HashSet)
 import qualified Data.HashMap.Lazy       as Lazy.M
 import qualified Data.HashMap.Strict     as M
 import           Data.HashMap.Strict     (HashMap)
-import           Data.Maybe
-import           Language.Haskell.Liquid.GHC.Misc (dropModuleNames, fSrcSpan)
-import           Language.Haskell.Liquid.Name.LogicNameEnv
+import           Language.Haskell.Liquid.GHC.Misc (dropModuleNames)
 import           Language.Haskell.Liquid.Types.DataDecl
-import           Language.Haskell.Liquid.Types.Errors
 import           Language.Haskell.Liquid.Types.Names
 import           Language.Haskell.Liquid.Types.RType
 import           Language.Haskell.Liquid.Types.RTypeOp
@@ -708,7 +705,7 @@ data LiftedSpec = LiftedSpec
     -- conflicting measures will be exported.
     --
     -- Tested in MeasureOverlapC.hs
-    liftedMeasures   :: HashMap F.Symbol (LHName, MeasureV LHName LocBareTypeLHName (F.Located LHName))
+    liftedMeasures   :: HashMap F.Symbol (MeasureV LHName LocBareTypeLHName (F.Located LHName))
   , liftedExpSigs    :: HashSet (LHName, F.Sort)
     -- ^ Exported logic symbols originated from reflecting functions
   , liftedPrivateReflects :: HashSet F.LocSymbol
@@ -743,7 +740,7 @@ data LiftedSpec = LiftedSpec
     -- | Measures attached to a type-class
     --
     -- Imitates the arrangement for 'liftedMeasures'
-  , liftedCmeasures  :: HashMap F.Symbol (LHName, MeasureV LHName LocBareTypeLHName ())
+  , liftedCmeasures  :: HashMap F.Symbol (MeasureV LHName LocBareTypeLHName ())
   , liftedImeasures  :: HashSet (MeasureV LHName LocBareTypeLHName (F.Located LHName))
     -- ^ Mappings from (measure,type) -> measure
   , liftedOmeasures  :: HashSet (MeasureV LHName LocBareTypeLHName (F.Located LHName))
@@ -945,14 +942,13 @@ toTargetSpec ghcSpec = TargetSpec
       , gsConfig = _gsConfig ghcSpec
       }
 
-toLiftedSpec :: LogicNameEnv -> BareSpecLHName -> LiftedSpec
-toLiftedSpec lenv a = LiftedSpec
+toLiftedSpec :: BareSpecLHName -> LiftedSpec
+toLiftedSpec a = LiftedSpec
   { liftedMeasures   =
       M.fromList
-        [ (dropModuleNames $ logicNameToSymbol n, (n, m))
+        [ (dropModuleNames $ logicNameToSymbol n, m)
         | m <- measures a
-        , let n = fromMaybe (panic (Just $ fSrcSpan (msName m)) "cannot find logic name") $
-                    F.lookupSEnv (val $ msName m) (lneLHName lenv)
+        , let n = val $ msName m
         ]
   , liftedExpSigs    = S.fromList . expSigs  $ a
   , liftedPrivateReflects = privateReflects a
@@ -971,12 +967,10 @@ toLiftedSpec lenv a = LiftedSpec
   , liftedAutosize   = autosize a
   , liftedCmeasures  =
       M.fromList
-        [ (dropModuleNames $ logicNameToSymbol n, (n, m))
+        [ (dropModuleNames $ logicNameToSymbol n, m)
         | m <- cmeasures a
-        , let n = fromMaybe (panic (Just $ fSrcSpan (msName m)) "cannot find logic name") $
-                    F.lookupSEnv (val $ msName m) (lneLHName lenv)
+        , let n = val $ msName m
         ]
-
   , liftedImeasures  = S.fromList . imeasures $ a
   , liftedOmeasures  = S.fromList . omeasures $ a
   , liftedClasses    = S.fromList . classes $ a
@@ -991,7 +985,7 @@ toLiftedSpec lenv a = LiftedSpec
 -- suitable for 'makeGhcSpec'.
 unsafeFromLiftedSpec :: LiftedSpec -> BareSpecLHName
 unsafeFromLiftedSpec a = Spec
-  { measures   = map snd $ M.elems $ liftedMeasures a
+  { measures   = M.elems $ liftedMeasures a
   , expSigs    = S.toList . liftedExpSigs $ a
   , asmSigs    = S.toList . liftedAsmSigs $ a
   , asmReflectSigs = mempty
@@ -1020,7 +1014,7 @@ unsafeFromLiftedSpec a = Spec
   , ignores    = mempty
   , autosize   = liftedAutosize a
   , pragmas    = mempty
-  , cmeasures  = map snd $ M.elems $ liftedCmeasures a
+  , cmeasures  = M.elems $ liftedCmeasures a
   , imeasures  = S.toList . liftedImeasures $ a
   , omeasures  = S.toList . liftedOmeasures $ a
   , classes    = S.toList . liftedClasses $ a

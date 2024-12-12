@@ -78,10 +78,10 @@ makeMeasureDefinition allowTC tycEnv lmap cbs x =
   case L.find ((x ==) . makeGHCLHNameLocatedFromId . fst) cbs of
     Nothing ->
       Ex.throw $
-        errHMeas (fmap getLHNameSymbol x) "Cannot extract measure from haskell function"
+        errHMeas x "Cannot extract measure from haskell function"
     Just (v, cexp) -> Ms.mkM vx vinfo mdef MsLifted (makeUnSorted allowTC (Ghc.varType v) mdef)
                      where
-                       vx           = F.atLoc x (F.symbol v)
+                       vx           = reflectLHName (Ghc.nameModule $ Ghc.getName v) <$> x
                        mdef         = coreToDef' allowTC tycEnv lmap vx v cexp
                        vinfo        = GM.varLocInfo (logicType allowTC) v
 
@@ -102,13 +102,14 @@ makeUnSorted allowTC ty defs
     isMeasureType (Ghc.TyConApp _ ts) = all Ghc.isTyVarTy ts
     isMeasureType _                   = False
 
-    defToUnSortedExpr defn = (xx:(fst <$> binds defn),
-                             Ms.bodyPred (F.mkEApp (measure defn) [F.expr xx]) (body defn))
+    defToUnSortedExpr defn =
+      (xx:(fst <$> binds defn),
+       Ms.bodyPred (F.eApps (F.EVar $ logicNameToSymbol $ F.val $ measure defn) [F.expr xx]) (body defn))
 
     xx = F.vv $ Just 10000
     isErasable = if allowTC then GM.isEmbeddedDictType else Ghc.isClassPred
 
-coreToDef' :: Bool -> Bare.TycEnv -> LogicMap -> LocSymbol -> Ghc.Var -> Ghc.CoreExpr
+coreToDef' :: Bool -> Bare.TycEnv -> LogicMap -> Located LHName -> Ghc.Var -> Ghc.CoreExpr
            -> [Def LocSpecType Ghc.DataCon]
 coreToDef' allowTC tycEnv lmap vx v defn =
   case runToLogic embs lmap dm (errHMeas vx) (coreToDef allowTC vx v defn) of
@@ -118,7 +119,7 @@ coreToDef' allowTC tycEnv lmap vx v defn =
     embs    = Bare.tcEmbs       tycEnv
     dm      = Bare.tcDataConMap tycEnv
 
-errHMeas :: LocSymbol -> String -> Error
+errHMeas :: Located LHName -> String -> Error
 errHMeas x str = ErrHMeas (GM.sourcePosSrcSpan $ loc x) (pprint $ val x) (text str)
 
 --------------------------------------------------------------------------------
@@ -136,7 +137,7 @@ makeMeasureInline
   -> (LocSymbol, LMap)
 makeMeasureInline allowTC embs lmap cbs x =
   case L.find ((val x ==) . makeGHCLHNameFromId . fst) cbs of
-    Nothing        -> Ex.throw $ errHMeas (fmap getLHNameSymbol x) "Cannot inline haskell function"
+    Nothing        -> Ex.throw $ errHMeas x "Cannot inline haskell function"
     Just (v, defn) -> (vx, coreToFun' allowTC embs Nothing lmap vx v defn ok)
                      where
                        vx         = F.atLoc x (F.symbol v)
@@ -153,7 +154,7 @@ coreToFun' allowTC embs dmMb lmap x v defn ok = either Ex.throw ok act
   where
     act  = runToLogic embs lmap dm err xFun
     xFun = coreToFun allowTC x v defn
-    err  = errHMeas x
+    err  str = ErrHMeas (GM.sourcePosSrcSpan $ loc x) (pprint $ val x) (text str)
     dm   = Mb.fromMaybe mempty dmMb
 
 
@@ -273,18 +274,19 @@ makeMeasureSelectors cfg dm (Loc l l' c)
       | isFunTy t && not (higherOrderFlag cfg)
       = Nothing
       | otherwise
-      = Just $ makeMeasureSelector (Loc l l' x) (projT i) dc n i
+        -- TODO: Use as origin module the module where the measure is created
+      = Just $ makeMeasureSelector (Loc l l' (makeGeneratedLogicLHName x)) (projT i) dc n i
 
     go' ((_,t), i)
       -- do not make selectors for functional fields
       | isFunTy t && not (higherOrderFlag cfg)
       = Nothing
       | otherwise
-      = Just $ makeMeasureSelector (Loc l l' (Bare.makeDataConSelector (Just dm) dc i)) (projT i) dc n i
+      = Just $ makeMeasureSelector (Loc l l' (makeGeneratedLogicLHName $ Bare.makeDataConSelector (Just dm) dc i)) (projT i) dc n i
 
     fields   = zip (reverse xts) [1..]
     n        = length xts
-    checker  = makeMeasureChecker (Loc l l' (Bare.makeDataConChecker dc)) checkT dc n
+    checker  = makeMeasureChecker (Loc l l' (makeGeneratedLogicLHName $ Bare.makeDataConChecker dc)) checkT dc n
     projT i  = dataConSel permitTC dc n (Proj i)
     checkT   = dataConSel permitTC dc n Check
     permitTC = typeclass cfg
@@ -330,14 +332,14 @@ bareBool = RApp (RTyCon Ghc.boolTyCon [] defaultTyConInfo) [] [] mempty
 
 -}
 
-makeMeasureSelector :: (Show a1) => LocSymbol -> SpecType -> Ghc.DataCon -> Int -> a1 -> Measure SpecType Ghc.DataCon
+makeMeasureSelector :: (Show a1) => Located LHName -> SpecType -> Ghc.DataCon -> Int -> a1 -> Measure SpecType Ghc.DataCon
 makeMeasureSelector x s dc n i = M { msName = x, msSort = s, msEqns = [eqn], msKind = MsSelector, msUnSorted = mempty}
   where
     eqn                        = Def x dc Nothing args (E (F.EVar $ mkx i))
     args                       = (, Nothing) . mkx <$> [1 .. n]
     mkx j                      = F.symbol ("xx" ++ show j)
 
-makeMeasureChecker :: LocSymbol -> SpecType -> Ghc.DataCon -> Int -> Measure SpecType Ghc.DataCon
+makeMeasureChecker :: Located LHName -> SpecType -> Ghc.DataCon -> Int -> Measure SpecType Ghc.DataCon
 makeMeasureChecker x s0 dc n = M { msName = x, msSort = s, msEqns = eqn : (eqns <$> filter (/= dc) dcs), msKind = MsChecker, msUnSorted = mempty }
   where
     s       = F.notracepp ("makeMeasureChecker: " ++ show x) s0
@@ -349,7 +351,7 @@ makeMeasureChecker x s0 dc n = M { msName = x, msSort = s, msEqns = eqn : (eqns 
 
 
 ----------------------------------------------------------------------------------------------
-makeMeasureSpec' :: Bool -> MSpec SpecType Ghc.DataCon -> ([(Ghc.Var, SpecType)], [(LocSymbol, RRType F.Reft)])
+makeMeasureSpec' :: Bool -> MSpec SpecType Ghc.DataCon -> ([(Ghc.Var, SpecType)], [(Located LHName, RRType F.Reft)])
 ----------------------------------------------------------------------------------------------
 makeMeasureSpec' allowTC mspec0 = (ctorTys, measTys)
   where
@@ -435,6 +437,7 @@ makeOpaqueReflMeasures :: Bare.Env -> Bare.MeasEnv -> Bare.ModSpecs ->
 makeOpaqueReflMeasures env measEnv specs eqs =
   unzip $ createMeasureForVar <$> S.toList (varsUndefinedInLogic `S.union` requestedOpaqueRefl)
   where
+    thisModule = Ghc.tcg_mod (Bare.reTcGblEnv env)
     -- Get the set of variables for the requested opaque reflections
     requestedOpaqueRefl = S.unions
       . map (S.map getVar . Ms.opaqueReflects . snd)
@@ -453,7 +456,7 @@ makeOpaqueReflMeasures env measEnv specs eqs =
     createMeasureForVar var =
       (Ms.mkMSpec' [smeas], (var, bmeas))
       where
-        locSym = F.atLoc (loc specType) (F.symbol var)
+        locSym = F.atLoc (loc specType) (reflectLHName thisModule $ makeGHCLHNameFromId var)
         specType = varSpecType var
         bareType = varBareType var
         bmeas = M locSym bareType [] MsReflect []
@@ -604,7 +607,7 @@ isSimpleType :: Ghc.Type -> Bool
 isSimpleType = isFirstOrder . RT.typeSort mempty
 
 makeClassMeasureSpec :: MSpec (RType c tv (UReft r2)) t
-                     -> [(LocSymbol, CMeasure (RType c tv r2))]
+                     -> [(Located LHName, CMeasure (RType c tv r2))]
 makeClassMeasureSpec Ms.MSpec{..} = tx <$> M.elems cmeasMap
   where
     tx (M n s _ _ _) = (n, CM n (mapReft ur_reft s))
