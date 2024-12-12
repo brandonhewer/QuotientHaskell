@@ -63,13 +63,12 @@ selfSymbol = symbol ("liquid_internal_this" :: String)
 -- or uninterpreted functions.
 data LogicName =
     LogicName
-      { -- | Unqualified symbol
-        lnSymbol :: !Symbol
+       -- | Unqualified symbol
+      !Symbol
         -- | Module where the entity was defined
-      , lnModule :: !GHC.Module
+      !GHC.Module
         -- | If the named entity is the reflection of some Haskell name
-      , lnReflected :: !(Maybe GHC.Name)
-      }
+      !(Maybe GHC.Name)
     | GeneratedLogicName Symbol
   deriving (Data, Eq, Generic)
 
