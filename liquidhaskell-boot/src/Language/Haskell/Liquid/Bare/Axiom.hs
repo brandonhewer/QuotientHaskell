@@ -41,6 +41,7 @@ import           Language.Haskell.Liquid.Bare.Measure as Bare
 import           Language.Haskell.Liquid.UX.Config
 import qualified Data.List as L
 import Control.Applicative
+import Control.Arrow (second)
 import Data.Function (on)
 import qualified Data.Map as Map
 import qualified Data.HashMap.Strict as M
@@ -330,7 +331,13 @@ makeAssumeType
   -> Ghc.Var -> Ghc.CoreExpr
   -> (LocSpecType, F.Equation)
 makeAssumeType allowTC tce lmap dm sym mbT v def
-  = (sym {val = aty at `strengthenRes` F.subst su ref},  F.mkEquation symbolV xts (F.subst su le) out)
+  = ( sym {val = aty at `strengthenRes` F.subst su ref}
+    , F.mkEquation 
+        symbolV 
+        (fmap (second $ F.sortSubst sortSub) xts)
+        (F.sortSubstInExpr sortSub (F.subst su le))
+        (F.sortSubst sortSub out)
+    )
   where
     symbolV = F.symbol v
     rt    = fromRTypeRep .
@@ -348,6 +355,18 @@ makeAssumeType allowTC tce lmap dm sym mbT v def
     ref        = F.Reft (F.vv_, F.PAtom F.Eq (F.EVar F.vv_) le)
     mkErr s    = ErrHMeas (sourcePosSrcSpan $ loc sym) (pprint $ val sym) (PJ.text s)
     bbs        = filter isBoolBind xs
+
+    -- KeepTyVars generalized
+    (tyVars, _) = Ghc.splitForAllTyCoVars τ
+    sortSub     = F.mkSortSubst $ zip (fmap F.symbol tyVars) (F.FVar <$> freeSort)
+    -- We need sorts that aren't polluted by rank-n types, we can't just look at
+    -- the term to determine statically what is the "maximum" sort bound ex
+    -- freeSort    = [1 + (maximum $ -1 : F.sortAbs out : fmap (F.sortAbs . snd)
+    -- xts) ..] as some variable may be bound to something of rank-n type.
+    -- In SortCheck.hs in fixpoint they just start at 42 for some reason.
+    -- I think Negative Debruijn indices (levels :^)) are safer
+    freeSort    = [-1, -2 ..]
+
     (xs, def') = GM.notracePpr "grabBody" $ grabBody allowTC (Ghc.expandTypeSynonyms τ) $ normalize allowTC def
     su         = F.mkSubst  $ zip (F.symbol     <$> xs) xArgs
                            ++ zip (simplesymbol <$> xs) xArgs
@@ -428,6 +447,7 @@ instance Subable Ghc.CoreAlt where
   subst su (Ghc.Alt c xs e) = Ghc.Alt c xs (subst su e)
 
 data AxiomType = AT { aty :: SpecType, aargs :: [(F.Symbol, SpecType)], ares :: SpecType }
+  deriving Show
 
 -- | Specification for Haskell function
 --
