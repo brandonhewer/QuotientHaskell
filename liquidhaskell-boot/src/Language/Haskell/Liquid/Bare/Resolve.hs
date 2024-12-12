@@ -839,12 +839,11 @@ ofBareType env name l ps t = either fail' id (ofBareTypeE env name l ps t)
     -- fail                   = Misc.errorP "error-ofBareType" . F.showpp
 
 ofBareTypeE :: HasCallStack => Env -> ModName -> F.SourcePos -> Maybe [PVar BSort] -> BareType -> Lookup SpecType
-ofBareTypeE env name l ps t = ofBRType env name (resolveReft env name l ps t) l t
+ofBareTypeE env name l ps t = ofBRType env name (const (resolveReft l ps t)) l t
 
-resolveReft :: Env -> ModName -> F.SourcePos -> Maybe [PVar BSort] -> BareType -> [F.Symbol] -> RReft -> RReft
-resolveReft env name l ps t bs
-        = qualify env name l bs
-        . txParam l RT.subvUReft (RT.uPVar <$> πs) t
+resolveReft :: F.SourcePos -> Maybe [PVar BSort] -> BareType -> RReft -> RReft
+resolveReft l ps t
+        = txParam l RT.subvUReft (RT.uPVar <$> πs) t
         . fixReftTyVars t       -- same as fixCoercions
   where
     πs  = Mb.fromMaybe tπs ps
