@@ -430,7 +430,7 @@ reflectedVars spec cbs =
   where
     isReflSym x =
       S.member x (Ms.reflects spec) ||
-      S.member (fmap getLHNameSymbol x) (Ms.privateReflects spec)
+      S.member (fmap logicNameToSymbol x) (Ms.privateReflects spec)
 
 measureVars :: Ms.BareSpec -> [Ghc.CoreBind] -> [Ghc.Var]
 measureVars spec cbs =
@@ -648,7 +648,7 @@ makeSpecRefl src specs env name sig tycEnv = do
   let impAxioms  = concatMap (filter ((`notElem` asmReflEls) . eqName) . Ms.axeqs . snd) (M.toList specs)
   case anyNonReflFn of
     Just (actSym , preSym) ->
-      let preSym' = symbolString $ getLHNameSymbol (val preSym) in
+      let preSym' = symbolString $ lhNameToUnqualifiedSymbol (val preSym) in
       let errorMsg = preSym' ++ " must be reflected first using {-@ reflect " ++ preSym' ++ " @-}"
       in Ex.throw
            (ErrHMeas
@@ -670,7 +670,7 @@ makeSpecRefl src specs env name sig tycEnv = do
     lmap         = Bare.reLMap env
     notInReflOnes (_, a) = not $
       a `S.member` Ms.reflects mySpec ||
-      fmap getLHNameSymbol a `S.member` Ms.privateReflects mySpec
+      fmap logicNameToSymbol a `S.member` Ms.privateReflects mySpec
     anyNonReflFn = L.find notInReflOnes (Ms.asmReflectSigs mySpec)
 
 ------------------------------------------------------------------------------------------
@@ -1094,7 +1094,7 @@ mkReft :: Located LHName -> Symbol -> SpecType -> SpecType -> Maybe (Symbol, Exp
 mkReft x z _t tr
   | Just q <- stripRTypeBase tr
   = let Reft (v, p) = toReft q
-        su          = mkSubst [(v, mkEApp (fmap getLHNameSymbol x) [EVar v]), (z,EVar v)]
+        su          = mkSubst [(v, mkEApp (fmap logicNameToSymbol x) [EVar v]), (z,EVar v)]
         -- p'          = pAnd $ filter (\e -> z `notElem` syms e) $ conjuncts p
     in  Just (v, subst su p)
 mkReft _ _ _ _
