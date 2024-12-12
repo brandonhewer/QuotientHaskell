@@ -765,10 +765,10 @@ instance Show LiftedSpec where
 fromBareSpecLHName :: BareSpecLHName -> BareSpec
 fromBareSpecLHName sp =
     mapSpecTy
-      ( mapRTypeV logicNameToSymbol .
-        mapReft (mapUReftV logicNameToSymbol (fmap logicNameToSymbol))
+      ( mapRTypeV lhNameToResolvedSymbol .
+        mapReft (mapUReftV lhNameToResolvedSymbol (fmap lhNameToResolvedSymbol))
       ) $
-    mapSpecLName logicNameToSymbol sp
+    mapSpecLName lhNameToResolvedSymbol sp
 
 fromBareSpecParsed :: BareSpecParsed -> BareSpec
 fromBareSpecParsed sp =
@@ -946,7 +946,7 @@ toLiftedSpec :: BareSpecLHName -> LiftedSpec
 toLiftedSpec a = LiftedSpec
   { liftedMeasures   =
       M.fromList
-        [ (dropModuleNames $ logicNameToSymbol n, m)
+        [ (dropModuleNames $ lhNameToResolvedSymbol n, m)
         | m <- measures a
         , let n = val $ msName m
         ]
@@ -967,7 +967,7 @@ toLiftedSpec a = LiftedSpec
   , liftedAutosize   = autosize a
   , liftedCmeasures  =
       M.fromList
-        [ (dropModuleNames $ logicNameToSymbol n, m)
+        [ (dropModuleNames $ lhNameToResolvedSymbol n, m)
         | m <- cmeasures a
         , let n = val $ msName m
         ]

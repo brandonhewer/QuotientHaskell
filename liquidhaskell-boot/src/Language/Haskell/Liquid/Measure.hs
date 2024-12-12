@@ -248,7 +248,7 @@ refineWithCtorBody dc f body t =
   case stripRTypeBase t of
     Just (Reft (v, _)) ->
       strengthen t $
-        Reft (v, bodyPred (eApps (EVar $ logicNameToSymbol $ val f) [eVar v]) body)
+        Reft (v, bodyPred (eApps (EVar $ lhNameToResolvedSymbol $ val f) [eVar v]) body)
     Nothing ->
       panic Nothing $ "measure mismatch " ++ showpp f ++ " on con " ++ showPpr dc
 

@@ -185,7 +185,7 @@ dcWrapSpecType allowTC dc (DataConP _ _ vs ps cs yts rt _ _ _)
   where
     isCls    = Ghc.isClassTyCon $ Ghc.dataConTyCon dc
     (as0, sts) = unzip (reverse yts)
-    as = map logicNameToSymbol as0
+    as = map lhNameToResolvedSymbol as0
     as1 = map lhNameToUnqualifiedSymbol as0
     mkDSym z = F.symbol z `F.suffixSymbol` F.symbol dc
     bs       = mkDSym <$> as

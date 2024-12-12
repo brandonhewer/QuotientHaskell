@@ -256,7 +256,7 @@ makeGhcSpec0 cfg ghcTyLookupEnv tcg instEnvs lenv localVars src lmap targetSpec 
 
     , _gsLSpec  = finalLiftedSpec
                 { expSigs   =
-                    [ (logicNameToSymbol $ reflectGHCName thisModule $ Ghc.getName v, F.sr_sort $ Bare.varSortedReft embs v)
+                    [ (lhNameToResolvedSymbol $ reflectGHCName thisModule $ Ghc.getName v, F.sr_sort $ Bare.varSortedReft embs v)
                     | v <- gsReflects refl
                     ]
                 , dataDecls = Bare.dataDeclSize mySpec $ dataDecls mySpec
@@ -430,7 +430,7 @@ reflectedVars spec cbs =
   where
     isReflSym x =
       S.member x (Ms.reflects spec) ||
-      S.member (fmap logicNameToSymbol x) (Ms.privateReflects spec)
+      S.member (fmap lhNameToResolvedSymbol x) (Ms.privateReflects spec)
 
 measureVars :: Ms.BareSpec -> [Ghc.CoreBind] -> [Ghc.Var]
 measureVars spec cbs =
@@ -670,7 +670,7 @@ makeSpecRefl src specs env name sig tycEnv = do
     lmap         = Bare.reLMap env
     notInReflOnes (_, a) = not $
       a `S.member` Ms.reflects mySpec ||
-      fmap logicNameToSymbol a `S.member` Ms.privateReflects mySpec
+      fmap lhNameToResolvedSymbol a `S.member` Ms.privateReflects mySpec
     anyNonReflFn = L.find notInReflOnes (Ms.asmReflectSigs mySpec)
 
 ------------------------------------------------------------------------------------------
@@ -1094,7 +1094,7 @@ mkReft :: Located LHName -> Symbol -> SpecType -> SpecType -> Maybe (Symbol, Exp
 mkReft x z _t tr
   | Just q <- stripRTypeBase tr
   = let Reft (v, p) = toReft q
-        su          = mkSubst [(v, mkEApp (fmap logicNameToSymbol x) [EVar v]), (z,EVar v)]
+        su          = mkSubst [(v, mkEApp (fmap lhNameToResolvedSymbol x) [EVar v]), (z,EVar v)]
         -- p'          = pAnd $ filter (\e -> z `notElem` syms e) $ conjuncts p
     in  Just (v, subst su p)
 mkReft _ _ _ _
@@ -1202,14 +1202,14 @@ makeMeasEnv env tycEnv sigEnv specs = do
   let (cs, ms) = Bare.makeMeasureSpec'  (typeclass $ getConfig env)   measures
   let cms      = Bare.makeClassMeasureSpec measures
   let cms'     = [ (val l, cSort t <$ l)  | (l, t) <- cms ]
-  let ms'      = [ (logicNameToSymbol (F.val lx), F.atLoc lx t)
+  let ms'      = [ (lhNameToResolvedSymbol (F.val lx), F.atLoc lx t)
                  | (lx, t) <- ms
                  , Mb.isNothing (lookup (val lx) cms')
                  ]
   let cs'      = [ (v, txRefs v t) | (v, t) <- Bare.meetDataConSpec (typeclass (getConfig env)) embs cs (datacons ++ cls)]
   return Bare.MeasEnv
     { meMeasureSpec = measures
-    , meClassSyms   = map (first logicNameToSymbol) cms'
+    , meClassSyms   = map (first lhNameToResolvedSymbol) cms'
     , meSyms        = ms'
     , meDataCons    = cs'
     , meClasses     = cls
@@ -1250,7 +1250,7 @@ addOpaqueReflMeas cfg tycEnv env spec measEnv specs eqs = do
   -- `meSyms` (no class, data constructor or other stuff here).
   let measures = mconcat (Ms.mkMSpec' dcSelectors : measures0)
   let (cs, ms) = Bare.makeMeasureSpec'  (typeclass $ getConfig env)   measures
-  let ms'      = [ (logicNameToSymbol (F.val lx), F.atLoc lx t) | (lx, t) <- ms ]
+  let ms'      = [ (lhNameToResolvedSymbol (F.val lx), F.atLoc lx t) | (lx, t) <- ms ]
   let cs'      = [ (v, txRefs v t) | (v, t) <- Bare.meetDataConSpec (typeclass (getConfig env)) embs cs (val <$> datacons)]
   return $ measEnv <> mempty
     { Bare.meMeasureSpec = measures

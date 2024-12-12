@@ -104,7 +104,7 @@ makeUnSorted allowTC ty defs
 
     defToUnSortedExpr defn =
       (xx:(fst <$> binds defn),
-       Ms.bodyPred (F.eApps (F.EVar $ logicNameToSymbol $ F.val $ measure defn) [F.expr xx]) (body defn))
+       Ms.bodyPred (F.eApps (F.EVar $ lhNameToResolvedSymbol $ F.val $ measure defn) [F.expr xx]) (body defn))
 
     xx = F.vv $ Just 10000
     isErasable = if allowTC then GM.isEmbeddedDictType else Ghc.isClassPred
@@ -404,7 +404,7 @@ getDefinedSymbolsInLogic env measEnv specs =
       getFromDataCtor <$>
         concat (tycDCons `Mb.mapMaybe` (dataDecls spec ++ newtyDecls spec))
     getFromDataCtor decl = S.fromList $
-      map (dummyLoc . logicNameToSymbol) $ val (dcName decl) : (fst <$> dcFields decl)
+      map (dummyLoc . lhNameToResolvedSymbol) $ val (dcName decl) : (fst <$> dcFields decl)
     getAliases spec = S.fromList $ fmap rtName <$> Ms.ealiases spec
     localize :: F.Symbol -> F.LocSymbol
     localize sym = maybe (dummyLoc sym) varLocSym $ L.lookup sym (Bare.reSyms env)

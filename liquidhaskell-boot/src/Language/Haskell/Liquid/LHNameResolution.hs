@@ -546,7 +546,7 @@ makeLogicEnvs impAvails thisModule spec dependencies =
 
     mkLogicNameEnv names =
       LogicNameEnv
-        { lneLHName = fromListSEnv [ (logicNameToSymbol n, n) | n <- names ]
+        { lneLHName = fromListSEnv [ (lhNameToResolvedSymbol n, n) | n <- names ]
         , lneReflected = GHC.mkNameEnv [(rn, n) | n <- names, Just rn <- [maybeReflectedLHName n]]
         }
 
@@ -625,7 +625,7 @@ resolveLogicNames cfg env globalRdrEnv unhandledNames lmap0 localVars lnameEnv p
               ErrDupNames
                 (LH.fSrcSpan ls)
                 (pprint s)
-                [ pprint (logicNameToSymbol n) PJ.<+>
+                [ pprint (lhNameToResolvedSymbol n) PJ.<+>
                   PJ.text
                     ("imported from " ++ GHC.moduleNameString (GHC.moduleName m))
                 | (m, n) <- names
@@ -635,7 +635,7 @@ resolveLogicNames cfg env globalRdrEnv unhandledNames lmap0 localVars lnameEnv p
         s = val ls
         wiredInNames =
            map fst wiredSortedSyms ++
-           map (logicNameToSymbol . fst) (concatMap (DataDecl.dcpTyArgs . val) wiredDataCons)
+           map (lhNameToResolvedSymbol . fst) (concatMap (DataDecl.dcpTyArgs . val) wiredDataCons)
 
     errResolveLogicName s alts =
       ErrResolve

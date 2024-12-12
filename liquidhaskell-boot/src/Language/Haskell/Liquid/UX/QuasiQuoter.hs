@@ -119,7 +119,7 @@ lhNameToName lname = case val lname of
       LHRLocal s -> symbolName s
       LHRIndex i -> panic (Just $ fSrcSpan lname) $ "Cannot produce a TH Name for a LHRIndex " ++ show i
       LHRLogic _ ->
-        panic (Just $ fSrcSpan lname) $ "Cannot produce a TH Name for a LogicName: " ++ show (logicNameToSymbol $ val lname)
+        panic (Just $ fSrcSpan lname) $ "Cannot produce a TH Name for a LogicName: " ++ show (lhNameToResolvedSymbol $ val lname)
 
   where
     toTHNameSpace :: GHC.NameSpace -> NameSpace

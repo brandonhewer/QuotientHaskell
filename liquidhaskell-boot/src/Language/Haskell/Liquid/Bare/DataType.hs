@@ -346,7 +346,7 @@ makeDataCtor tce c (d, dp) = F.DCtor
   }
   where
     as          = dcpFreeTyVars dp
-    xts         = [ (fld $ logicNameToSymbol x, t) | (x, t) <- reverse (dcpTyArgs dp) ]
+    xts         = [ (fld $ lhNameToResolvedSymbol x, t) | (x, t) <- reverse (dcpTyArgs dp) ]
     fld         = F.atLoc dp . fieldName d dp
 
 fieldName :: Ghc.DataCon -> DataConP -> F.Symbol -> F.Symbol
@@ -800,10 +800,10 @@ makeRecordSelectorSigs env name = checkRecordSelectorSigs . concatMap makeOne
              | (x, t) <- reverse args -- NOTE: the reverse here is correct
              , let vv = rTypeValueVar t
                -- the measure singleton refinement, eg `v = getBar foo`
-             , let mt = RT.uReft (vv, F.PAtom F.Eq (F.EVar vv) (F.EApp (F.EVar $ logicNameToSymbol x) (F.EVar z)))
+             , let mt = RT.uReft (vv, F.PAtom F.Eq (F.EVar vv) (F.EApp (F.EVar $ lhNameToResolvedSymbol x) (F.EVar z)))
              ]
 
-      su   = F.mkSubst [ (lhNameToUnqualifiedSymbol x, F.EApp (F.EVar (logicNameToSymbol x)) (F.EVar z)) | x <- fst <$> args ]
+      su   = F.mkSubst [ (lhNameToUnqualifiedSymbol x, F.EApp (F.EVar (lhNameToResolvedSymbol x)) (F.EVar z)) | x <- fst <$> args ]
       args = dcpTyArgs dcp
       z    = "lq$recSel"
       res  = dropPreds (dcpTyRes dcp)

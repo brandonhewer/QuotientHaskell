@@ -15,7 +15,7 @@ module Language.Haskell.Liquid.Types.Names
   , getLHGHCName
   , getLHNameResolved
   , getLHNameSymbol
-  , logicNameToSymbol
+  , lhNameToResolvedSymbol
   , lhNameToUnqualifiedSymbol
   , makeGHCLHName
   , makeGHCLHNameFromId
@@ -314,13 +314,13 @@ updateLHNameSymbol :: (Symbol -> Symbol) -> LHName -> LHName
 updateLHNameSymbol f (LHNResolved n s) = LHNResolved n (f s)
 updateLHNameSymbol f (LHNUnresolved n s) = LHNUnresolved n (f s)
 
--- | Converts logic names to symbols.
+-- | Converts resolved names to symbols.
 --
 -- One important postcondition of this function is that the symbol for reflected
 -- names must match exactly the symbol for the corresponding Haskell function.
 -- Otherwise, LH would fail to link the two at various places where it is needed.
-logicNameToSymbol :: LHName -> Symbol
-logicNameToSymbol (LHNResolved (LHRLogic (LogicName s om mReflectionOf)) _) =
+lhNameToResolvedSymbol :: LHName -> Symbol
+lhNameToResolvedSymbol (LHNResolved (LHRLogic (LogicName s om mReflectionOf)) _) =
     let m = maybe om GHC.nameModule mReflectionOf
         msymbol = Text.pack $ GHC.moduleNameString $ GHC.moduleName m
      in symbol $ mconcat [msymbol, ".", symbolText s]
@@ -341,10 +341,10 @@ logicNameToSymbol (LHNResolved (LHRLogic (LogicName s om mReflectionOf)) _) =
           GHC.moduleUnitId m
      in symbol $ mconcat ["u", munique, "##", msymbol, ".", symbolText s]
           -}
-logicNameToSymbol (LHNResolved (LHRLogic (GeneratedLogicName s)) _) = s
-logicNameToSymbol (LHNResolved (LHRLocal s) _) = s
-logicNameToSymbol (LHNResolved (LHRGHC n) _) = symbol $ GHC.getOccString n
-logicNameToSymbol n = error $ "logicNameToSymbol: unexpected name: " ++ show n
+lhNameToResolvedSymbol (LHNResolved (LHRLogic (GeneratedLogicName s)) _) = s
+lhNameToResolvedSymbol (LHNResolved (LHRLocal s) _) = s
+lhNameToResolvedSymbol (LHNResolved (LHRGHC n) _) = symbol $ GHC.getOccString n
+lhNameToResolvedSymbol n = error $ "lhNameToResolvedSymbol: unexpected name: " ++ show n
 
 lhNameToUnqualifiedSymbol :: HasCallStack => LHName -> Symbol
 lhNameToUnqualifiedSymbol (LHNResolved (LHRLogic (LogicName s _ _)) _) = s
