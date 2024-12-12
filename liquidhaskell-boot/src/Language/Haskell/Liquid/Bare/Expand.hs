@@ -491,10 +491,6 @@ cookSpecTypeE env sigEnv name@(ModName _ _) x bt
         . fmap txExpToBind -- What does this function DO
         . (specExpandType rtEnv . fmap (generalizeWith x))
         . (if doplug || not allowTC then maybePlug allowTC sigEnv name x else id)
-        -- we do not qualify/resolve Expr/Pred when typeclass is enabled
-        -- since ghci will not be able to recognize fully qualified names
-        -- instead, we leave qualification to ghc elaboration
-        . Bare.qualifyTop env name l
 
     allowTC = typeclass (getConfig env)
     -- modT   = mname `S.member` wiredInMods
@@ -509,7 +505,6 @@ cookSpecTypeE env sigEnv name@(ModName _ _) x bt
     rtEnv  = Bare.sigRTEnv    sigEnv
     embs   = Bare.sigEmbs     sigEnv
     tyi    = Bare.sigTyRTyMap sigEnv
-    l      = F.loc bt
 
 -- | We don't want to generalize type variables that maybe bound in the
 --   outer scope, e.g. see tests/basic/pos/LocalPlug00.hs

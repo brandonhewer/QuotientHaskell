@@ -12,7 +12,6 @@ module Language.Haskell.Liquid.Bare.Measure
   , makeMeasureSelectors
   , makeMeasureSpec
   , makeMeasureSpec'
-  , getLocReflects
   , makeOpaqueReflMeasures
   , getReflDCs
   , varMeasures
@@ -372,18 +371,17 @@ makeMeasureSpec env sigEnv myName (name, spec)
 
 --- Returns all the reflected symbols.
 --- If Env is provided, the symbols are qualified using the environment.
-getLocReflects :: Maybe Bare.Env -> Bare.ModSpecs -> S.HashSet F.LocSymbol
-getLocReflects mbEnv = S.unions . fmap (uncurry $ names mbEnv) . M.toList
+getLocReflects :: Bare.ModSpecs -> S.HashSet F.LocSymbol
+getLocReflects = S.unions . map names . M.elems
   where
-    names (Just env) modName modSpec = Bare.qualifyLocSymbolTop env modName `S.map` unqualified modSpec
-    names Nothing _ modSpec = unqualified modSpec
+    names modSpec = unqualified modSpec
     unqualified modSpec = S.unions
-      [ S.map (fmap getLHNameSymbol) (Ms.reflects modSpec)
+      [ S.map (fmap lhNameToResolvedSymbol) (Ms.reflects modSpec)
       , Ms.privateReflects modSpec
-      , S.fromList (fmap getLHNameSymbol . snd <$> Ms.asmReflectSigs modSpec)
-      , S.fromList (fmap getLHNameSymbol . fst <$> Ms.asmReflectSigs modSpec)
-      , S.map (fmap getLHNameSymbol) (Ms.inlines modSpec)
-      , S.map (fmap getLHNameSymbol) (Ms.hmeas modSpec)
+      , S.fromList (fmap lhNameToResolvedSymbol . snd <$> Ms.asmReflectSigs modSpec)
+      , S.fromList (fmap lhNameToResolvedSymbol . fst <$> Ms.asmReflectSigs modSpec)
+      , S.map (fmap lhNameToResolvedSymbol) (Ms.inlines modSpec)
+      , S.map (fmap lhNameToResolvedSymbol) (Ms.hmeas modSpec)
       ]
 
 -- Get all the symbols that are defined in the logic, based on the environment and the specs.
@@ -391,14 +389,14 @@ getLocReflects mbEnv = S.unions . fmap (uncurry $ names mbEnv) . M.toList
 getDefinedSymbolsInLogic :: Bare.Env -> Bare.MeasEnv -> Bare.ModSpecs -> S.HashSet F.LocSymbol
 getDefinedSymbolsInLogic env measEnv specs = 
   S.unions (uncurry getFromAxioms <$> specsList) -- reflections that ended up in equations
-    `S.union` getLocReflects (Just env) specs -- reflected symbols
+    `S.union` getLocReflects specs -- reflected symbols
     `S.union` measVars -- Get the data constructors, ex. for Lit00.0
     `S.union` S.unions (getDataDecls . snd <$> specsList) -- get the Predicated type defs, ex. for T1669.CSemigroup
     `S.union` S.unions (getAliases . snd <$> specsList) -- aliases, ex. for T1738Lib.incr
   where
     specsList = M.toList specs
-    getFromAxioms modName spec = S.fromList $
-      Bare.qualifyLocSymbolTop env modName . localize . F.eqName <$> Ms.axeqs spec
+    getFromAxioms _modName spec = S.fromList $
+      localize . F.eqName <$> Ms.axeqs spec
     measVars     = S.fromList $ localize . fst <$> getMeasVars env measEnv
     getDataDecls spec = S.unions $
       getFromDataCtor <$>

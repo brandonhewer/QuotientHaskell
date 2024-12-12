@@ -22,7 +22,6 @@ module Language.Haskell.Liquid.Bare.Resolve
   , ResolveSym (..)
   , Qualify (..)
   , Lookup
-  , qualifyTop, qualifyTopDummy, qualifyLocSymbolTop
 
   -- * Looking up names
   , maybeResolveSym
@@ -315,14 +314,6 @@ dataConVars dcs = (Ghc.dataConWorkId <$> dcs) ++ (Ghc.dataConWrapId <$> dcs)
 -------------------------------------------------------------------------------
 -- | Qualify various names
 -------------------------------------------------------------------------------
-qualifyTop :: (Qualify a) => Env -> ModName -> F.SourcePos -> a -> a
-qualifyTop env name l = qualify env name l []
-
-qualifyTopDummy :: (Qualify a) => Env -> ModName -> a -> a
-qualifyTopDummy env name = qualifyTop env name dummySourcePos
-
-dummySourcePos :: F.SourcePos
-dummySourcePos = F.loc (F.dummyLoc ())
 
 class Qualify a where
   qualify :: Env -> ModName -> F.SourcePos -> [F.Symbol] -> a -> a
@@ -359,10 +350,6 @@ qualifySymbol env name l bs x
                   Right v -> v
   where
     isSpl     = isSplSymbol env bs x
-
-
-qualifyLocSymbolTop :: Env -> ModName -> F.LocSymbol -> F.LocSymbol
-qualifyLocSymbolTop env modName l  = l {val = qualifyTop env modName (loc l) (val l)}
 
 isSplSymbol :: Env -> [F.Symbol] -> F.Symbol -> Bool
 isSplSymbol env bs x
