@@ -515,7 +515,7 @@ bareMSpec env sigEnv myName name spec = Ms.mkMSpec ms cms ims oms
     ms         = F.notracepp "UMS" $ filter inScope $ expMeas <$> Ms.measures  spec
     ims        = F.notracepp "IMS" $ filter inScope $ expMeas <$> Ms.imeasures spec
     oms        = F.notracepp "OMS" $ filter inScope $ expMeas <$> Ms.omeasures spec
-    expMeas    = expandMeasure env name  rtEnv
+    expMeas    = expandMeasure rtEnv
     rtEnv      = Bare.sigRTEnv          sigEnv
     force      = name == myName
     inScope z = F.notracepp ("inScope1: " ++ F.showpp (msName z)) (force ||  okSort z)
@@ -560,15 +560,15 @@ mkMeasureSort env name (Ms.MSpec c mm cm im) =
 --------------------------------------------------------------------------------
 -- type BareMeasure = Measure LocBareType LocSymbol
 
-expandMeasure :: Bare.Env -> ModName -> BareRTEnv -> BareMeasure -> BareMeasure
-expandMeasure env name rtEnv m = m
+expandMeasure :: BareRTEnv -> BareMeasure -> BareMeasure
+expandMeasure rtEnv m = m
   { msSort = RT.generalize                   <$> msSort m
-  , msEqns = expandMeasureDef env name rtEnv <$> msEqns m
+  , msEqns = expandMeasureDef rtEnv <$> msEqns m
   }
 
-expandMeasureDef :: Bare.Env -> ModName -> BareRTEnv -> Def t (Located LHName) -> Def t (Located LHName)
-expandMeasureDef env name rtEnv d = d
-  { body  = F.notracepp msg $ Bare.qualifyExpand env name rtEnv l bs (body d) }
+expandMeasureDef :: BareRTEnv -> Def t (Located LHName) -> Def t (Located LHName)
+expandMeasureDef rtEnv d = d
+  { body  = F.notracepp msg $ Bare.expand rtEnv l (body d) }
   where
     l     = loc (measure d)
     bs    = fst <$> binds d

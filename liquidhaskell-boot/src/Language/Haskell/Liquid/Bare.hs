@@ -317,14 +317,8 @@ makeGhcSpec0 cfg ghcTyLookupEnv tcg instEnvs lenv localVars src lmap targetSpec 
     simplifier :: Ghc.CoreExpr -> Ghc.TcRn Ghc.CoreExpr
     simplifier = pure -- no simplification
     allowTC  = typeclass cfg
-    mySpec2  = Bare.qualifyExpand env name rtEnv l [] mySpec1    where l = F.dummyPos "expand-mySpec2"
-    iSpecs2  = Bare.qualifyExpand
-                 env
-                 name
-                 rtEnv
-                 (F.dummyPos "expand-iSpecs2")
-                 []
-                 (M.fromList dependencySpecs)
+    mySpec2  = Bare.expand rtEnv l mySpec1    where l = F.dummyPos "expand-mySpec2"
+    iSpecs2  = Bare.expand rtEnv (F.dummyPos "expand-iSpecs2") (M.fromList dependencySpecs)
     rtEnv    = Bare.makeRTEnv env name mySpec1 dependencySpecs lmap
     mspecs   = (name, mySpec0) : dependencySpecs
     (mySpec0, instMethods)  = if allowTC
@@ -713,7 +707,7 @@ addReflSigs env name rtEnv measEnv refl sig =
     -- the functions, we are left with a pair (Var, LocSpecType). The latter /needs/ to be qualified and
     -- expanded again, for example in case it has expression aliases derived from 'inlines'.
     expandReflectedSignature :: (Ghc.Var, LocSpecType) -> (Ghc.Var, LocSpecType)
-    expandReflectedSignature = fmap (Bare.qualifyExpand env name rtEnv (F.dummyPos "expand-refSigs") [])
+    expandReflectedSignature = fmap (Bare.expand rtEnv (F.dummyPos "expand-refSigs"))
 
     reflSigs = [ (x, t) | (x, t, _) <- gsHAxioms refl ]
     -- Get the set of all the actual functions (in assume-reflects)
@@ -811,7 +805,7 @@ makeTySigs :: Bare.Env -> Bare.SigEnv -> ModName -> Ms.BareSpec
            -> Bare.Lookup [(Ghc.Var, LocSpecType, Maybe [Located F.Expr])]
 makeTySigs env sigEnv name spec = do
   bareSigs   <- bareTySigs env                     spec
-  expSigs    <- makeTExpr  env name bareSigs rtEnv spec
+  expSigs    <- makeTExpr  env bareSigs rtEnv spec
   let rawSigs = Bare.resolveLocalBinds env expSigs
   return [ (x, cook x bt, z) | (x, bt, z) <- rawSigs ]
   where
@@ -858,24 +852,22 @@ myAsmSig v sigs = Mb.fromMaybe errImp (mbHome `mplus` mbImp)
     errImp      = impossible Nothing "myAsmSig: cannot happen as sigs is non-null"
     vName       = GM.takeModuleNames (F.symbol v)
 
-makeTExpr :: Bare.Env -> ModName -> [(Ghc.Var, LocBareType)] -> BareRTEnv -> Ms.BareSpec
+makeTExpr :: Bare.Env -> [(Ghc.Var, LocBareType)] -> BareRTEnv -> Ms.BareSpec
           -> Bare.Lookup [(Ghc.Var, LocBareType, Maybe [Located F.Expr])]
-makeTExpr env name tySigs rtEnv spec = do
+makeTExpr env tySigs rtEnv spec = do
   vExprs       <- M.fromList <$> makeVarTExprs env spec
   let vSigExprs = Misc.hashMapMapWithKey (\v t -> (t, M.lookup v vExprs)) vSigs
-  return [ (v, t, qual t <$> es) | (v, (t, es)) <- M.toList vSigExprs ]
+  return [ (v, t, qual <$> es) | (v, (t, es)) <- M.toList vSigExprs ]
   where
-    qual t es   = qualifyTermExpr env name rtEnv t <$> es
+    qual es   = expandTermExpr rtEnv <$> es
     vSigs       = M.fromList tySigs
 
-qualifyTermExpr :: Bare.Env -> ModName -> BareRTEnv -> LocBareType -> Located F.Expr
-                -> Located F.Expr
-qualifyTermExpr env name rtEnv t le
-        = F.atLoc le (Bare.qualifyExpand env name rtEnv l bs e)
+expandTermExpr :: BareRTEnv -> Located F.Expr -> Located F.Expr
+expandTermExpr rtEnv le
+        = F.atLoc le (Bare.expand rtEnv l e)
   where
     l   = F.loc le
     e   = F.val le
-    bs  = ty_binds . toRTypeRep . val $ t
 
 makeVarTExprs :: Bare.Env -> Ms.BareSpec -> Bare.Lookup [(Ghc.Var, [Located F.Expr])]
 makeVarTExprs env spec =

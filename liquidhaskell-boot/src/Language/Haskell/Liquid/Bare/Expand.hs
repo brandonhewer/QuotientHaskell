@@ -11,8 +11,8 @@ module Language.Haskell.Liquid.Bare.Expand
   ( -- * Create alias expansion environment
     makeRTEnv
 
-    -- * Expand and Qualify
-  , qualifyExpand
+    -- * Expand
+  , Expand(expand)
 
     -- * Converting BareType to SpecType
   , cookSpecType
@@ -274,25 +274,6 @@ buildExprEdges table  = ordNub . go
 ----------------------------------------------------------------------------------
 class Expand a where
   expand :: BareRTEnv -> F.SourcePos -> a -> a
-
-----------------------------------------------------------------------------------
--- | @qualifyExpand@ first qualifies names so that we can successfully resolve them during expansion.
---
--- When expanding, it's important we pass around a 'BareRTEnv' where the type aliases have been qualified as well.
--- This is subtle, see for example T1761. In that test, we had a type alias \"OneTyAlias a = {v:a | oneFunPred v}\" where
--- \"oneFunPred\" was marked inline. However, inlining couldn't happen because the 'BareRTEnv' had an
--- entry for \"T1761.oneFunPred\", so the relevant expansion of \"oneFunPred\" couldn't happen. This was
--- because the type alias entry inside 'BareRTEnv' mentioned the tuple (\"OneTyAlias\", \"{v:a | oneFunPred v}\") but
--- the 'snd' element needed to be qualified as well, before trying to expand anything.
-----------------------------------------------------------------------------------
-qualifyExpand :: (PPrint a, Expand a, Bare.Qualify a)
-              => Bare.Env -> ModName -> BareRTEnv -> F.SourcePos -> [F.Symbol] -> a -> a
-----------------------------------------------------------------------------------
-qualifyExpand env name rtEnv l bs
-  = expand qualifiedRTEnv l . Bare.qualify env name l bs
-  where
-    qualifiedRTEnv :: BareRTEnv
-    qualifiedRTEnv = rtEnv { typeAliases = M.map (Bare.qualify env name l bs) (typeAliases rtEnv) }
 
 ----------------------------------------------------------------------------------
 expandLoc :: (Expand a) => BareRTEnv -> Located a -> Located a
