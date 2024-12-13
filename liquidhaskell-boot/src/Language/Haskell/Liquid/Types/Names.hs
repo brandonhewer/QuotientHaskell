@@ -343,7 +343,7 @@ lhNameToResolvedSymbol (LHNResolved (LHRLogic (LogicName s om mReflectionOf)) _)
           -}
 lhNameToResolvedSymbol (LHNResolved (LHRLogic (GeneratedLogicName s)) _) = s
 lhNameToResolvedSymbol (LHNResolved (LHRLocal s) _) = s
-lhNameToResolvedSymbol (LHNResolved (LHRGHC n) _) = symbol $ GHC.getOccString n
+lhNameToResolvedSymbol (LHNResolved (LHRGHC n) _) = symbol n
 lhNameToResolvedSymbol n = error $ "lhNameToResolvedSymbol: unexpected name: " ++ show n
 
 lhNameToUnqualifiedSymbol :: HasCallStack => LHName -> Symbol
