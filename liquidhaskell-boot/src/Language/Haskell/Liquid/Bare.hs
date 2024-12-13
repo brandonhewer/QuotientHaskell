@@ -317,7 +317,7 @@ makeGhcSpec0 cfg ghcTyLookupEnv tcg instEnvs lenv localVars src lmap targetSpec 
     simplifier :: Ghc.CoreExpr -> Ghc.TcRn Ghc.CoreExpr
     simplifier = pure -- no simplification
     allowTC  = typeclass cfg
-    mySpec2  = Bare.expand rtEnv l mySpec1    where l = F.dummyPos "expand-mySpec2"
+    mySpec2  = Bare.expand rtEnv (F.dummyPos "expand-mySpec2") mySpec1
     iSpecs2  = Bare.expand rtEnv (F.dummyPos "expand-iSpecs2") (M.fromList dependencySpecs)
     rtEnv    = Bare.makeRTEnv env name mySpec1 dependencySpecs lmap
     mspecs   = (name, mySpec0) : dependencySpecs
@@ -490,9 +490,8 @@ makeSpecQual _cfg env tycEnv measEnv _rtEnv specs = SpQual
                    ++ (fst <$> Bare.meClassSyms measEnv)
 
 makeQualifiers :: Bare.Env -> Bare.TycEnv -> (ModName, Ms.Spec F.Symbol ty) -> [F.Qualifier]
-makeQualifiers env tycEnv (modn, spec)
-  = Mb.mapMaybe (resolveQParams       env tycEnv modn)
-  $ Ms.qualifiers spec
+makeQualifiers env tycEnv (modn, spec) =
+    Mb.mapMaybe (resolveQParams env tycEnv modn) $ Ms.qualifiers spec
 
 
 -- | @resolveQualParams@ converts the sorts of parameters from, e.g.
@@ -854,8 +853,8 @@ makeTExpr env tySigs rtEnv spec = do
   let vSigExprs = Misc.hashMapMapWithKey (\v t -> (t, M.lookup v vExprs)) vSigs
   return [ (v, t, qual <$> es) | (v, (t, es)) <- M.toList vSigExprs ]
   where
-    qual es   = expandTermExpr rtEnv <$> es
-    vSigs       = M.fromList tySigs
+    qual es = expandTermExpr rtEnv <$> es
+    vSigs = M.fromList tySigs
 
 expandTermExpr :: BareRTEnv -> Located F.Expr -> Located F.Expr
 expandTermExpr rtEnv le

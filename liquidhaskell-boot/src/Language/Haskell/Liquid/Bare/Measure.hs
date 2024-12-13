@@ -560,7 +560,7 @@ mkMeasureSort env name (Ms.MSpec c mm cm im) =
 
 expandMeasure :: BareRTEnv -> BareMeasure -> BareMeasure
 expandMeasure rtEnv m = m
-  { msSort = RT.generalize                   <$> msSort m
+  { msSort = RT.generalize <$> msSort m
   , msEqns = expandMeasureDef rtEnv <$> msEqns m
   }
 

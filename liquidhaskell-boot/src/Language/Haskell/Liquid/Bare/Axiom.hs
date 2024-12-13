@@ -316,7 +316,7 @@ makeAxiom :: Bare.Env -> Bare.TycEnv -> LogicMap
 makeAxiom env tycEnv lmap (x, mbT, v, def)
             = (v, t, e)
   where
-    (t, e) = makeAssumeType allowTC embs lmap dm x mbT v def
+    (t, e)  = makeAssumeType allowTC embs lmap dm x mbT v def
     embs    = Bare.tcEmbs       tycEnv
     dm      = Bare.tcDataConMap tycEnv
     allowTC = typeclass (getConfig env)

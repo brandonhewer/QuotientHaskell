@@ -74,7 +74,7 @@ makeRTEnv
 makeRTEnv env modName mySpec dependencySpecs lmap
           = renameRTArgs $ makeRTAliases tAs $ makeREAliases eAs
   where
-    tAs   = [ t                   | (_, s)  <- specs, t <- Ms.aliases  s ]
+    tAs   = [ t | (_, s)  <- specs, t <- Ms.aliases  s ]
     eAs   = [ e | (_m, s)  <- specs, e <- Ms.ealiases s ]
          ++ if typeclass (getConfig env) then []
                                               -- lmap expansion happens during elaboration

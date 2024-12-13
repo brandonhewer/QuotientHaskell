@@ -144,8 +144,8 @@ plugMany :: Bool -> F.TCEmb Ghc.TyCon -> Bare.TyConMap
 plugMany allowTC embs tyi ldcp (hsAs, hsArgs, hsRes) (lqAs, lqArgs, lqRes)
                      = F.notracepp msg (drop nTyVars (zip (map lookupLHName xs) ts), t)
   where
-    lookupLHName s = Mb.fromMaybe (panic (Just (GM.fSrcSpan ldcp)) $ "unexpected symbol: " ++ show s) $ lookup s lhNameMap
-    lhNameMap = [ (lhNameToUnqualifiedSymbol n, n) | n <- map fst lqArgs ]
+    lookupLHName s   = Mb.fromMaybe (panic (Just (GM.fSrcSpan ldcp)) $ "unexpected symbol: " ++ show s) $ lookup s lhNameMap
+    lhNameMap        = [ (lhNameToUnqualifiedSymbol n, n) | n <- map fst lqArgs ]
     ((xs,_,ts,_), t) = bkArrow (val pT)
     pT               = plugHoles allowTC (Bare.LqTV dcName) embs tyi (const killHoles) hsT (F.atLoc ldcp lqT)
     hsT              = foldr (Ghc.mkFunTy Ghc.FTF_T_T Ghc.ManyTy) hsRes hsArgs'
