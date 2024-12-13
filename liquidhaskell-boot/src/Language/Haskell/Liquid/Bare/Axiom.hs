@@ -357,13 +357,13 @@ makeAssumeType allowTC tce lmap dm sym mbT v def
     mkErr s    = ErrHMeas (sourcePosSrcSpan $ loc sym) (pprint $ val sym) (PJ.text s)
     bbs        = filter isBoolBind xs
 
-    -- Before this modification reflected functions that were polymorphic were
-    -- getting compiled to monomorphic fixpint code.  As an example: 
+    -- rTypeSortExp produces monomorphic sorts from polymorphic types.
+    -- As an example, for 
     -- id :: a -> a ... id x = x 
-    -- Was generating: 
+    -- we got: 
     -- define id (x : a#foobar) : a#foobar = { (x : a#foobar) }
-    -- Using FObj instead of a real type variable (FVar) This code solves the
-    -- issue by creating a sobritution that replaces those "fake" type variables
+    -- Using FObj instead of a real type variable (FVar i) This code solves the
+    -- issue by creating a sort substitution that replaces those "fake" type variables
     -- with actual ones.
     -- define id (x : @-1) : a@-1 = { (x : a@-1) }
     (tyVars, _) = Ghc.splitForAllTyCoVars τ
