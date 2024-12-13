@@ -75,13 +75,13 @@ makeRTEnv env modName mySpec dependencySpecs lmap
           = renameRTArgs $ makeRTAliases tAs $ makeREAliases eAs
   where
     tAs   = [ t                   | (_, s)  <- specs, t <- Ms.aliases  s ]
-    eAs   = [ specREAlias env m e | (m, s)  <- specs, e <- Ms.ealiases s ]
+    eAs   = [ e | (_m, s)  <- specs, e <- Ms.ealiases s ]
          ++ if typeclass (getConfig env) then []
                                               -- lmap expansion happens during elaboration
                                               -- this clearly breaks things if a signature
                                               -- contains lmap functions but never gets
                                               -- elaborated
-              else [ specREAlias env modName e | (_, xl) <- M.toList (lmSymDefs lmap)
+              else [ e | (_, xl) <- M.toList (lmSymDefs lmap)
                                   , let e    = lmapEAlias xl             ]
     specs = (modName, mySpec) : dependencySpecs
 
@@ -130,11 +130,6 @@ makeRTAliases :: [Located (RTAlias F.Symbol BareType)] -> BareRTEnv -> BareRTEnv
 makeRTAliases lxts rte = graphExpand buildTypeEdges f rte lxts
   where
     f rtEnv xt         = setRTAlias rtEnv (expandLoc rtEnv xt)
-
-specREAlias :: Bare.Env -> ModName -> Located (RTAlias F.Symbol F.Expr) -> Located (RTAlias F.Symbol F.Expr)
-specREAlias env m la = F.atLoc la $ a { rtBody = Bare.qualify env m (loc la) (rtVArgs a) (rtBody a) }
-  where
-    a     = val la
 
 --------------------------------------------------------------------------------------------------------------
 
