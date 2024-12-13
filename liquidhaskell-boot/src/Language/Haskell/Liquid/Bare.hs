@@ -999,7 +999,7 @@ makeSpecData src env sigEnv measEnv sig specs = SpData
                        , let tt  = Bare.plugHoles (typeclass $ getConfig env) sigEnv name (Bare.LqTV x) t
                    ]
   , gsMeas       = [ (F.symbol x, uRType <$> t) | (x, t) <- measVars ]
-  , gsMeasures   = (ms1 ++ ms2)
+  , gsMeasures   = ms1 ++ ms2
   , gsOpaqueRefls = fst <$> Bare.meOpaqueRefl measEnv
   , gsInvariants = Misc.nubHashOn (F.loc . snd) invs
   , gsIaliases   = concatMap (makeIAliases env sigEnv) (M.toList specs)
