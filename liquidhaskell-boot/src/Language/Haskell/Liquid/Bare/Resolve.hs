@@ -20,9 +20,7 @@ module Language.Haskell.Liquid.Bare.Resolve
 
     -- * Resolving symbols
   , ResolveSym (..)
-  , Qualify (..)
   , Lookup
-  , qualifyTop, qualifyTopDummy, qualifyLocSymbolTop
 
   -- * Looking up names
   , maybeResolveSym
@@ -93,7 +91,6 @@ import           Language.Haskell.Liquid.Types.Specs
 import           Language.Haskell.Liquid.Types.Visitors
 import           Language.Haskell.Liquid.Bare.Types
 import           Language.Haskell.Liquid.UX.Config
-import           Language.Haskell.Liquid.WiredIn
 import           System.IO.Unsafe (unsafePerformIO)
 
 myTracepp :: (F.PPrint a) => String -> a -> a
@@ -136,7 +133,7 @@ getGlobalSyms (_, spec)
       ++ (mbName <$> imeasures spec)
       ++ (mbName <$> omeasures spec)
   where
-    mbName = logicNameToSymbol . F.val . msName
+    mbName = lhNameToResolvedSymbol . F.val . msName
 
 makeLocalVars :: [Ghc.CoreBind] -> LocalVars
 makeLocalVars = localVarMap . localBinds
@@ -311,169 +308,6 @@ srcVars src = filter Ghc.isId .  fmap Misc.thd3 . Misc.fstByRank $ concat
 
 dataConVars :: [Ghc.DataCon] -> [Ghc.Var]
 dataConVars dcs = (Ghc.dataConWorkId <$> dcs) ++ (Ghc.dataConWrapId <$> dcs)
-
--------------------------------------------------------------------------------
--- | Qualify various names
--------------------------------------------------------------------------------
-qualifyTop :: (Qualify a) => Env -> ModName -> F.SourcePos -> a -> a
-qualifyTop env name l = qualify env name l []
-
-qualifyTopDummy :: (Qualify a) => Env -> ModName -> a -> a
-qualifyTopDummy env name = qualifyTop env name dummySourcePos
-
-dummySourcePos :: F.SourcePos
-dummySourcePos = F.loc (F.dummyLoc ())
-
-class Qualify a where
-  qualify :: Env -> ModName -> F.SourcePos -> [F.Symbol] -> a -> a
-
-instance Qualify TyConMap where
-  qualify env name l bs tyi = tyi
-    { tcmTyRTy = tx <$> tcmTyRTy tyi
-    , tcmFIRTy = tx <$> tcmFIRTy tyi
-    }
-    where
-      tx :: (Qualify a) => a -> a
-      tx = qualify env name l bs
-
-instance Qualify TyConP where
-  qualify env name _ bs tcp = tcp { tcpSizeFun = qualify env name (tcpLoc tcp) bs <$> tcpSizeFun tcp }
-
-instance Qualify v => Qualify (SizeFunV v) where
-  qualify env name _ bs (SymSizeFun x) = SymSizeFun (qualify env name (F.loc (F.dummyLoc x)) bs x)
-  qualify _   _    _ _  sf              = sf
-
-instance Qualify F.Equation where
-  qualify _env _name _l _bs x = x -- TODO-REBARE
--- REBARE: qualifyAxiomEq :: Bare.Env -> Var -> Subst -> AxiomEq -> AxiomEq
--- REBARE: qualifyAxiomEq v su eq = subst su eq { eqName = symbol v}
-
-instance Qualify F.Symbol where
-  qualify env name l bs x = qualifySymbol env name l bs x
-
-qualifySymbol :: Env -> ModName -> F.SourcePos -> [F.Symbol] -> F.Symbol -> F.Symbol
-qualifySymbol env name l bs x
-  | isSpl     = x
-  | otherwise = case resolveLocSym env name "Symbol" (F.Loc l l x) of
-                  Left _ -> x
-                  Right v -> v
-  where
-    isSpl     = isSplSymbol env bs x
-
-
-qualifyLocSymbolTop :: Env -> ModName -> F.LocSymbol -> F.LocSymbol
-qualifyLocSymbolTop env modName l  = l {val = qualifyTop env modName (loc l) (val l)}
-
-isSplSymbol :: Env -> [F.Symbol] -> F.Symbol -> Bool
-isSplSymbol env bs x
-  =  isWiredInName x
-  || elem x bs
-  || S.member x (reGlobSyms env)
-
-instance (Qualify a) => Qualify (Located a) where
-  qualify env name l bs = fmap (qualify env name l bs)
-
-instance (Qualify a) => Qualify [a] where
-  qualify env name l bs = fmap (qualify env name l bs)
-
-instance (Qualify a) => Qualify (Maybe a) where
-  qualify env name l bs = fmap (qualify env name l bs)
-
-instance Qualify Body where
-  qualify env name l bs (P   p) = P   (qualify env name l bs p)
-  qualify env name l bs (E   e) = E   (qualify env name l bs e)
-  qualify env name l bs (R x p) = R x (qualify env name l bs p)
-
-instance Qualify TyConInfo where
-  qualify env name l bs tci = tci { sizeFunction = qualify env name l bs <$> sizeFunction tci }
-
-instance Qualify RTyCon where
-  qualify env name l bs rtc = rtc { rtc_info = qualify env name l bs (rtc_info rtc) }
-
-instance Qualify (Measure SpecType Ghc.DataCon) where
-  qualify env name _ bs m = m -- FIXME substEnv env name bs $
-    { msName = updateLHNameSymbol (qualify env name l bs) <$> lname
-    , msEqns = qualify env name l bs <$> msEqns m
-    }
-    where
-      l      = F.loc  lname
-      lname  = msName m
-
-
-instance Qualify (Def ty ctor) where
-  qualify env name l bs d = d
-    { body  = qualify env name l (bs ++ bs') (body d) }
-    where
-      bs'   = fst <$> binds d
-
-instance Qualify BareMeasure where
-  qualify env name l bs m = m
-    { msEqns = qualify env name l bs (msEqns m)
-    }
-
-instance Qualify DataCtor where
-  qualify env name l bs c = c
-    { dcTheta  = qualify env name l bs (dcTheta  c)
-    , dcFields = qualify env name l bs (dcFields c)
-    , dcResult = qualify env name l bs (dcResult c)
-    }
-
-instance Qualify DataDecl where
-  qualify env name l bs d = d
-    { tycDCons  = qualify env name l bs (tycDCons  d)
-    , tycPropTy = qualify env name l bs (tycPropTy d)
-    }
-
-instance Qualify ModSpecs where
-  qualify env name l bs = Misc.hashMapMapWithKey (\_ -> qualify env name l bs)
-
-instance Qualify b => Qualify (a, b) where
-  qualify env name l bs (x, y) = (x, qualify env name l bs y)
-
-instance Qualify BareSpec where
-  qualify = qualifyBareSpec
-
-qualifyBareSpec :: Env -> ModName -> F.SourcePos -> [F.Symbol] -> BareSpec -> BareSpec
-qualifyBareSpec env name l bs sp = sp
-  { measures   = qualify env name l bs (measures   sp)
-  , asmSigs    = qualify env name l bs (asmSigs    sp)
-  , sigs       = qualify env name l bs (sigs       sp)
-  , dataDecls  = qualify env name l bs (dataDecls  sp)
-  , newtyDecls = qualify env name l bs (newtyDecls sp)
-  , ialiases   = [ (f x, f y) | (x, y) <- ialiases sp ]
-  }
-  where f      = qualify env name l bs
-
-instance Qualify a => Qualify (RTAlias F.Symbol a) where
-  qualify env name l bs rtAlias
-   = rtAlias { rtName  = qualify env name l bs (rtName rtAlias)
-             , rtTArgs = qualify env name l bs (rtTArgs rtAlias)
-             , rtVArgs = qualify env name l bs (rtVArgs rtAlias)
-             , rtBody  = qualify env name l bs (rtBody rtAlias)
-             }
-
-instance Qualify F.Expr where
-  qualify = substEnv
-
-instance Qualify RReft where
-  qualify = substEnv
-
-instance Qualify F.Qualifier where
-  qualify env name _ bs q = q { F.qBody = qualify env name (F.qPos q) bs' (F.qBody q) }
-    where
-      bs'                 = bs ++ (F.qpSym <$> F.qParams q)
-
-substEnv :: (F.Subable a) => Env -> ModName -> F.SourcePos -> [F.Symbol] -> a -> a
-substEnv env name l bs = F.substa (qualifySymbol env name l bs)
-
-instance Qualify SpecType where
-  qualify x1 x2 x3 x4 x5 = emapReft (substFreeEnv x1 x2 x3) x4 x5
-
-instance Qualify BareType where
-  qualify x1 x2 x3 x4 x5 = emapReft (substFreeEnv x1 x2 x3) x4 x5
-
-substFreeEnv :: (F.Subable a) => Env -> ModName -> F.SourcePos -> [F.Symbol] -> a -> a
-substFreeEnv env name l bs = F.substf (F.EVar . qualifySymbol env name l bs)
 
 -------------------------------------------------------------------------------
 lookupGhcNamedVar :: (Ghc.NamedThing a, F.Symbolic a) => Env -> ModName -> a -> Maybe Ghc.Var
@@ -839,12 +673,11 @@ ofBareType env name l ps t = either fail' id (ofBareTypeE env name l ps t)
     -- fail                   = Misc.errorP "error-ofBareType" . F.showpp
 
 ofBareTypeE :: HasCallStack => Env -> ModName -> F.SourcePos -> Maybe [PVar BSort] -> BareType -> Lookup SpecType
-ofBareTypeE env name l ps t = ofBRType env name (resolveReft env name l ps t) l t
+ofBareTypeE env name l ps t = ofBRType env name (const (resolveReft l ps t)) l t
 
-resolveReft :: Env -> ModName -> F.SourcePos -> Maybe [PVar BSort] -> BareType -> [F.Symbol] -> RReft -> RReft
-resolveReft env name l ps t bs
-        = qualify env name l bs
-        . txParam l RT.subvUReft (RT.uPVar <$> πs) t
+resolveReft :: F.SourcePos -> Maybe [PVar BSort] -> BareType -> RReft -> RReft
+resolveReft l ps t
+        = txParam l RT.subvUReft (RT.uPVar <$> πs) t
         . fixReftTyVars t       -- same as fixCoercions
   where
     πs  = Mb.fromMaybe tπs ps
@@ -921,7 +754,7 @@ ofBRType env name f l = go []
     go bs (RRTy xts r o t)  = RRTy  <$> xts' <*> goReft bs r <*> pure o <*> go bs t
       where xts'            = mapM (traverse (go bs)) xts
     go bs (RHole r)         = RHole    <$> goReft bs r
-    go bs (RExprArg le)     = return    $ RExprArg (qualify env name l bs le)
+    go _ (RExprArg le)      = return    $ RExprArg le
     goRef bs (RProp ss (RHole r)) = rPropP <$> mapM goSyms ss <*> goReft bs r
     goRef bs (RProp ss t)         = RProp  <$> mapM goSyms ss <*> go bs t
     goSyms (x, t)                 = (x,) <$> ofBSortE env name l t
@@ -951,7 +784,7 @@ lookupTyThingMaybe env lc@(Loc _ _ c0) = unsafePerformIO $ do
       LHNResolved rn _ -> case rn of
         LHRLocal _ -> panic (Just $ GM.fSrcSpan lc) $ "cannot resolve a local name: " ++ show c0
         LHRIndex i -> panic (Just $ GM.fSrcSpan lc) $ "cannot resolve a LHRIndex " ++ show i
-        LHRLogic _ -> panic (Just $ GM.fSrcSpan lc) $ "lookupTyThing: cannot resolve a LHRLogic name " ++ show (logicNameToSymbol c0)
+        LHRLogic _ -> panic (Just $ GM.fSrcSpan lc) $ "lookupTyThing: cannot resolve a LHRLogic name " ++ show (lhNameToResolvedSymbol c0)
         LHRGHC n ->
           Ghc.reflectGhc (Interface.lookupTyThing (gtleTypeEnv env) n) (gtleSession env)
 

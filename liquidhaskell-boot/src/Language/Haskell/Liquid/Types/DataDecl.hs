@@ -84,7 +84,7 @@ data DataCtorP ty = DataCtor
   { dcName   :: F.Located LHName       -- ^ DataCon name
   , dcTyVars :: [F.Symbol]             -- ^ Type parameters
   , dcTheta  :: [ty]                   -- ^ The GHC ThetaType corresponding to DataCon.dataConSig
-  , dcFields :: [(F.Symbol, ty)]       -- ^ field-name and field-Type pairs
+  , dcFields :: [(LHName, ty)]       -- ^ field-name and field-Type pairs
   , dcResult :: Maybe ty               -- ^ Possible output (if in GADT form)
   } deriving (Data, Typeable, Generic, Eq, Functor, Foldable, Traversable)
 
@@ -168,7 +168,7 @@ data DataConP = DataConP
   , dcpFreeTyVars :: ![RTyVar]               -- ^ Type parameters
   , dcpFreePred   :: ![PVar RSort]           -- ^ Abstract Refinement parameters
   , dcpTyConstrs  :: ![SpecType]             -- ^ ? Class constraints (via `dataConStupidTheta`)
-  , dcpTyArgs     :: ![(F.Symbol, SpecType)] -- ^ Value parameters
+  , dcpTyArgs     :: ![(LHName, SpecType)] -- ^ Value parameters
   , dcpTyRes      :: !SpecType               -- ^ Result type
   , dcpIsGadt     :: !Bool                   -- ^ Was this specified in GADT style (if so, DONT use function names as fields)
   , dcpModule     :: !F.Symbol               -- ^ Which module was this defined in

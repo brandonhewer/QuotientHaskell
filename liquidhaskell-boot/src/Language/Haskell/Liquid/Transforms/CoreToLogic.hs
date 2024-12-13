@@ -207,7 +207,7 @@ toArgs f args = [(symbol x, f $ varRType x) | x <- args]
 defArgs :: Monoid r => Located LHName -> [Type] -> [(Symbol, Maybe (Located (RRType r)))]
 defArgs x     = zipWith (\i t -> (defArg i, defRTyp t)) [0..]
   where
-    defArg    = tempSymbol (logicNameToSymbol $ val x)
+    defArg    = tempSymbol (lhNameToResolvedSymbol $ val x)
     defRTyp   = Just . F.atLoc x . ofType
 
 coreToDef :: Reftable r => Bool -> Located LHName -> Var -> C.CoreExpr

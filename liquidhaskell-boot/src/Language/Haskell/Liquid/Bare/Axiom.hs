@@ -62,12 +62,12 @@ findDuplicateBetweenLists key l1 l2 =
       [ (x, y) | x <- l2', Just y <- [Map.lookup (key' x) seen]]
 
 -----------------------------------------------------------------------------------------------
-makeHaskellAxioms :: GhcSrc -> Bare.Env -> Bare.TycEnv -> ModName -> LogicMap -> GhcSpecSig -> Ms.BareSpec
+makeHaskellAxioms :: GhcSrc -> Bare.Env -> Bare.TycEnv -> LogicMap -> GhcSpecSig -> Ms.BareSpec
                   -> Bare.Lookup [(Ghc.Var, LocSpecType, F.Equation)]
 -----------------------------------------------------------------------------------------------
-makeHaskellAxioms src env tycEnv name lmap spSig spec = do
+makeHaskellAxioms src env tycEnv lmap spSig spec = do
   let refDefs = getReflectDefs src spSig spec env
-  return (makeAxiom env tycEnv name lmap <$> refDefs)
+  return (makeAxiom env tycEnv lmap <$> refDefs)
 
 -----------------------------------------------------------------------------------------------
 --          Returns a list of elements, one per assume reflect                               --
@@ -84,7 +84,10 @@ makeAssumeReflectAxioms src env tycEnv spSig spec = do
   -- Send an error message if we're redefining a reflection
   case findDuplicatePair val reflActSymbols <|> findDuplicateBetweenLists val refSymbols reflActSymbols of
     Just (x , y) -> Ex.throw $ mkError y $
-                      "Duplicate reflection of " ++ show x ++ " and " ++ show y
+                      "Duplicate reflection of " ++
+                      show (lhNameToUnqualifiedSymbol <$> x) ++
+                      " and " ++
+                      show (lhNameToUnqualifiedSymbol <$> y)
     Nothing -> return $ turnIntoAxiom <$> Ms.asmReflectSigs spec
   where
     turnIntoAxiom (actual, pretended) = makeAssumeReflectAxiom spSig env embs (actual, pretended)
@@ -306,15 +309,14 @@ getExprFromUnfolding (Ghc.CoreUnfolding expr _ _ _ _) = Just expr
 getExprFromUnfolding _ = Nothing
 
 --------------------------------------------------------------------------------
-makeAxiom :: Bare.Env -> Bare.TycEnv -> ModName -> LogicMap
+makeAxiom :: Bare.Env -> Bare.TycEnv -> LogicMap
           -> (LocSymbol, Maybe SpecType, Ghc.Var, Ghc.CoreExpr)
           -> (Ghc.Var, LocSpecType, F.Equation)
 --------------------------------------------------------------------------------
-makeAxiom env tycEnv name lmap (x, mbT, v, def)
+makeAxiom env tycEnv lmap (x, mbT, v, def)
             = (v, t, e)
   where
-    t       = Bare.qualifyTop env name (F.loc t0) t0
-    (t0, e) = makeAssumeType allowTC embs lmap dm x mbT v def
+    (t, e)  = makeAssumeType allowTC embs lmap dm x mbT v def
     embs    = Bare.tcEmbs       tycEnv
     dm      = Bare.tcDataConMap tycEnv
     allowTC = typeclass (getConfig env)

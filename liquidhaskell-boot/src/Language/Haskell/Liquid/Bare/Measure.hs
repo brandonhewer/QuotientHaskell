@@ -12,7 +12,6 @@ module Language.Haskell.Liquid.Bare.Measure
   , makeMeasureSelectors
   , makeMeasureSpec
   , makeMeasureSpec'
-  , getLocReflects
   , makeOpaqueReflMeasures
   , getReflDCs
   , varMeasures
@@ -104,7 +103,7 @@ makeUnSorted allowTC ty defs
 
     defToUnSortedExpr defn =
       (xx:(fst <$> binds defn),
-       Ms.bodyPred (F.eApps (F.EVar $ logicNameToSymbol $ F.val $ measure defn) [F.expr xx]) (body defn))
+       Ms.bodyPred (F.eApps (F.EVar $ lhNameToResolvedSymbol $ F.val $ measure defn) [F.expr xx]) (body defn))
 
     xx = F.vv $ Just 10000
     isErasable = if allowTC then GM.isEmbeddedDictType else Ghc.isClassPred
@@ -241,7 +240,7 @@ dataConDecl d     = {- F.notracepp msg $ -} DataCtor dx (F.symbol <$> as) [] xts
   where
     isGadt        = not (Ghc.isVanillaDataCon d)
     -- msg           = printf "dataConDecl (gadt = %s)" (show isGadt)
-    xts           = [(Bare.makeDataConSelector Nothing d i, RT.bareOfType t) | (i, t) <- its ]
+    xts           = [(makeGeneratedLogicLHName $ Bare.makeDataConSelector Nothing d i, RT.bareOfType t) | (i, t) <- its ]
     dx            = makeGHCLHNameLocated d
     its           = zip [1..] ts
     (as,_ps,ts,ty)  = Ghc.dataConSig d
@@ -275,7 +274,7 @@ makeMeasureSelectors cfg dm (Loc l l' c)
       = Nothing
       | otherwise
         -- TODO: Use as origin module the module where the measure is created
-      = Just $ makeMeasureSelector (Loc l l' (makeGeneratedLogicLHName x)) (projT i) dc n i
+      = Just $ makeMeasureSelector (Loc l l' x) (projT i) dc n i
 
     go' ((_,t), i)
       -- do not make selectors for functional fields
@@ -372,18 +371,17 @@ makeMeasureSpec env sigEnv myName (name, spec)
 
 --- Returns all the reflected symbols.
 --- If Env is provided, the symbols are qualified using the environment.
-getLocReflects :: Maybe Bare.Env -> Bare.ModSpecs -> S.HashSet F.LocSymbol
-getLocReflects mbEnv = S.unions . fmap (uncurry $ names mbEnv) . M.toList
+getLocReflects :: Bare.ModSpecs -> S.HashSet F.LocSymbol
+getLocReflects = S.unions . map names . M.elems
   where
-    names (Just env) modName modSpec = Bare.qualifyLocSymbolTop env modName `S.map` unqualified modSpec
-    names Nothing _ modSpec = unqualified modSpec
+    names modSpec = unqualified modSpec
     unqualified modSpec = S.unions
-      [ S.map (fmap getLHNameSymbol) (Ms.reflects modSpec)
+      [ S.map (fmap lhNameToResolvedSymbol) (Ms.reflects modSpec)
       , Ms.privateReflects modSpec
-      , S.fromList (fmap getLHNameSymbol . snd <$> Ms.asmReflectSigs modSpec)
-      , S.fromList (fmap getLHNameSymbol . fst <$> Ms.asmReflectSigs modSpec)
-      , S.map (fmap getLHNameSymbol) (Ms.inlines modSpec)
-      , S.map (fmap getLHNameSymbol) (Ms.hmeas modSpec)
+      , S.fromList (fmap lhNameToResolvedSymbol . snd <$> Ms.asmReflectSigs modSpec)
+      , S.fromList (fmap lhNameToResolvedSymbol . fst <$> Ms.asmReflectSigs modSpec)
+      , S.map (fmap lhNameToResolvedSymbol) (Ms.inlines modSpec)
+      , S.map (fmap lhNameToResolvedSymbol) (Ms.hmeas modSpec)
       ]
 
 -- Get all the symbols that are defined in the logic, based on the environment and the specs.
@@ -391,21 +389,20 @@ getLocReflects mbEnv = S.unions . fmap (uncurry $ names mbEnv) . M.toList
 getDefinedSymbolsInLogic :: Bare.Env -> Bare.MeasEnv -> Bare.ModSpecs -> S.HashSet F.LocSymbol
 getDefinedSymbolsInLogic env measEnv specs = 
   S.unions (uncurry getFromAxioms <$> specsList) -- reflections that ended up in equations
-    `S.union` getLocReflects (Just env) specs -- reflected symbols
+    `S.union` getLocReflects specs -- reflected symbols
     `S.union` measVars -- Get the data constructors, ex. for Lit00.0
-    `S.union` S.unions (uncurry getDataDecls <$> specsList) -- get the Predicated type defs, ex. for T1669.CSemigroup
+    `S.union` S.unions (getDataDecls . snd <$> specsList) -- get the Predicated type defs, ex. for T1669.CSemigroup
     `S.union` S.unions (getAliases . snd <$> specsList) -- aliases, ex. for T1738Lib.incr
   where
     specsList = M.toList specs
-    getFromAxioms modName spec = S.fromList $
-      Bare.qualifyLocSymbolTop env modName . localize . F.eqName <$> Ms.axeqs spec
+    getFromAxioms _modName spec = S.fromList $
+      localize . F.eqName <$> Ms.axeqs spec
     measVars     = S.fromList $ localize . fst <$> getMeasVars env measEnv
-    getDataDecls modName spec = S.unions $
-      getFromDataCtor modName <$>
+    getDataDecls spec = S.unions $
+      getFromDataCtor <$>
         concat (tycDCons `Mb.mapMaybe` (dataDecls spec ++ newtyDecls spec))
-    getFromDataCtor modName decl = S.fromList $
-      Bare.qualifyLocSymbolTop env modName <$>
-        (fmap getLHNameSymbol (dcName decl) : (localize . fst <$> dcFields decl))
+    getFromDataCtor decl = S.fromList $
+      map (dummyLoc . lhNameToResolvedSymbol) $ val (dcName decl) : (fst <$> dcFields decl)
     getAliases spec = S.fromList $ fmap rtName <$> Ms.ealiases spec
     localize :: F.Symbol -> F.LocSymbol
     localize sym = maybe (dummyLoc sym) varLocSym $ L.lookup sym (Bare.reSyms env)
@@ -516,7 +513,7 @@ bareMSpec env sigEnv myName name spec = Ms.mkMSpec ms cms ims oms
     ms         = F.notracepp "UMS" $ filter inScope $ expMeas <$> Ms.measures  spec
     ims        = F.notracepp "IMS" $ filter inScope $ expMeas <$> Ms.imeasures spec
     oms        = F.notracepp "OMS" $ filter inScope $ expMeas <$> Ms.omeasures spec
-    expMeas    = expandMeasure env name  rtEnv
+    expMeas    = expandMeasure rtEnv
     rtEnv      = Bare.sigRTEnv          sigEnv
     force      = name == myName
     inScope z = F.notracepp ("inScope1: " ++ F.showpp (msName z)) (force ||  okSort z)
@@ -561,15 +558,15 @@ mkMeasureSort env name (Ms.MSpec c mm cm im) =
 --------------------------------------------------------------------------------
 -- type BareMeasure = Measure LocBareType LocSymbol
 
-expandMeasure :: Bare.Env -> ModName -> BareRTEnv -> BareMeasure -> BareMeasure
-expandMeasure env name rtEnv m = m
-  { msSort = RT.generalize                   <$> msSort m
-  , msEqns = expandMeasureDef env name rtEnv <$> msEqns m
+expandMeasure :: BareRTEnv -> BareMeasure -> BareMeasure
+expandMeasure rtEnv m = m
+  { msSort = RT.generalize <$> msSort m
+  , msEqns = expandMeasureDef rtEnv <$> msEqns m
   }
 
-expandMeasureDef :: Bare.Env -> ModName -> BareRTEnv -> Def t (Located LHName) -> Def t (Located LHName)
-expandMeasureDef env name rtEnv d = d
-  { body  = F.notracepp msg $ Bare.qualifyExpand env name rtEnv l bs (body d) }
+expandMeasureDef :: BareRTEnv -> Def t (Located LHName) -> Def t (Located LHName)
+expandMeasureDef rtEnv d = d
+  { body  = F.notracepp msg $ Bare.expand rtEnv l (body d) }
   where
     l     = loc (measure d)
     bs    = fst <$> binds d

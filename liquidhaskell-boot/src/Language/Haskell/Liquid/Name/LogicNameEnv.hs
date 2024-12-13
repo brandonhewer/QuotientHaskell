@@ -10,7 +10,7 @@ import           Language.Haskell.Liquid.Types.Names
 
 -- | For every symbol tells the corresponding LHName and Sort
 --
--- Symbols are expected to have been created by 'logicNameToSymbol'.
+-- Symbols are expected to have been created by 'lhNameToResolvedSymbol'.
 --
 data LogicNameEnv = LogicNameEnv
        { lneLHName :: SEnv LHName
@@ -22,5 +22,5 @@ extendLogicNameEnv :: LogicNameEnv -> [LHName] -> LogicNameEnv
 extendLogicNameEnv env ns =
     env
       { lneLHName =
-          foldr (uncurry insertSEnv) (lneLHName env) [ (logicNameToSymbol n, n) | n <- ns]
+          foldr (uncurry insertSEnv) (lneLHName env) [ (lhNameToResolvedSymbol n, n) | n <- ns]
       }

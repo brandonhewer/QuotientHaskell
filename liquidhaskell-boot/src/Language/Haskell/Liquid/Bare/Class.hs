@@ -61,7 +61,9 @@ makeMethodTypes allowTC (DEnv hm) cls cbs
       classType Nothing _ = Nothing
       classType (Just (d, ts, _)) x =
         case filter ((==d) . Ghc.dataConWorkId . dcpCon) cls of
-          (di:_) -> (dcpLoc di `F.atLoc`) . subst (zip (dcpFreeTyVars di) ts) <$> L.lookup (mkSymbol x) (dcpTyArgs di)
+          (di:_) ->
+            (dcpLoc di `F.atLoc`) . subst (zip (dcpFreeTyVars di) ts) <$>
+            L.lookup (mkSymbol x) (map (first lhNameToResolvedSymbol) $ dcpTyArgs di)
           _      -> Nothing
 
       methodType d x m = ihastype (M.lookup d m) x
@@ -160,7 +162,7 @@ mkClassE env sigEnv _myName name (RClass cc ss as ms) tc = do
     meths  <- mapM (makeMethod env sigEnv name) ms'
     let vts = [ (m, v, t) | (m, kv, t) <- meths, v <- Mb.maybeToList (plugSrc kv) ]
     let sts = [(val s, unClass $ val t) | (s, _) <- ms | (_, _, t) <- meths]
-    let dcp = DataConP l dc αs [] (val <$> ss') (map (first getLHNameSymbol) (reverse sts)) rt False (F.symbol name) l'
+    let dcp = DataConP l dc αs [] (val <$> ss') (reverse sts) rt False (F.symbol name) l'
     return  $ F.notracepp msg (dcp, vts)
   where
     c      = btc_tc cc
