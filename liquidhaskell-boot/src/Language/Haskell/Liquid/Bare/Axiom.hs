@@ -325,6 +325,7 @@ makeAxiom env tycEnv lmap (x, mbT, v, def)
 mkError :: PPrint a => Located a -> String -> Error
 mkError x str = ErrHMeas (sourcePosSrcSpan $ loc x) (pprint $ val x) (PJ.text str)
 
+-- This function is uded to generate the fixpoint code for reflected functions
 makeAssumeType
   :: Bool -- ^ typeclass enabled
   -> F.TCEmb Ghc.TyCon -> LogicMap -> DataConMap -> LocSymbol -> Maybe SpecType
@@ -356,15 +357,23 @@ makeAssumeType allowTC tce lmap dm sym mbT v def
     mkErr s    = ErrHMeas (sourcePosSrcSpan $ loc sym) (pprint $ val sym) (PJ.text s)
     bbs        = filter isBoolBind xs
 
-    -- KeepTyVars generalized
+    -- Before this modification reflected functions that were polymorphic were
+    -- getting compiled to monomorphic fixpint code.  As an example: 
+    -- id :: a -> a ... id x = x 
+    -- Was generating: 
+    -- define id (x : a#foobar) : a#foobar = { (x : a#foobar) }
+    -- Using FObj instead of a real type variable (FVar) This code solves the
+    -- issue by creating a sobritution that replaces those "fake" type variables
+    -- with actual ones.
+    -- define id (x : @-1) : a@-1 = { (x : a@-1) }
     (tyVars, _) = Ghc.splitForAllTyCoVars τ
     sortSub     = F.mkSortSubst $ zip (fmap F.symbol tyVars) (F.FVar <$> freeSort)
     -- We need sorts that aren't polluted by rank-n types, we can't just look at
-    -- the term to determine statically what is the "maximum" sort bound ex
-    -- freeSort    = [1 + (maximum $ -1 : F.sortAbs out : fmap (F.sortAbs . snd)
-    -- xts) ..] as some variable may be bound to something of rank-n type.
-    -- In SortCheck.hs in fixpoint they just start at 42 for some reason.
-    -- I think Negative Debruijn indices (levels :^)) are safer
+    -- the term to determine statically what is the "maximum" sort bound ex:
+    -- freeSort = [1 + (maximum $ -1 : F.sortAbs out : fmap (F.sortAbs . snd) xts) ..] 
+    -- as some variable may be bound to something of rank-n type.  In
+    -- SortCheck.hs in fixpoint they just start at 42 for some reason.  I think
+    -- Negative Debruijn indices (levels :^)) are safer
     freeSort    = [-1, -2 ..]
 
     (xs, def') = GM.notracePpr "grabBody" $ grabBody allowTC (Ghc.expandTypeSynonyms τ) $ normalize allowTC def
