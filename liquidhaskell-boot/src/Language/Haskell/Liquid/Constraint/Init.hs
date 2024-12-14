@@ -18,7 +18,6 @@ module Language.Haskell.Liquid.Constraint.Init (
 import           Prelude                                       hiding (error, undefined)
 import           Control.Monad (foldM, forM)
 import           Control.Monad.State
-import           Data.Char (isLower)
 import           Data.Maybe                                    (isNothing, fromMaybe, catMaybes, mapMaybe)
 import qualified Data.HashMap.Strict                           as M
 import qualified Data.HashSet                                  as S
@@ -224,12 +223,7 @@ measEnv sp xts cbs _tcb lt1s lt2s asms itys hs info = CGE
 
 -- | Constructs the sort of an equation
 eqSort :: F.EquationV v -> F.Sort
-eqSort e  =
-    let s = foldr (F.FFunc . snd) (F.eqSort e) (F.eqArgs e)
-        ss = filter (isTyVarName . F.symbolString) $ S.toList $ F.sortSymbols s
-     in F.mkPoly (length ss - 1) s
-  where
-    isTyVarName s = all isLower (take 1 s) && L.isInfixOf "##" s
+eqSort e  = foldr (F.FFunc . snd) (F.eqSort e) (F.eqArgs e)
 
 assm :: TargetInfo -> [(Var, SpecType)]
 assm = assmGrty (giImpVars . giSrc)
