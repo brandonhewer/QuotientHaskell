@@ -140,7 +140,7 @@ makeMeasureInline allowTC embs lmap cbs x =
     Just (v, defn) -> (vx, coreToFun' allowTC embs Nothing lmap vx v defn ok)
                      where
                        vx         = F.atLoc x (F.symbol v)
-                       ok (xs, e) = LMap vx (F.symbol <$> xs) (either id id e)
+                       ok (xs, e) = LMapV vx (F.symbol <$> xs) (either id id e)
 
 -- | @coreToFun'@ takes a @Maybe DataConMap@: we need a proper map when lifting
 --   measures and reflects (which have case-of, and hence, need the projection symbols),
@@ -387,7 +387,7 @@ getLocReflects mbEnv = S.unions . fmap (uncurry $ names mbEnv) . M.toList
 -- Get all the symbols that are defined in the logic, based on the environment and the specs.
 -- Also, fully qualify the defined symbols by the way (for those for which it's possible and not already done).
 getDefinedSymbolsInLogic :: Bare.Env -> Bare.MeasEnv -> Bare.ModSpecs -> S.HashSet F.LocSymbol
-getDefinedSymbolsInLogic env measEnv specs = 
+getDefinedSymbolsInLogic env measEnv specs =
   S.unions (uncurry getFromAxioms <$> specsList) -- reflections that ended up in equations
     `S.union` getLocReflects (Just env) specs -- reflected symbols
     `S.union` measVars -- Get the data constructors, ex. for Lit00.0
@@ -472,7 +472,7 @@ getUnfoldingOfVar = getExpr . Ghc.realUnfoldingInfo . Ghc.idInfo
 -- For this purpose, you need to give the variable naming the definition to reflect
 -- and its corresponding equation in the logic.
 getFreeVarsOfReflectionOfVar  :: Ghc.Var -> F.Equation -> S.HashSet Ghc.Var
-getFreeVarsOfReflectionOfVar var eq = 
+getFreeVarsOfReflectionOfVar var eq =
     S.filter (\v -> F.symbol v `S.member` freeSymbolsInReflectedBody) freeVarsInCoreExpr
   where
     reflExpr = getUnfoldingOfVar var

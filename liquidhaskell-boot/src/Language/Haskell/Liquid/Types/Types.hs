@@ -128,7 +128,7 @@ module Language.Haskell.Liquid.Types.Types (
   , mapRTAVars
 
   -- * CoreToLogic
-  , LogicMap(..), toLMap, fromLMap, toLogicMap, eAppWithMap, LMap(..)
+  , LogicMap(..), toLMapV, toLMapV', toLogicMap, eAppWithMap, emapLMapM, LMapV(..), LMap
 
   -- * Refined Instances
   , RDEnv, DEnv(..), RInstance(..), RISig(..)
@@ -263,33 +263,39 @@ instance Monoid LogicMap where
 instance Semigroup LogicMap where
   LM x1 x2 <> LM y1 y2 = LM (M.union x1 y1) (M.union x2 y2)
 
-data LMap = LMap
+data LMapV v = LMapV
   { lmVar  :: F.LocSymbol
   , lmArgs :: [Symbol]
-  , lmExpr :: Expr
-  } deriving (Eq, Data, Generic)
-    deriving Hashable via Generically LMap
-    deriving Binary   via Generically LMap
+  , lmExpr :: F.ExprV v
+  } deriving (Eq, Data, Generic, Functor)
+    deriving Hashable via Generically (LMapV v)
+    deriving Binary   via Generically (LMapV v)
+type LMap = LMapV F.Symbol
 
-instance Show LMap where
-  show (LMap x xs e) = show x ++ " " ++ show xs ++ "\t |-> \t" ++ show e
+instance (Show v, Ord v, F.Fixpoint v) => Show (LMapV v) where
+  show (LMapV x xs e) = show x ++ " " ++ show xs ++ "\t |-> \t" ++ show e
 
-toLMap :: (F.LocSymbol, ([Symbol], Expr)) -> (Symbol, LMap)
-toLMap (x, (ys, e)) = (F.val x, LMap {lmVar = x, lmArgs = ys, lmExpr = e})
+toLMapV' :: (F.Located LHName, ([Symbol], F.ExprV v)) -> (F.Located LHName, LMapV v)
+toLMapV' (x, (ys, e)) = (x, LMapV {lmVar = fmap getLHNameSymbol x, lmArgs = ys, lmExpr = e})
 
-fromLMap :: LMap -> (F.LocSymbol, ([Symbol], Expr))
-fromLMap (LMap x ys e) = (x, (ys, e))
+toLMapV :: (F.LocSymbol, ([Symbol], F.ExprV v)) -> (Symbol, LMapV v)
+toLMapV (x, (ys, e)) = (F.val $ x, LMapV {lmVar = x, lmArgs = ys, lmExpr = e})
 
 toLogicMap :: [(F.LocSymbol, ([Symbol], Expr))] -> LogicMap
-toLogicMap ls = mempty {lmSymDefs = M.fromList $ map toLMap ls}
+toLogicMap ls = mempty {lmSymDefs = M.fromList $ map toLMapV ls}
 
 eAppWithMap :: LogicMap -> Symbol -> [Expr] -> Expr -> Expr
 eAppWithMap lmap f es expr
-  | Just (LMap _ xs e) <- M.lookup f (lmSymDefs lmap)
+  | Just (LMapV _ xs e) <- M.lookup f (lmSymDefs lmap)
   , length xs == length es
   = F.subst (F.mkSubst $ zip xs es) e
   | otherwise
   = expr
+
+emapLMapM :: Monad m => ([Symbol] -> v0 -> m v1) -> LMapV v0 -> m (LMapV v1)
+emapLMapM f l = do
+    lmExpr <- emapExprVM (f . (++ lmArgs l)) (lmExpr l)
+    return l {lmExpr}
 
 --------------------------------------------------------------------------------
 -- | Refined Instances ---------------------------------------------------------
@@ -378,7 +384,7 @@ mapRTAVars :: (a -> b) -> RTAlias a ty -> RTAlias b ty
 mapRTAVars f rt = rt { rtTArgs = f <$> rtTArgs rt }
 
 lmapEAlias :: LMap -> F.Located (RTAlias Symbol Expr)
-lmapEAlias (LMap v ys e) = F.atLoc v (RTA (F.val v) [] ys e) -- (F.loc v) (F.loc v)
+lmapEAlias (LMapV v ys e) = F.atLoc v (RTA (F.val v) [] ys e) -- (F.loc v) (F.loc v)
 
 
 -- | The type used during constraint generation, used

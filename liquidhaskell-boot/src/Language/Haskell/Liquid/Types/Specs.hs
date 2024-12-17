@@ -74,7 +74,7 @@ module Language.Haskell.Liquid.Types.Specs (
   ) where
 
 import           GHC.Generics            hiding (to, moduleName)
-import           Data.Bifunctor          (bimap, first)
+import           Data.Bifunctor          (bimap, first, second)
 import           Data.Bitraversable      (bimapM)
 import           Data.Binary
 import qualified Language.Fixpoint.Types as F
@@ -425,7 +425,7 @@ data Spec lname ty = Spec
   , dsize      :: ![([F.Located ty], lname)]                          -- ^ Size measure to enforce fancy termination
   , bounds     :: !(RRBEnvV lname (F.Located ty))
   , axeqs      :: ![F.EquationV lname]                                -- ^ Equalities used for Proof-By-Evaluation
-  , defines    :: ![(F.LocSymbol, ([F.Symbol], F.Expr))]              -- ^ Logic aliases
+  , defines    :: ![(F.Located LHName, LMapV lname)]                  -- ^ Logic aliases
   } deriving (Data, Generic)
 
 instance (Show lname, F.PPrint lname, Show ty, F.PPrint ty, F.PPrint (RTypeV lname BTyCon BTyVar (RReftV lname))) => F.PPrint (Spec lname ty) where
@@ -492,6 +492,7 @@ emapSpecM bscp lenv vf f sp = do
         (traverse (emapBoundM (traverse . f) (\e -> emapExprVM (vf . (++ e)))))
         (M.toList $ bounds sp)
     axeqs <- mapM (emapEquationM vf) $ axeqs sp
+    defines <- mapM (traverse (emapLMapM vf)) $ defines sp
     return sp
       { measures
       , expSigs
@@ -515,6 +516,7 @@ emapSpecM bscp lenv vf f sp = do
       , dsize
       , bounds
       , axeqs
+      , defines
       }
   where
     fnull = f []
@@ -584,6 +586,7 @@ mapSpecLName f Spec {..} =
       , bounds = M.map (fmap (fmap f)) bounds
       , axeqs = map (fmap f) axeqs
       , dsize = map (fmap f) dsize
+      , defines = map (second $ fmap f) defines
       , ..
       }
   where
@@ -760,7 +763,7 @@ data LiftedSpec = LiftedSpec
   , liftedBounds     :: RRBEnvV LHName LocBareTypeLHName
   , liftedAxeqs      :: HashSet (F.EquationV LHName)
     -- ^ Equalities used for Proof-By-Evaluation
-  , liftedDefines    :: M.HashMap F.Symbol LMap
+  , liftedDefines    :: HashMap F.Symbol (LMapV LHName)
     -- ^ Logic aliases
   } deriving (Eq, Data, Generic)
     deriving Hashable via Generically LiftedSpec
@@ -991,7 +994,7 @@ toLiftedSpec lenv a = LiftedSpec
   , liftedDsize      = dsize a
   , liftedBounds     = bounds a
   , liftedAxeqs      = S.fromList . axeqs $ a
-  , liftedDefines    = M.fromList . map toLMap . defines $ a
+  , liftedDefines    = M.fromList . map (first (qualifyLHName . F.val)) . defines $ a
   }
 
 -- This is a temporary internal function that we use to convert the input dependencies into a format
@@ -1037,5 +1040,5 @@ unsafeFromLiftedSpec a = Spec
   , dsize      = liftedDsize  a
   , bounds     = liftedBounds a
   , axeqs      = S.toList . liftedAxeqs $ a
-  , defines    = map (fromLMap . snd) . M.toList . liftedDefines $ a
+  , defines    = map (\p -> first (dummyLoc . makeLocalLHName) p) . M.toList . liftedDefines $ a
   }

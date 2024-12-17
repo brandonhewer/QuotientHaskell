@@ -29,6 +29,7 @@ module Language.Haskell.Liquid.Types.Names
   , reflectGHCName
   , reflectLHName
   , updateLHNameSymbol
+  , qualifyLHName
   ) where
 
 import Control.DeepSeq
@@ -40,8 +41,9 @@ import Data.String (fromString)
 import qualified Data.Text                               as Text
 import GHC.Generics
 import GHC.Stack
+
 import Language.Fixpoint.Types
-import Language.Haskell.Liquid.GHC.Misc (locNamedThing) -- Symbolic GHC.Name
+import Language.Haskell.Liquid.GHC.Misc -- Symbolic GHC.Name
 import qualified Liquid.GHC.API as GHC
 import Text.PrettyPrint.HughesPJ.Compat
 
@@ -136,8 +138,11 @@ instance Ord LogicName where
       x -> x
 
 instance Show LHName where
-  show (LHNResolved _ s) = symbolString s
-  show (LHNUnresolved _ s) = symbolString s
+  show (LHNResolved (LHRLogic _) s) = "RL@" ++ symbolString s
+  show (LHNResolved (LHRGHC n)   s) = "RG@" ++ symbolString s ++ show n
+  show (LHNResolved (LHRLocal _) s) = "RK@" ++ symbolString s
+  show (LHNResolved (LHRIndex _) s) = "RI@" ++ symbolString s
+  show (LHNUnresolved ns s) = "U[" ++ show ns ++ "]@" ++ symbolString s
 
 instance NFData LHName
 instance NFData LHResolvedName
@@ -236,6 +241,11 @@ getLHNameResolved n@LHNUnresolved{} = error $ "getLHNameResolved: unresolved nam
 getLHGHCName :: LHName -> Maybe GHC.Name
 getLHGHCName (LHNResolved (LHRGHC n) _) = Just n
 getLHGHCName _ = Nothing
+
+qualifyLHName :: LHName -> Symbol
+qualifyLHName (LHNResolved (LHRGHC n) _) = qualifiedNameSymbol n
+qualifyLHName (LHNResolved _ s) = s
+qualifyLHName (LHNUnresolved _ s) = s
 
 mapLHNames :: Data a => (LHName -> LHName) -> a -> a
 mapLHNames f = go

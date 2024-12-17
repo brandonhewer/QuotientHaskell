@@ -105,8 +105,10 @@ makeTargetSpec cfg localVars lnameEnv lmap targetSrc bareSpec dependencies = do
         Left d -> return $ Left d
         Right (warns, ghcSpec) -> do
           let targetSpec = toTargetSpec ghcSpec
-              bareSpec1 = ghcSpecToBareSpec ghcSpec
-              liftedSpec = toLiftedSpec lnameEnv (bareSpec1 { defines = defines bareSpec })
+--              bareSpec1 = ghcSpecToBareSpec ghcSpec
+--              liftedSpec = toLiftedSpec lnameEnv (bareSpec1 { defines = defines bareSpec })
+              liftedSpec = ghcSpecToLiftedSpec ghcSpec
+
           liftedSpec' <- removeUnexportedLocalAssumptions liftedSpec
           return $ Right (phaseOneWarns <> warns, targetSpec, liftedSpec')
 
@@ -135,8 +137,8 @@ makeTargetSpec cfg localVars lnameEnv lmap targetSrc bareSpec dependencies = do
           exportedAssumption _ = True
       return lspec { liftedAsmSigs = S.filter (exportedAssumption . val . fst) (liftedAsmSigs lspec) }
 
-    ghcSpecToBareSpec = toBareSpecLHName cfg lnameEnv . _gsLSpec
-
+--    ghcSpecToBareSpec = toBareSpecLHName cfg lnameEnv . _gsLSpec
+    ghcSpecToLiftedSpec = toLiftedSpec lnameEnv . toBareSpecLHName cfg lnameEnv . _gsLSpec
 
 -------------------------------------------------------------------------------------
 -- | @makeGhcSpec@ invokes @makeGhcSpec0@ to construct the @GhcSpec@ and then
@@ -283,6 +285,7 @@ makeGhcSpec0 cfg ghcTyLookupEnv tcg instEnvs lenv localVars src lmap targetSpec 
                 , cmeasures  = mconcat $ map Ms.cmeasures $ map snd dependencySpecs ++ [targetSpec]
                 , embeds = Ms.embeds targetSpec
                 , privateReflects = mconcat $ map (privateReflects . snd) mspecs
+                , defines = Ms.defines targetSpec
                 }
     })
   where
