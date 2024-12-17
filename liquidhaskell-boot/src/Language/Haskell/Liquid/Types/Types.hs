@@ -279,7 +279,7 @@ toLMapV' :: (F.Located LHName, ([Symbol], F.ExprV v)) -> (F.Located LHName, LMap
 toLMapV' (x, (ys, e)) = (x, LMapV {lmVar = fmap getLHNameSymbol x, lmArgs = ys, lmExpr = e})
 
 toLMapV :: (F.LocSymbol, ([Symbol], F.ExprV v)) -> (Symbol, LMapV v)
-toLMapV (x, (ys, e)) = (F.val $ x, LMapV {lmVar = x, lmArgs = ys, lmExpr = e})
+toLMapV (x, (ys, e)) = (F.val x, LMapV {lmVar = x, lmArgs = ys, lmExpr = e})
 
 toLogicMap :: [(F.LocSymbol, ([Symbol], Expr))] -> LogicMap
 toLogicMap ls = mempty {lmSymDefs = M.fromList $ map toLMapV ls}
