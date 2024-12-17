@@ -1,5 +1,5 @@
 -- | Duplicate reflection
-{-@ LIQUID "--expect-error-containing=Duplicate reflection of foobar" @-}
+{-@ LIQUID "--expect-error-containing=Duplicate reflection of \"foobar\"" @-}
 {-@ LIQUID "--reflection" @-}
 {-@ LIQUID "--ple"        @-}
 

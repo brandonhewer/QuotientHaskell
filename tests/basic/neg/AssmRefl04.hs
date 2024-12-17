@@ -1,5 +1,5 @@
 -- | Duplicate assume reflects
-{-@ LIQUID "--expect-error-containing=Duplicate reflection of alwaysFalse" @-}
+{-@ LIQUID "--expect-error-containing=Duplicate reflection of \"alwaysFalse\"" @-}
 {-@ LIQUID "--reflection" @-}
 {-@ LIQUID "--ple"        @-}
 

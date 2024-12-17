@@ -74,6 +74,7 @@ import           Language.Fixpoint.Types (Expr, Symbol)
 
 import           Language.Haskell.Liquid.Types.DataDecl
 import           Language.Haskell.Liquid.Types.Errors
+import           Language.Haskell.Liquid.Types.Names
 import           Language.Haskell.Liquid.Types.RType
 import           Language.Haskell.Liquid.Misc
 
@@ -415,8 +416,8 @@ emapDataCtorTyM
   -> m (DataCtorP ty')
 emapDataCtorTyM f d = do
     dcTheta <- mapM (f []) (dcTheta d)
-    dcResult <- traverse (f (map fst (dcFields d))) $ dcResult d
-    dcFields <- snd <$> mapAccumM (\γ  (s, t) -> (s:γ,) . (s,) <$> f γ t) [] (dcFields d)
+    dcResult <- traverse (f (map (lhNameToUnqualifiedSymbol . fst) (dcFields d))) $ dcResult d
+    dcFields <- snd <$> mapAccumM (\γ  (s, t) -> (lhNameToUnqualifiedSymbol s:γ,) . (s,) <$> f γ t) [] (dcFields d)
     return d{dcTheta, dcFields, dcResult}
 
 emapExprArg :: ([Symbol] -> Expr -> Expr) -> [Symbol] -> RType c tv r -> RType c tv r

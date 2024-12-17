@@ -15,13 +15,15 @@ module Language.Haskell.Liquid.Types.Names
   , getLHGHCName
   , getLHNameResolved
   , getLHNameSymbol
-  , logicNameToSymbol
+  , lhNameToResolvedSymbol
+  , lhNameToUnqualifiedSymbol
   , makeGHCLHName
   , makeGHCLHNameFromId
   , makeGHCLHNameLocated
   , makeGHCLHNameLocatedFromId
   , makeLocalLHName
   , makeLogicLHName
+  , makeGeneratedLogicLHName
   , makeUnresolvedLHName
   , mapLHNames
   , mapMLocLHNames
@@ -40,12 +42,12 @@ import Data.Hashable
 import Data.String (fromString)
 import qualified Data.Text                               as Text
 import GHC.Generics
+import GHC.Show
 import GHC.Stack
 
 import Language.Fixpoint.Types
 import Language.Haskell.Liquid.GHC.Misc -- Symbolic GHC.Name
 import qualified Liquid.GHC.API as GHC
-import Text.PrettyPrint.HughesPJ.Compat
 
 -- RJ: Please add docs
 lenLocSymbol :: Located Symbol
@@ -61,14 +63,15 @@ selfSymbol = symbol ("liquid_internal_this" :: String)
 --
 -- For instance, this can be used to represent predicate aliases
 -- or uninterpreted functions.
-data LogicName = LogicName
-    { -- | Unqualified symbol
-      lnSymbol :: !Symbol
-      -- | Module where the entity was defined
-    , lnModule :: !GHC.Module
-      -- | If the named entity is the reflection of some Haskell name
-    , lnReflected :: !(Maybe GHC.Name)
-    }
+data LogicName =
+    LogicName
+       -- | Unqualified symbol
+      !Symbol
+        -- | Module where the entity was defined
+      !GHC.Module
+        -- | If the named entity is the reflection of some Haskell name
+      !(Maybe GHC.Name)
+    | GeneratedLogicName Symbol
   deriving (Data, Eq, Generic)
 
 -- | A name whose procedence is known.
@@ -116,6 +119,8 @@ data LHNameSpace
     = LHTcName
     | LHDataConName LHThisModuleNameFlag
     | LHVarName LHThisModuleNameFlag
+    | LHLogicNameBinder
+    | LHLogicName
   deriving (Data, Eq, Generic, Ord, Show)
 
 instance B.Binary LHNameSpace
@@ -136,13 +141,52 @@ instance Ord LogicName where
     case compare s1 s2 of
       EQ -> GHC.stableModuleCmp m1 m2
       x -> x
+  compare LogicName{} GeneratedLogicName{} = LT
+  compare GeneratedLogicName{} LogicName{} = GT
+  compare (GeneratedLogicName s1) (GeneratedLogicName s2) = compare s1 s2
 
 instance Show LHName where
-  show (LHNResolved (LHRLogic _) s) = "RL@" ++ symbolString s
-  show (LHNResolved (LHRGHC n)   s) = "RG@" ++ symbolString s ++ show n
-  show (LHNResolved (LHRLocal _) s) = "RK@" ++ symbolString s
-  show (LHNResolved (LHRIndex _) s) = "RI@" ++ symbolString s
-  show (LHNUnresolved ns s) = "U[" ++ show ns ++ "]@" ++ symbolString s
+  showsPrec d n0 = showParen (d > app_prec) $ case n0 of
+      LHNResolved n s ->
+        showString "LHNResolved " .
+        showsPrec (app_prec + 1) n .
+        showSpace .
+        showsPrec (app_prec + 1) s
+      LHNUnresolved ns s ->
+        showString "LHNUnresolved " .
+        showsPrec (app_prec + 1) ns .
+        showSpace .
+        showsPrec (app_prec + 1) s
+    where
+      app_prec = 10
+
+instance Show LHResolvedName where
+  showsPrec d n0 = showParen (d > app_prec) $ case n0 of
+      LHRGHC n1 -> showString "LHRGHC " . showString (GHC.showPprDebug n1)
+      LHRLogic n1 -> showString "LHRLogic " . showsPrec (app_prec + 1) n1
+      LHRLocal n1 -> showString "LHRLocal " . showsPrec (app_prec + 1) n1
+      LHRIndex i -> showString "LHRIndex " . showsPrec (app_prec + 1) i
+    where
+      app_prec = 10
+
+instance Show LogicName where
+  showsPrec d n0 = showParen (d > app_prec) $ case n0 of
+      LogicName s1 m mr ->
+        showString "LogicName " .
+        showsPrec (app_prec + 1) s1 .
+        showSpace .
+        showString (GHC.showPprDebug m) .
+        showSpace .
+        showsPrecMaybeName mr
+      GeneratedLogicName s1 ->
+        showString "GeneratedLogicName " .
+        showsPrec (app_prec + 1) s1
+    where
+      app_prec = 10
+
+      showsPrecMaybeName mr = case mr of
+        Nothing -> showString "Nothing"
+        Just n -> showParen True $ showString "Just " . showString (GHC.showPprDebug n)
 
 instance NFData LHName
 instance NFData LHResolvedName
@@ -159,6 +203,8 @@ instance Hashable LogicName where
   hashWithSalt s (LogicName sym m _) =
         s `hashWithSalt` sym
           `hashWithSalt` GHC.moduleStableString m
+  hashWithSalt s (GeneratedLogicName sym) =
+        s `hashWithSalt` sym
 
 instance B.Binary LHName
 instance B.Binary LHResolvedName where
@@ -187,12 +233,21 @@ instance GHC.Binary LHResolvedName where
   put_ _bh (LHRIndex _n) = error "GHC.Binary: cannot serialize LHRIndex"
 
 instance GHC.Binary LogicName where
-  get bh = LogicName . fromString <$> GHC.get bh <*> GHC.get bh <*> GHC.get bh
-  put_ bh (LogicName s m r) =
+  get bh = do
+    tag <- GHC.getByte bh
+    case tag of
+      0 -> LogicName . fromString <$> GHC.get bh <*> GHC.get bh <*> GHC.get bh
+      1 -> GeneratedLogicName . fromString <$> GHC.get bh
+      _ -> error "GHC.Binary: invalid tag for LogicName"
+  put_ bh (LogicName s m r) = do
+    GHC.putByte bh 0
     GHC.put_ bh (symbolString s) >> GHC.put_ bh m >> GHC.put_ bh r
+  put_ bh (GeneratedLogicName s) = do
+    GHC.putByte bh 1
+    GHC.put_ bh (symbolString s)
 
 instance PPrint LHName where
-  pprintTidy _ = text . show
+  pprintTidy _ = pprint . getLHNameSymbol
 
 makeResolvedLHName :: LHResolvedName -> Symbol -> LHName
 makeResolvedLHName = LHNResolved
@@ -214,6 +269,9 @@ makeLocalLHName s = LHNResolved (LHRLocal s) s
 makeLogicLHName :: Symbol -> GHC.Module -> Maybe GHC.Name -> LHName
 makeLogicLHName s m r = LHNResolved (LHRLogic (LogicName s m r)) s
 
+makeGeneratedLogicLHName :: Symbol -> LHName
+makeGeneratedLogicLHName s = LHNResolved (LHRLogic (GeneratedLogicName s)) s
+
 makeGHCLHNameLocated :: (GHC.NamedThing a, Symbolic a) => a -> Located LHName
 makeGHCLHNameLocated x =
     makeGHCLHName (GHC.getName x) (symbol x) <$ locNamedThing x
@@ -233,7 +291,7 @@ getLHNameSymbol :: LHName -> Symbol
 getLHNameSymbol (LHNResolved _ s) = s
 getLHNameSymbol (LHNUnresolved _ s) = s
 
--- | Get the resolved data from an LHName.
+-- | Get the resolved Symbol from an LHName.
 getLHNameResolved :: HasCallStack => LHName -> LHResolvedName
 getLHNameResolved (LHNResolved n _) = n
 getLHNameResolved n@LHNUnresolved{} = error $ "getLHNameResolved: unresolved name: " ++ show n
@@ -263,13 +321,13 @@ updateLHNameSymbol :: (Symbol -> Symbol) -> LHName -> LHName
 updateLHNameSymbol f (LHNResolved n s) = LHNResolved n (f s)
 updateLHNameSymbol f (LHNUnresolved n s) = LHNUnresolved n (f s)
 
--- | Converts logic names to symbols.
+-- | Converts resolved names to symbols.
 --
 -- One important postcondition of this function is that the symbol for reflected
 -- names must match exactly the symbol for the corresponding Haskell function.
 -- Otherwise, LH would fail to link the two at various places where it is needed.
-logicNameToSymbol :: LHName -> Symbol
-logicNameToSymbol (LHNResolved (LHRLogic (LogicName s om mReflectionOf)) _) =
+lhNameToResolvedSymbol :: LHName -> Symbol
+lhNameToResolvedSymbol (LHNResolved (LHRLogic (LogicName s om mReflectionOf)) _) =
     let m = maybe om GHC.nameModule mReflectionOf
         msymbol = Text.pack $ GHC.moduleNameString $ GHC.moduleName m
      in symbol $ mconcat [msymbol, ".", symbolText s]
@@ -290,8 +348,17 @@ logicNameToSymbol (LHNResolved (LHRLogic (LogicName s om mReflectionOf)) _) =
           GHC.moduleUnitId m
      in symbol $ mconcat ["u", munique, "##", msymbol, ".", symbolText s]
           -}
-logicNameToSymbol (LHNResolved (LHRLocal s) _) = s
-logicNameToSymbol n = error $ "logicNameToSymbol: unexpected name: " ++ show n
+lhNameToResolvedSymbol (LHNResolved (LHRLogic (GeneratedLogicName s)) _) = s
+lhNameToResolvedSymbol (LHNResolved (LHRLocal s) _) = s
+lhNameToResolvedSymbol (LHNResolved (LHRGHC n) _) = symbol n
+lhNameToResolvedSymbol n = error $ "lhNameToResolvedSymbol: unexpected name: " ++ show n
+
+lhNameToUnqualifiedSymbol :: HasCallStack => LHName -> Symbol
+lhNameToUnqualifiedSymbol (LHNResolved (LHRLogic (LogicName s _ _)) _) = s
+lhNameToUnqualifiedSymbol (LHNResolved (LHRLogic (GeneratedLogicName s)) _) = s
+lhNameToUnqualifiedSymbol (LHNResolved (LHRLocal s) _) = s
+lhNameToUnqualifiedSymbol (LHNResolved (LHRGHC n) _) = symbol $ GHC.getOccString n
+lhNameToUnqualifiedSymbol n = error $ "lhNameToUnqualifiedSymbol: unexpected name: " ++ show n
 
 -- | Creates a name in the logic namespace for the given Haskell name.
 reflectLHName :: HasCallStack => GHC.Module -> LHName -> LHName

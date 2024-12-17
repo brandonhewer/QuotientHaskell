@@ -679,7 +679,6 @@ executable errors
                     , LocalHole
                     , MissingAssume
                     -- , MissingField1
-                    , MissingField2
                     , MissingReflect
                     , MissingSizeFun
                     , MultiInstMeasures
@@ -785,6 +784,7 @@ executable names-pos
                     , Capture01
                     , Capture02
                     , ClojurVector
+                    , DataFields
                     , ExpandsDependentPairs
                     , HideName00
                     , HidePrelude
@@ -1863,6 +1863,7 @@ executable unit-pos-3
 
     other-modules:
                       NumRefl
+--                    , WithProofRefl
                     , Streams
                     , StrictPair0
                     , StrictPair1
@@ -2471,9 +2472,11 @@ executable ple-pos
                     , Tmp
                     , ReaderEta
                     , SKIEta
-                    , FuseMap
-                    , ProposalLocalRewrites
                     , SKIDC
+                    , SKILam
+                    , FuseMap
+                    , FuseMapLam
+                    , ProposalLocalRewrites
 
     -- XXX(matt.walker): dies on lists on first compile in ghc 8107
     --                   ... and on GHC 9+ now too

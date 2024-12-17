@@ -11,8 +11,8 @@ module Language.Haskell.Liquid.Bare.Expand
   ( -- * Create alias expansion environment
     makeRTEnv
 
-    -- * Expand and Qualify
-  , qualifyExpand
+    -- * Expand
+  , Expand(expand)
 
     -- * Converting BareType to SpecType
   , cookSpecType
@@ -74,14 +74,14 @@ makeRTEnv
 makeRTEnv env modName mySpec dependencySpecs lmap
           = renameRTArgs $ makeRTAliases tAs $ makeREAliases eAs
   where
-    tAs   = [ t                   | (_, s)  <- specs, t <- Ms.aliases  s ]
-    eAs   = [ specREAlias env m e | (m, s)  <- specs, e <- Ms.ealiases s ]
+    tAs   = [ t | (_, s)  <- specs, t <- Ms.aliases  s ]
+    eAs   = [ e | (_m, s)  <- specs, e <- Ms.ealiases s ]
          ++ if typeclass (getConfig env) then []
                                               -- lmap expansion happens during elaboration
                                               -- this clearly breaks things if a signature
                                               -- contains lmap functions but never gets
                                               -- elaborated
-              else [ specREAlias env modName e | (_, xl) <- M.toList (lmSymDefs lmap)
+              else [ e | (_, xl) <- M.toList (lmSymDefs lmap)
                                   , let e    = lmapEAlias xl             ]
     specs = (modName, mySpec) : dependencySpecs
 
@@ -130,11 +130,6 @@ makeRTAliases :: [Located (RTAlias F.Symbol BareType)] -> BareRTEnv -> BareRTEnv
 makeRTAliases lxts rte = graphExpand buildTypeEdges f rte lxts
   where
     f rtEnv xt         = setRTAlias rtEnv (expandLoc rtEnv xt)
-
-specREAlias :: Bare.Env -> ModName -> Located (RTAlias F.Symbol F.Expr) -> Located (RTAlias F.Symbol F.Expr)
-specREAlias env m la = F.atLoc la $ a { rtBody = Bare.qualify env m (loc la) (rtVArgs a) (rtBody a) }
-  where
-    a     = val la
 
 --------------------------------------------------------------------------------------------------------------
 
@@ -274,25 +269,6 @@ buildExprEdges table  = ordNub . go
 ----------------------------------------------------------------------------------
 class Expand a where
   expand :: BareRTEnv -> F.SourcePos -> a -> a
-
-----------------------------------------------------------------------------------
--- | @qualifyExpand@ first qualifies names so that we can successfully resolve them during expansion.
---
--- When expanding, it's important we pass around a 'BareRTEnv' where the type aliases have been qualified as well.
--- This is subtle, see for example T1761. In that test, we had a type alias \"OneTyAlias a = {v:a | oneFunPred v}\" where
--- \"oneFunPred\" was marked inline. However, inlining couldn't happen because the 'BareRTEnv' had an
--- entry for \"T1761.oneFunPred\", so the relevant expansion of \"oneFunPred\" couldn't happen. This was
--- because the type alias entry inside 'BareRTEnv' mentioned the tuple (\"OneTyAlias\", \"{v:a | oneFunPred v}\") but
--- the 'snd' element needed to be qualified as well, before trying to expand anything.
-----------------------------------------------------------------------------------
-qualifyExpand :: (PPrint a, Expand a, Bare.Qualify a)
-              => Bare.Env -> ModName -> BareRTEnv -> F.SourcePos -> [F.Symbol] -> a -> a
-----------------------------------------------------------------------------------
-qualifyExpand env name rtEnv l bs
-  = expand qualifiedRTEnv l . Bare.qualify env name l bs
-  where
-    qualifiedRTEnv :: BareRTEnv
-    qualifiedRTEnv = rtEnv { typeAliases = M.map (Bare.qualify env name l bs) (typeAliases rtEnv) }
 
 ----------------------------------------------------------------------------------
 expandLoc :: (Expand a) => BareRTEnv -> Located a -> Located a
@@ -510,10 +486,6 @@ cookSpecTypeE env sigEnv name@(ModName _ _) x bt
         . fmap txExpToBind -- What does this function DO
         . (specExpandType rtEnv . fmap (generalizeWith x))
         . (if doplug || not allowTC then maybePlug allowTC sigEnv name x else id)
-        -- we do not qualify/resolve Expr/Pred when typeclass is enabled
-        -- since ghci will not be able to recognize fully qualified names
-        -- instead, we leave qualification to ghc elaboration
-        . Bare.qualifyTop env name l
 
     allowTC = typeclass (getConfig env)
     -- modT   = mname `S.member` wiredInMods
@@ -528,7 +500,6 @@ cookSpecTypeE env sigEnv name@(ModName _ _) x bt
     rtEnv  = Bare.sigRTEnv    sigEnv
     embs   = Bare.sigEmbs     sigEnv
     tyi    = Bare.sigTyRTyMap sigEnv
-    l      = F.loc bt
 
 -- | We don't want to generalize type variables that maybe bound in the
 --   outer scope, e.g. see tests/basic/pos/LocalPlug00.hs

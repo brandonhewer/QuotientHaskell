@@ -551,7 +551,7 @@ processModule LiquidHaskellContext{..} = do
         --defs = {- first (fmap (LH.qualifySymbol modsym)) <$> -} defines bareSpec0
         -- ldefines = liftedDefines <$> (HM.elems . getDependencies) dependencies
         -- ldefines' = trace ("processModule ldefines = " ++ show (map HM.keys ldefines)) $ ldefines
-        depsLogicMap = foldr (\ls lmp -> lmp <> mempty {lmSymDefs = HM.map (\l -> LH.logicNameToSymbol <$> l) $ liftedDefines ls}) mempty $
+        depsLogicMap = foldr (\ls lmp -> lmp <> mempty {lmSymDefs = HM.map (\l -> LH.lhNameToResolvedSymbol <$> l) $ liftedDefines ls}) mempty $
                        (HM.elems . getDependencies) dependencies
         -- depsLogicMap = foldr (\ls lmp -> lmp <> mempty {lmSymDefs = HM.map (\l -> LH.logicNameToSymbol <$> l) $ ls}) mempty ldefines'
         lm = lhModuleLogicMap <> depsLogicMap--  <> mempty {lmSymDefs = HM.fromList $ map (\(k , v) -> (LH.getLHNameSymbol $ F.val k , fmap val v)) defs }

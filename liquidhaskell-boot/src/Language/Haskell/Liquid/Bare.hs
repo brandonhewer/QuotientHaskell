@@ -138,7 +138,8 @@ makeTargetSpec cfg localVars lnameEnv lmap targetSrc bareSpec dependencies = do
       return lspec { liftedAsmSigs = S.filter (exportedAssumption . val . fst) (liftedAsmSigs lspec) }
 
 --    ghcSpecToBareSpec = toBareSpecLHName cfg lnameEnv . _gsLSpec
-    ghcSpecToLiftedSpec = toLiftedSpec lnameEnv . toBareSpecLHName cfg lnameEnv . _gsLSpec
+--    ghcSpecToLiftedSpec = toLiftedSpec lnameEnv . toBareSpecLHName cfg lnameEnv . _gsLSpec
+    ghcSpecToLiftedSpec = toLiftedSpec . toBareSpecLHName cfg lnameEnv . _gsLSpec
 
 -------------------------------------------------------------------------------------
 -- | @makeGhcSpec@ invokes @makeGhcSpec0@ to construct the @GhcSpec@ and then
@@ -252,13 +253,13 @@ makeGhcSpec0 cfg ghcTyLookupEnv tcg instEnvs lenv localVars src lmap targetSpec 
     , _gsRefl   = refl
     , _gsData   = sData
     , _gsQual   = qual
-    , _gsName   = makeSpecName env     tycEnv measEnv   name
+    , _gsName   = makeSpecName env     tycEnv measEnv
     , _gsVars   = spcVars
     , _gsTerm   = spcTerm
 
     , _gsLSpec  = finalLiftedSpec
                 { expSigs   =
-                    [ (logicNameToSymbol $ reflectGHCName thisModule $ Ghc.getName v, F.sr_sort $ Bare.varSortedReft embs v)
+                    [ (lhNameToResolvedSymbol $ reflectGHCName thisModule $ Ghc.getName v, F.sr_sort $ Bare.varSortedReft embs v)
                     | v <- gsReflects refl
                     ]
                 , dataDecls = Bare.dataDeclSize mySpec $ dataDecls mySpec
@@ -320,14 +321,8 @@ makeGhcSpec0 cfg ghcTyLookupEnv tcg instEnvs lenv localVars src lmap targetSpec 
     simplifier :: Ghc.CoreExpr -> Ghc.TcRn Ghc.CoreExpr
     simplifier = pure -- no simplification
     allowTC  = typeclass cfg
-    mySpec2  = Bare.qualifyExpand env name rtEnv l [] mySpec1    where l = F.dummyPos "expand-mySpec2"
-    iSpecs2  = Bare.qualifyExpand
-                 env
-                 name
-                 rtEnv
-                 (F.dummyPos "expand-iSpecs2")
-                 []
-                 (M.fromList dependencySpecs)
+    mySpec2  = Bare.expand rtEnv (F.dummyPos "expand-mySpec2") mySpec1
+    iSpecs2  = Bare.expand rtEnv (F.dummyPos "expand-iSpecs2") (M.fromList dependencySpecs)
     rtEnv    = Bare.makeRTEnv env name mySpec1 dependencySpecs lmap
     mspecs   = (name, mySpec0) : dependencySpecs
     (mySpec0, instMethods)  = if allowTC
@@ -439,7 +434,7 @@ reflectedVars spec cbs =
   where
     isReflSym x =
       S.member x (Ms.reflects spec) ||
-      S.member (fmap getLHNameSymbol x) (Ms.privateReflects spec)
+      S.member (fmap lhNameToResolvedSymbol x) (Ms.privateReflects spec)
 
 measureVars :: Ms.BareSpec -> [Ghc.CoreBind] -> [Ghc.Var]
 measureVars spec cbs =
@@ -499,10 +494,8 @@ makeSpecQual _cfg env tycEnv measEnv _rtEnv specs = SpQual
                    ++ (fst <$> Bare.meClassSyms measEnv)
 
 makeQualifiers :: Bare.Env -> Bare.TycEnv -> (ModName, Ms.Spec F.Symbol ty) -> [F.Qualifier]
-makeQualifiers env tycEnv (modn, spec)
-  = fmap        (Bare.qualifyTopDummy env        modn)
-  . Mb.mapMaybe (resolveQParams       env tycEnv modn)
-  $ Ms.qualifiers spec
+makeQualifiers env tycEnv (modn, spec) =
+    Mb.mapMaybe (resolveQParams env tycEnv modn) $ Ms.qualifiers spec
 
 
 -- | @resolveQualParams@ converts the sorts of parameters from, e.g.
@@ -642,22 +635,18 @@ makeSpecRefl src specs env name sig tycEnv = do
   autoInst <- makeAutoInst env mySpec
   rwr      <- makeRewrite env mySpec
   rwrWith  <- makeRewriteWith env mySpec
-  xtes     <- Bare.makeHaskellAxioms src env tycEnv name lmap sig mySpec
+  xtes     <- Bare.makeHaskellAxioms src env tycEnv lmap sig mySpec
   asmReflAxioms <- Bare.makeAssumeReflectAxioms src env tycEnv sig mySpec
   let otherAxioms = thd3 <$> asmReflAxioms
   let myAxioms =
-        [ Bare.qualifyTop
-            env
-            name
-            (F.loc lt)
-            e {eqRec = S.member (eqName e) (exprSymbolsSet (eqBody e))}
-        | (_, lt, e) <- xtes
+        [ e {eqRec = S.member (eqName e) (exprSymbolsSet (eqBody e))}
+        | (_, _, e) <- xtes
         ] ++ otherAxioms
   let asmReflEls = eqName <$> otherAxioms
   let impAxioms  = concatMap (filter ((`notElem` asmReflEls) . eqName) . Ms.axeqs . snd) (M.toList specs)
   case anyNonReflFn of
     Just (actSym , preSym) ->
-      let preSym' = show (val preSym) in
+      let preSym' = symbolString $ lhNameToUnqualifiedSymbol (val preSym) in
       let errorMsg = preSym' ++ " must be reflected first using {-@ reflect " ++ preSym' ++ " @-}"
       in Ex.throw
            (ErrHMeas
@@ -679,7 +668,7 @@ makeSpecRefl src specs env name sig tycEnv = do
     lmap         = Bare.reLMap env
     notInReflOnes (_, a) = not $
       a `S.member` Ms.reflects mySpec ||
-      fmap getLHNameSymbol a `S.member` Ms.privateReflects mySpec
+      fmap lhNameToResolvedSymbol a `S.member` Ms.privateReflects mySpec
     anyNonReflFn = L.find notInReflOnes (Ms.asmReflectSigs mySpec)
 
 ------------------------------------------------------------------------------------------
@@ -716,7 +705,7 @@ addReflSigs env name rtEnv measEnv refl sig =
     -- the functions, we are left with a pair (Var, LocSpecType). The latter /needs/ to be qualified and
     -- expanded again, for example in case it has expression aliases derived from 'inlines'.
     expandReflectedSignature :: (Ghc.Var, LocSpecType) -> (Ghc.Var, LocSpecType)
-    expandReflectedSignature = fmap (Bare.qualifyExpand env name rtEnv (F.dummyPos "expand-refSigs") [])
+    expandReflectedSignature = fmap (Bare.expand rtEnv (F.dummyPos "expand-refSigs"))
 
     reflSigs = [ (x, t) | (x, t, _) <- gsHAxioms refl ]
     -- Get the set of all the actual functions (in assume-reflects)
@@ -814,7 +803,7 @@ makeTySigs :: Bare.Env -> Bare.SigEnv -> ModName -> Ms.BareSpec
            -> Bare.Lookup [(Ghc.Var, LocSpecType, Maybe [Located F.Expr])]
 makeTySigs env sigEnv name spec = do
   bareSigs   <- bareTySigs env                     spec
-  expSigs    <- makeTExpr  env name bareSigs rtEnv spec
+  expSigs    <- makeTExpr  env bareSigs rtEnv spec
   let rawSigs = Bare.resolveLocalBinds env expSigs
   return [ (x, cook x bt, z) | (x, bt, z) <- rawSigs ]
   where
@@ -861,24 +850,22 @@ myAsmSig v sigs = Mb.fromMaybe errImp (mbHome `mplus` mbImp)
     errImp      = impossible Nothing "myAsmSig: cannot happen as sigs is non-null"
     vName       = GM.takeModuleNames (F.symbol v)
 
-makeTExpr :: Bare.Env -> ModName -> [(Ghc.Var, LocBareType)] -> BareRTEnv -> Ms.BareSpec
+makeTExpr :: Bare.Env -> [(Ghc.Var, LocBareType)] -> BareRTEnv -> Ms.BareSpec
           -> Bare.Lookup [(Ghc.Var, LocBareType, Maybe [Located F.Expr])]
-makeTExpr env name tySigs rtEnv spec = do
+makeTExpr env tySigs rtEnv spec = do
   vExprs       <- M.fromList <$> makeVarTExprs env spec
   let vSigExprs = Misc.hashMapMapWithKey (\v t -> (t, M.lookup v vExprs)) vSigs
-  return [ (v, t, qual t <$> es) | (v, (t, es)) <- M.toList vSigExprs ]
+  return [ (v, t, qual <$> es) | (v, (t, es)) <- M.toList vSigExprs ]
   where
-    qual t es   = qualifyTermExpr env name rtEnv t <$> es
-    vSigs       = M.fromList tySigs
+    qual es = expandTermExpr rtEnv <$> es
+    vSigs = M.fromList tySigs
 
-qualifyTermExpr :: Bare.Env -> ModName -> BareRTEnv -> LocBareType -> Located F.Expr
-                -> Located F.Expr
-qualifyTermExpr env name rtEnv t le
-        = F.atLoc le (Bare.qualifyExpand env name rtEnv l bs e)
+expandTermExpr :: BareRTEnv -> Located F.Expr -> Located F.Expr
+expandTermExpr rtEnv le
+        = F.atLoc le (Bare.expand rtEnv l e)
   where
     l   = F.loc le
     e   = F.val le
-    bs  = ty_binds . toRTypeRep . val $ t
 
 makeVarTExprs :: Bare.Env -> Ms.BareSpec -> Bare.Lookup [(Ghc.Var, [Located F.Expr])]
 makeVarTExprs env spec =
@@ -1015,7 +1002,7 @@ makeSpecData src env sigEnv measEnv sig specs = SpData
                        , let tt  = Bare.plugHoles (typeclass $ getConfig env) sigEnv name (Bare.LqTV x) t
                    ]
   , gsMeas       = [ (F.symbol x, uRType <$> t) | (x, t) <- measVars ]
-  , gsMeasures   = Bare.qualifyTopDummy env name <$> (ms1 ++ ms2)
+  , gsMeasures   = ms1 ++ ms2
   , gsOpaqueRefls = fst <$> Bare.meOpaqueRefl measEnv
   , gsInvariants = Misc.nubHashOn (F.loc . snd) invs
   , gsIaliases   = concatMap (makeIAliases env sigEnv) (M.toList specs)
@@ -1029,7 +1016,7 @@ makeSpecData src env sigEnv measEnv sig specs = SpData
     ms2          = Ms.imeas   measuresSp
     mySpec       = M.lookupDefault mempty name specs
     name         = _giTargetMod      src
-    (minvs,usI)  = makeMeasureInvariants env name sig mySpec
+    (minvs,usI)  = makeMeasureInvariants sig mySpec
     invs         = minvs ++ concatMap (makeInvariants env sigEnv) (M.toList specs)
 
 makeIAliases :: Bare.Env -> Bare.SigEnv -> (ModName, Ms.BareSpec) -> [(LocSpecType, LocSpecType)]
@@ -1061,19 +1048,18 @@ makeSizeInv s lst = lst{val = go (val lst)}
         nat  = MkUReft (Reft (vv_, PAtom Le (ECon $ I 0) (EApp (EVar s) (eVar vv_))))
                        mempty
 
-makeMeasureInvariants :: Bare.Env -> ModName -> GhcSpecSig -> Ms.BareSpec
-                      -> ([(Maybe Ghc.Var, LocSpecType)], [UnSortedExpr])
-makeMeasureInvariants env name sig mySpec
+makeMeasureInvariants :: GhcSpecSig -> Ms.BareSpec -> ([(Maybe Ghc.Var, LocSpecType)], [UnSortedExpr])
+makeMeasureInvariants sig mySpec
   = Mb.catMaybes <$>
-    unzip (measureTypeToInv env name <$> [(x, (y, ty)) | x <- xs, (y, ty) <- sigs
+    unzip (measureTypeToInv <$> [(x, (y, ty)) | x <- xs, (y, ty) <- sigs
                                          , x == makeGHCLHNameLocatedFromId y ])
   where
     sigs = gsTySigs sig
     xs   = S.toList (Ms.hmeas  mySpec)
 
-measureTypeToInv :: Bare.Env -> ModName -> (Located LHName, (Ghc.Var, LocSpecType)) -> ((Maybe Ghc.Var, LocSpecType), Maybe UnSortedExpr)
-measureTypeToInv env name (x, (v, t))
-  = notracepp "measureTypeToInv" ((Just v, t {val = Bare.qualifyTop env name (F.loc x) mtype}), usorted)
+measureTypeToInv :: (Located LHName, (Ghc.Var, LocSpecType)) -> ((Maybe Ghc.Var, LocSpecType), Maybe UnSortedExpr)
+measureTypeToInv (x, (v, t))
+  = notracepp "measureTypeToInv" ((Just v, t {val = mtype}), usorted)
   where
     trep = toRTypeRep (val t)
     rts  = ty_args  trep
@@ -1105,7 +1091,7 @@ mkReft :: Located LHName -> Symbol -> SpecType -> SpecType -> Maybe (Symbol, Exp
 mkReft x z _t tr
   | Just q <- stripRTypeBase tr
   = let Reft (v, p) = toReft q
-        su          = mkSubst [(v, mkEApp (fmap getLHNameSymbol x) [EVar v]), (z,EVar v)]
+        su          = mkSubst [(v, mkEApp (fmap lhNameToResolvedSymbol x) [EVar v]), (z,EVar v)]
         -- p'          = pAnd $ filter (\e -> z `notElem` syms e) $ conjuncts p
     in  Just (v, subst su p)
 mkReft _ _ _ _
@@ -1114,12 +1100,12 @@ mkReft _ _ _ _
 
 -- REBARE: formerly, makeGhcSpec3
 -------------------------------------------------------------------------------------------
-makeSpecName :: Bare.Env -> Bare.TycEnv -> Bare.MeasEnv -> ModName -> GhcSpecNames
+makeSpecName :: Bare.Env -> Bare.TycEnv -> Bare.MeasEnv -> GhcSpecNames
 -------------------------------------------------------------------------------------------
-makeSpecName env tycEnv measEnv name = SpNames
+makeSpecName env tycEnv measEnv = SpNames
   { gsFreeSyms = Bare.reSyms env
   , gsDconsP   = [ F.atLoc dc (dcpCon dc) | dc <- datacons ++ cls ]
-  , gsTconsP   = Bare.qualifyTopDummy env name <$> tycons
+  , gsTconsP   = tycons
   -- , gsLits = mempty                                              -- TODO-REBARE, redundant with gsMeas
   , gsTcEmbeds = Bare.tcEmbs     tycEnv
   , gsADTs     = Bare.tcAdts     tycEnv
@@ -1141,6 +1127,9 @@ makeTycEnv0 :: Config -> ModName -> Bare.Env -> TCEmb Ghc.TyCon -> Ms.BareSpec -
 makeTycEnv0 cfg myName env embs mySpec iSpecs = (diag0 <> diag1, datacons, Bare.TycEnv
   { tcTyCons      = tycons
   , tcDataCons    = mempty -- val <$> datacons
+    -- See the documentation of @addOpaqueReflMeas@. The selectors here are only
+    -- those belonging to types mentioned in the types of functions defined in
+    -- the current module.
   , tcSelMeasures = dcSelectors
   , tcSelVars     = mempty -- recSelectors
   , tcTyConMap    = tyi
@@ -1154,7 +1143,7 @@ makeTycEnv0 cfg myName env embs mySpec iSpecs = (diag0 <> diag1, datacons, Bare.
     (diag0, conTys) = withDiagnostics $ Bare.makeConTypes myName env specs
     specs         = (myName, mySpec) : M.toList iSpecs
     tcs           = Misc.snd3 <$> tcDds
-    tyi           = Bare.qualifyTopDummy env myName (makeTyConInfo embs fiTcs tycons)
+    tyi           = makeTyConInfo embs fiTcs tycons
     -- tycons        = F.tracepp "TYCONS" $ Misc.replaceWith tcpCon tcs wiredTyCons
     -- datacons      =  Bare.makePluggedDataCons embs tyi (Misc.replaceWith (dcpCon . val) (F.tracepp "DATACONS" $ concat dcs) wiredDataCons)
     tycons        = tcs ++ knownWiredTyCons env myName
@@ -1210,12 +1199,14 @@ makeMeasEnv env tycEnv sigEnv specs = do
   let (cs, ms) = Bare.makeMeasureSpec'  (typeclass $ getConfig env)   measures
   let cms      = Bare.makeClassMeasureSpec measures
   let cms'     = [ (val l, cSort t <$ l)  | (l, t) <- cms ]
-  let ms'      = [ (F.val lx, F.atLoc lx t) | (lx, t) <- ms
-                                            , Mb.isNothing (lookup (val lx) cms') ]
+  let ms'      = [ (lhNameToResolvedSymbol (F.val lx), F.atLoc lx t)
+                 | (lx, t) <- ms
+                 , Mb.isNothing (lookup (val lx) cms')
+                 ]
   let cs'      = [ (v, txRefs v t) | (v, t) <- Bare.meetDataConSpec (typeclass (getConfig env)) embs cs (datacons ++ cls)]
   return Bare.MeasEnv
     { meMeasureSpec = measures
-    , meClassSyms   = cms'
+    , meClassSyms   = map (first lhNameToResolvedSymbol) cms'
     , meSyms        = ms'
     , meDataCons    = cs'
     , meClasses     = cls
@@ -1230,9 +1221,19 @@ makeMeasEnv env tycEnv sigEnv specs = do
     embs          = Bare.tcEmbs        tycEnv
     name          = Bare.tcName        tycEnv
 
--------------------------------------------------------------------------------------------
---- Add the opaque reflections to the measure environment
---- Returns a new environment that is the old one enhanced with the opaque reflections
+
+-- | Adds the opaque reflections to the measure environment
+--
+-- Returns a new environment that is the old one enhanced with the opaque
+-- reflections.
+--
+-- At the moment this function also has the effect of adding selector and
+-- checker measures for data constructors that are needed by reflected
+-- functions. This even adds measures that are needed by functions reflected
+-- from unfoldings (public and private), whose datatypes come from imported
+-- modules. This overlaps a bit with 'makeTycEnv0', which also adds measures for
+-- selectors and checkers, but only for datatypes mentioned in the type
+-- signatures of functions defined in the current module.
 -------------------------------------------------------------------------------------------
 addOpaqueReflMeas :: Config -> Bare.TycEnv -> Bare.Env -> Ms.BareSpec -> Bare.MeasEnv -> Bare.ModSpecs ->
                [(Ghc.Var, LocSpecType, F.Equation)] ->
@@ -1246,7 +1247,7 @@ addOpaqueReflMeas cfg tycEnv env spec measEnv specs eqs = do
   -- `meSyms` (no class, data constructor or other stuff here).
   let measures = mconcat (Ms.mkMSpec' dcSelectors : measures0)
   let (cs, ms) = Bare.makeMeasureSpec'  (typeclass $ getConfig env)   measures
-  let ms'      = [ (F.val lx, F.atLoc lx t) | (lx, t) <- ms ]
+  let ms'      = [ (lhNameToResolvedSymbol (F.val lx), F.atLoc lx t) | (lx, t) <- ms ]
   let cs'      = [ (v, txRefs v t) | (v, t) <- Bare.meetDataConSpec (typeclass (getConfig env)) embs cs (val <$> datacons)]
   return $ measEnv <> mempty
     { Bare.meMeasureSpec = measures

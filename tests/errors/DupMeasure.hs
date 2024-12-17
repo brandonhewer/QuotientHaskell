@@ -1,4 +1,4 @@
-{-@ LIQUID "--expect-error-containing=Multiple specifications for `DupMeasure.lenA`" @-}
+{-@ LIQUID "--expect-error-containing=Multiple specifications for `lenA`" @-}
 module DupMeasure where
 
 

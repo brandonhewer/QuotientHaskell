@@ -21,7 +21,7 @@ Because the result type (Num p) => p cannot be decided to be a numeric type.
 module NumRefl where
 
 {-@ define fromInteger x = (x) @-}
--- {-@ define GHC.Num.Integer.IS x          = (x) @-}
+-- {-@ define IS x          = (x) @-}
 
 -- {-@ define GHC.Internal.Num.fromInteger x = (x) @-}
 -- {-@ define GHC.Num.Integer.IS x           = (x) @-}

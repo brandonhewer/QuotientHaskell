@@ -41,6 +41,7 @@ import           Language.Haskell.Liquid.Bare.Measure as Bare
 import           Language.Haskell.Liquid.UX.Config
 import qualified Data.List as L
 import Control.Applicative
+import Control.Arrow (second)
 import Data.Function (on)
 import qualified Data.Map as Map
 import qualified Data.HashMap.Strict as M
@@ -62,12 +63,12 @@ findDuplicateBetweenLists key l1 l2 =
       [ (x, y) | x <- l2', Just y <- [Map.lookup (key' x) seen]]
 
 -----------------------------------------------------------------------------------------------
-makeHaskellAxioms :: GhcSrc -> Bare.Env -> Bare.TycEnv -> ModName -> LogicMap -> GhcSpecSig -> Ms.BareSpec
+makeHaskellAxioms :: GhcSrc -> Bare.Env -> Bare.TycEnv -> LogicMap -> GhcSpecSig -> Ms.BareSpec
                   -> Bare.Lookup [(Ghc.Var, LocSpecType, F.Equation)]
 -----------------------------------------------------------------------------------------------
-makeHaskellAxioms src env tycEnv name lmap spSig spec = do
+makeHaskellAxioms src env tycEnv lmap spSig spec = do
   let refDefs = getReflectDefs src spSig spec env
-  return (makeAxiom env tycEnv name lmap <$> refDefs)
+  return (makeAxiom env tycEnv lmap <$> refDefs)
 
 -----------------------------------------------------------------------------------------------
 --          Returns a list of elements, one per assume reflect                               --
@@ -84,7 +85,10 @@ makeAssumeReflectAxioms src env tycEnv spSig spec = do
   -- Send an error message if we're redefining a reflection
   case findDuplicatePair val reflActSymbols <|> findDuplicateBetweenLists val refSymbols reflActSymbols of
     Just (x , y) -> Ex.throw $ mkError y $
-                      "Duplicate reflection of " ++ show x ++ " and " ++ show y
+                      "Duplicate reflection of " ++
+                      show (lhNameToUnqualifiedSymbol <$> x) ++
+                      " and " ++
+                      show (lhNameToUnqualifiedSymbol <$> y)
     Nothing -> return $ turnIntoAxiom <$> Ms.asmReflectSigs spec
   where
     turnIntoAxiom (actual, pretended) = makeAssumeReflectAxiom spSig env embs (actual, pretended)
@@ -306,15 +310,14 @@ getExprFromUnfolding (Ghc.CoreUnfolding expr _ _ _ _) = Just expr
 getExprFromUnfolding _ = Nothing
 
 --------------------------------------------------------------------------------
-makeAxiom :: Bare.Env -> Bare.TycEnv -> ModName -> LogicMap
+makeAxiom :: Bare.Env -> Bare.TycEnv -> LogicMap
           -> (LocSymbol, Maybe SpecType, Ghc.Var, Ghc.CoreExpr)
           -> (Ghc.Var, LocSpecType, F.Equation)
 --------------------------------------------------------------------------------
-makeAxiom env tycEnv name lmap (x, mbT, v, def)
+makeAxiom env tycEnv lmap (x, mbT, v, def)
             = (v, t, e)
   where
-    t       = Bare.qualifyTop env name (F.loc t0) t0
-    (t0, e) = makeAssumeType allowTC embs lmap dm x mbT v def
+    (t, e)  = makeAssumeType allowTC embs lmap dm x mbT v def
     embs    = Bare.tcEmbs       tycEnv
     dm      = Bare.tcDataConMap tycEnv
     allowTC = typeclass (getConfig env)
@@ -322,13 +325,20 @@ makeAxiom env tycEnv name lmap (x, mbT, v, def)
 mkError :: PPrint a => Located a -> String -> Error
 mkError x str = ErrHMeas (sourcePosSrcSpan $ loc x) (pprint $ val x) (PJ.text str)
 
+-- This function is uded to generate the fixpoint code for reflected functions
 makeAssumeType
   :: Bool -- ^ typeclass enabled
   -> F.TCEmb Ghc.TyCon -> LogicMap -> DataConMap -> LocSymbol -> Maybe SpecType
   -> Ghc.Var -> Ghc.CoreExpr
   -> (LocSpecType, F.Equation)
 makeAssumeType allowTC tce lmap dm sym mbT v def
-  = (sym {val = aty at `strengthenRes` F.subst su ref},  F.mkEquation symbolV xts (F.subst su le) out)
+  = ( sym {val = aty at `strengthenRes` F.subst su ref}
+    , F.mkEquation 
+        symbolV 
+        (fmap (second $ F.sortSubst sortSub) xts)
+        (F.sortSubstInExpr sortSub (F.subst su le))
+        (F.sortSubst sortSub out)
+    )
   where
     symbolV = F.symbol v
     rt    = fromRTypeRep .
@@ -346,6 +356,26 @@ makeAssumeType allowTC tce lmap dm sym mbT v def
     ref        = F.Reft (F.vv_, F.PAtom F.Eq (F.EVar F.vv_) le)
     mkErr s    = ErrHMeas (sourcePosSrcSpan $ loc sym) (pprint $ val sym) (PJ.text s)
     bbs        = filter isBoolBind xs
+
+    -- rTypeSortExp produces monomorphic sorts from polymorphic types.
+    -- As an example, for 
+    -- id :: a -> a ... id x = x 
+    -- we got: 
+    -- define id (x : a#foobar) : a#foobar = { (x : a#foobar) }
+    -- Using FObj instead of a real type variable (FVar i) This code solves the
+    -- issue by creating a sort substitution that replaces those "fake" type variables
+    -- with actual ones.
+    -- define id (x : @-1) : a@-1 = { (x : a@-1) }
+    (tyVars, _) = Ghc.splitForAllTyCoVars τ
+    sortSub     = F.mkSortSubst $ zip (fmap F.symbol tyVars) (F.FVar <$> freeSort)
+    -- We need sorts that aren't polluted by rank-n types, we can't just look at
+    -- the term to determine statically what is the "maximum" sort bound ex:
+    -- freeSort = [1 + (maximum $ -1 : F.sortAbs out : fmap (F.sortAbs . snd) xts) ..] 
+    -- as some variable may be bound to something of rank-n type.  In
+    -- SortCheck.hs in fixpoint they just start at 42 for some reason.  I think
+    -- Negative Debruijn indices (levels :^)) are safer
+    freeSort    = [-1, -2 ..]
+
     (xs, def') = GM.notracePpr "grabBody" $ grabBody allowTC (Ghc.expandTypeSynonyms τ) $ normalize allowTC def
     su         = F.mkSubst  $ zip (F.symbol     <$> xs) xArgs
                            ++ zip (simplesymbol <$> xs) xArgs
@@ -426,6 +456,7 @@ instance Subable Ghc.CoreAlt where
   subst su (Ghc.Alt c xs e) = Ghc.Alt c xs (subst su e)
 
 data AxiomType = AT { aty :: SpecType, aargs :: [(F.Symbol, SpecType)], ares :: SpecType }
+  deriving Show
 
 -- | Specification for Haskell function
 --
