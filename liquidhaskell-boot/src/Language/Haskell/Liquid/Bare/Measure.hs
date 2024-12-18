@@ -140,7 +140,7 @@ makeMeasureInline allowTC embs lmap cbs x =
     Just (v, defn) -> (vx, coreToFun' allowTC embs Nothing lmap vx v defn ok)
                      where
                        vx         = F.atLoc x (F.symbol v)
-                       ok (xs, e) = LMapV vx (F.symbol <$> xs) (either id id e)
+                       ok (xs, e) = LMap vx (F.symbol <$> xs) (either id id e)
 
 -- | @coreToFun'@ takes a @Maybe DataConMap@: we need a proper map when lifting
 --   measures and reflects (which have case-of, and hence, need the projection symbols),

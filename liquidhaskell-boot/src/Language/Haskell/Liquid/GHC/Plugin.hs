@@ -37,7 +37,6 @@ import           Language.Haskell.Liquid.GHC.Plugin.SpecFinder
                                                          as SpecFinder
 
 import           Language.Haskell.Liquid.GHC.Types       (MGIModGuts(..), miModGuts)
-
 import           Language.Haskell.Liquid.Transforms.InlineAux (inlineAux)
 import           Language.Haskell.Liquid.Transforms.Rewrite (rewriteBinds)
 
@@ -45,7 +44,6 @@ import           Control.Monad
 import qualified Control.Monad.Catch as Ex
 import           Control.Monad.IO.Class (MonadIO)
 
---import           Data.Bifunctor                           ( first )
 import           Data.Coerce
 import           Data.Function                            ((&))
 import qualified Data.List                               as L
@@ -77,8 +75,6 @@ import           Language.Haskell.Liquid.Bare
 import qualified Language.Haskell.Liquid.Bare.Resolve as Resolve
 import           Language.Haskell.Liquid.UX.CmdLine
 import           Language.Haskell.Liquid.UX.Config
-
--- import Debug.Trace
 
 -- | Represents an abnormal but non-fatal state of the plugin. Because it is not
 -- meant to escape the plugin, it is not thrown in IO but instead carried around
@@ -381,7 +377,7 @@ processInputSpec cfg pipelineData modSummary inputSpec = do
 
   logicMap :: LogicMap <- liftIO LH.makeLogicMap
 
--- debugLog $ "Logic map:\n" ++ show logicMap
+  -- debugLog $ "Logic map:\n" ++ show logicMap
 
   let lhContext = LiquidHaskellContext {
         lhGlobalCfg       = cfg
@@ -547,34 +543,27 @@ processModule LiquidHaskellContext{..} = do
 
     tcg <- getGblEnv
     let localVars = Resolve.makeLocalVars preNormalizedCore
-        -- modsym = symbol $ GHC.moduleName thisModule
-        --defs = {- first (fmap (LH.qualifySymbol modsym)) <$> -} defines bareSpec0
-        -- ldefines = liftedDefines <$> (HM.elems . getDependencies) dependencies
-        -- ldefines' = trace ("processModule ldefines = " ++ show (map HM.keys ldefines)) $ ldefines
         depsLogicMap = foldr (\ls lmp -> lmp <> mempty {lmSymDefs = HM.map (\l -> LH.lhNameToResolvedSymbol <$> l) $ liftedDefines ls}) mempty $
                        (HM.elems . getDependencies) dependencies
-        -- depsLogicMap = foldr (\ls lmp -> lmp <> mempty {lmSymDefs = HM.map (\l -> LH.logicNameToSymbol <$> l) $ ls}) mempty ldefines'
-        lm = lhModuleLogicMap <> depsLogicMap--  <> mempty {lmSymDefs = HM.fromList $ map (\(k , v) -> (LH.getLHNameSymbol $ F.val k , fmap val v)) defs }
         eBareSpec = resolveLHNames
           moduleCfg
           thisModule
           localVars
           (imp_mods $ tcg_imports tcg)
           (tcg_rdr_env tcg)
-          lm
-          bareSpec0 -- { defines = defs }
+          (lhModuleLogicMap <> depsLogicMap)
+          bareSpec0
           dependencies
     result <-
       case eBareSpec of
         Left errors -> pure $ Left $ mkDiagnostics [] errors
         Right (bareSpec, lnameEnv, lmap') ->
-          -- let lmap'' = trace ("processModule lmap' = " ++ show lmap') $ lmap' in
           fmap (,bareSpec) <$>
             makeTargetSpec
               moduleCfg
               localVars
               lnameEnv
-              lmap' {- lmap'' -}
+              lmap'
               targetSrc
               bareSpec
               dependencies

@@ -105,8 +105,6 @@ makeTargetSpec cfg localVars lnameEnv lmap targetSrc bareSpec dependencies = do
         Left d -> return $ Left d
         Right (warns, ghcSpec) -> do
           let targetSpec = toTargetSpec ghcSpec
---              bareSpec1 = ghcSpecToBareSpec ghcSpec
---              liftedSpec = toLiftedSpec lnameEnv (bareSpec1 { defines = defines bareSpec })
               liftedSpec = ghcSpecToLiftedSpec ghcSpec
 
           liftedSpec' <- removeUnexportedLocalAssumptions liftedSpec
@@ -137,9 +135,8 @@ makeTargetSpec cfg localVars lnameEnv lmap targetSrc bareSpec dependencies = do
           exportedAssumption _ = True
       return lspec { liftedAsmSigs = S.filter (exportedAssumption . val . fst) (liftedAsmSigs lspec) }
 
---    ghcSpecToBareSpec = toBareSpecLHName cfg lnameEnv . _gsLSpec
---    ghcSpecToLiftedSpec = toLiftedSpec lnameEnv . toBareSpecLHName cfg lnameEnv . _gsLSpec
     ghcSpecToLiftedSpec = toLiftedSpec . toBareSpecLHName cfg lnameEnv . _gsLSpec
+
 
 -------------------------------------------------------------------------------------
 -- | @makeGhcSpec@ invokes @makeGhcSpec0@ to construct the @GhcSpec@ and then

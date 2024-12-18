@@ -31,7 +31,6 @@ module Language.Haskell.Liquid.Types.Names
   , reflectGHCName
   , reflectLHName
   , updateLHNameSymbol
-  , qualifyLHName
   ) where
 
 import Control.DeepSeq
@@ -299,11 +298,6 @@ getLHNameResolved n@LHNUnresolved{} = error $ "getLHNameResolved: unresolved nam
 getLHGHCName :: LHName -> Maybe GHC.Name
 getLHGHCName (LHNResolved (LHRGHC n) _) = Just n
 getLHGHCName _ = Nothing
-
-qualifyLHName :: LHName -> Symbol
-qualifyLHName (LHNResolved (LHRGHC n) _) = qualifiedNameSymbol n
-qualifyLHName (LHNResolved _ s) = s
-qualifyLHName (LHNUnresolved _ s) = s
 
 mapLHNames :: Data a => (LHName -> LHName) -> a -> a
 mapLHNames f = go

@@ -988,7 +988,7 @@ toLiftedSpec a = LiftedSpec
   , liftedDsize      = dsize a
   , liftedBounds     = bounds a
   , liftedAxeqs      = S.fromList . axeqs $ a
-  , liftedDefines    = M.fromList . map (first (qualifyLHName . F.val)) . defines $ a
+  , liftedDefines    = M.fromList . map (first (lhNameToResolvedSymbol . F.val)) . defines $ a
   }
 
 -- This is a temporary internal function that we use to convert the input dependencies into a format
