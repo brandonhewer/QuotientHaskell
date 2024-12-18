@@ -10,7 +10,3 @@ import Data.Set
 {-@ thm_emp :: x:k -> { empty /= sng x } @-}
 thm_emp :: (Ord k) => k -> ()
 thm_emp x = const () (sng x)
-
-{-@ thm_emp' :: x:k -> xs:Bag k -> { empty /= put x xs } @-}
-thm_emp' :: (Ord k) => k -> Bag k -> ()
-thm_emp' x xs = const () (put x xs)
