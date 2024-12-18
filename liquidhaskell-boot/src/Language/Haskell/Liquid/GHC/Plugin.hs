@@ -544,10 +544,10 @@ processModule LiquidHaskellContext{..} = do
     tcg <- getGblEnv
     let localVars = Resolve.makeLocalVars preNormalizedCore
         -- add defines from dependencies to the logical map
-        depsLogicMap =
+        logicMapWithDeps =
           foldr (\ls lmp ->
                      lmp <> mkLogicMap (HM.map (fmap LH.lhNameToResolvedSymbol) $ liftedDefines ls))
-                mempty $
+                lhModuleLogicMap $
             (HM.elems . getDependencies) dependencies
         eBareSpec = resolveLHNames
           moduleCfg
@@ -555,7 +555,7 @@ processModule LiquidHaskellContext{..} = do
           localVars
           (imp_mods $ tcg_imports tcg)
           (tcg_rdr_env tcg)
-          (lhModuleLogicMap <> depsLogicMap)
+          logicMapWithDeps
           bareSpec0
           dependencies
     result <-

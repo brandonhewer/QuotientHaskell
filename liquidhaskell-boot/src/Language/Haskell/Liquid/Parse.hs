@@ -931,7 +931,7 @@ data BPspec
   | Varia   (Located LHName, [Variance])                  -- ^ 'variance' annotations, marking type constructor params as co-, contra-, or in-variant
   | DSize   ([LocBareTypeParsed], LocSymbol)              -- ^ 'data size' annotations, generating fancy termination metric
   | BFix    ()                                            -- ^ fixity annotation
-  | Define  (Located LHName, ([Symbol], ExprV LocSymbol))              -- ^ 'define' annotation for specifying logic aliases
+  | Define  (Located LHName, ([Symbol], ExprV LocSymbol)) -- ^ 'define' annotation for specifying logic aliases
   deriving (Data, Typeable)
 
 instance PPrint BPspec where
