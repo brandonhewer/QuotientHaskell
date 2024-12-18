@@ -157,9 +157,10 @@ resolveLHNames cfg thisModule localVars impMods globalRdrEnv lmap bareSpec0 depe
               let (inScopeEnv, logicNameEnv0, privateReflectNames, unhandledNames) =
                     makeLogicEnvs impMods thisModule sp2 dependencies
               -- Add resolved local defines to the logic map
-                  lmap1 = lmap <> mempty {lmSymDefs = HM.fromList $ map (\(k , v) -> ( lhNameToResolvedSymbol $ F.val k
-                                                                                     , (fmap val v) { lmVar = lhNameToResolvedSymbol <$> k }
-                                                                                     )) $ defines sp2 }
+                  lmap1 = lmap <> mkLogicMap (HM.fromList $ (\(k , v) ->
+                                                                let k' = lhNameToResolvedSymbol <$> k in
+                                                                (F.val k', (val <$> v) { lmVar = k' }))
+                                                            <$> defines sp2)
               sp3 <- fromBareSpecLHName <$>
                        resolveLogicNames
                          cfg

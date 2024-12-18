@@ -1133,7 +1133,7 @@ mkSpec xs = Measure.Spec
   , Measure.ignores    = S.fromList [s | Ignore s <- xs]
   , Measure.autosize   = S.fromList [s | ASize  s <- xs]
   , Measure.axeqs      = []
-  , Measure.defines    = [ toLMapV' d | Define d <- xs]
+  , Measure.defines    = [ toLMapV d | Define d <- xs]
   }
 
 -- | Parse a single top level liquid specification

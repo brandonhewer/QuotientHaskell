@@ -128,7 +128,7 @@ module Language.Haskell.Liquid.Types.Types (
   , mapRTAVars
 
   -- * CoreToLogic
-  , LogicMap(..), toLMapV, toLMapV', toLogicMap, eAppWithMap, emapLMapM, LMapV(..), LMap
+  , LogicMap(..), toLMapV, mkLogicMap, toLogicMap, eAppWithMap, emapLMapM, LMapV(..), LMap
 
   -- * Refined Instances
   , RDEnv, DEnv(..), RInstance(..), RISig(..)
@@ -274,14 +274,17 @@ type LMap = LMapV F.Symbol
 instance (Show v, Ord v, F.Fixpoint v) => Show (LMapV v) where
   show (LMap x xs e) = show x ++ " " ++ show xs ++ "\t |-> \t" ++ show e
 
-toLMapV' :: (F.Located LHName, ([Symbol], F.ExprV v)) -> (F.Located LHName, LMapV v)
-toLMapV' (x, (ys, e)) = (x, LMap {lmVar = fmap getLHNameSymbol x, lmArgs = ys, lmExpr = e})
+toLMapV :: (F.Located LHName, ([Symbol], F.ExprV v)) -> (F.Located LHName, LMapV v)
+toLMapV (x, (ys, e)) = (x, LMap {lmVar = getLHNameSymbol <$> x, lmArgs = ys, lmExpr = e})
 
-toLMapV :: (F.LocSymbol, ([Symbol], F.ExprV v)) -> (Symbol, LMapV v)
-toLMapV (x, (ys, e)) = (F.val x, LMap {lmVar = x, lmArgs = ys, lmExpr = e})
+mkLogicMap :: M.HashMap Symbol LMap -> LogicMap
+mkLogicMap ls = mempty {lmSymDefs = ls}
 
 toLogicMap :: [(F.LocSymbol, ([Symbol], Expr))] -> LogicMap
-toLogicMap ls = mempty {lmSymDefs = M.fromList $ map toLMapV ls}
+toLogicMap = mkLogicMap . M.fromList . map toLMapV0
+  where
+  toLMapV0 :: (F.LocSymbol, ([Symbol], F.ExprV v)) -> (Symbol, LMapV v)
+  toLMapV0 (x, (ys, e)) = (F.val x, LMap {lmVar = x, lmArgs = ys, lmExpr = e})
 
 eAppWithMap :: LogicMap -> Symbol -> [Expr] -> Expr -> Expr
 eAppWithMap lmap f es expr

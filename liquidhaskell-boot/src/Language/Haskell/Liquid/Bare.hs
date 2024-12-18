@@ -64,6 +64,7 @@ import Data.Hashable (Hashable)
 import Data.Bifunctor (bimap, first)
 import Data.Function (on)
 
+
 {- $creatingTargetSpecs
 
 /Liquid Haskell/ operates on 'TargetSpec's, so this module provides a single function called
@@ -106,7 +107,6 @@ makeTargetSpec cfg localVars lnameEnv lmap targetSrc bareSpec dependencies = do
         Right (warns, ghcSpec) -> do
           let targetSpec = toTargetSpec ghcSpec
               liftedSpec = ghcSpecToLiftedSpec ghcSpec
-
           liftedSpec' <- removeUnexportedLocalAssumptions liftedSpec
           return $ Right (phaseOneWarns <> warns, targetSpec, liftedSpec')
 

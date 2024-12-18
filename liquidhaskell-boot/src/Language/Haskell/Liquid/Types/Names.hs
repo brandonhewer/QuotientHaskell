@@ -43,9 +43,8 @@ import qualified Data.Text                               as Text
 import GHC.Generics
 import GHC.Show
 import GHC.Stack
-
 import Language.Fixpoint.Types
-import Language.Haskell.Liquid.GHC.Misc -- Symbolic GHC.Name
+import Language.Haskell.Liquid.GHC.Misc ( locNamedThing ) -- Symbolic GHC.Name
 import qualified Liquid.GHC.API as GHC
 
 -- RJ: Please add docs

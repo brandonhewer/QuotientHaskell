@@ -1034,5 +1034,5 @@ unsafeFromLiftedSpec a = Spec
   , dsize      = liftedDsize  a
   , bounds     = liftedBounds a
   , axeqs      = S.toList . liftedAxeqs $ a
-  , defines    = map (\p -> first (dummyLoc . makeLocalLHName) p) . M.toList . liftedDefines $ a
+  , defines    = map (first (dummyLoc . makeLocalLHName)) . M.toList . liftedDefines $ a
   }
