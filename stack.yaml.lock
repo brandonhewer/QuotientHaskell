@@ -50,6 +50,27 @@ packages:
   original:
     commit: 45ef3498e35897712bde8e002ce18df6d55f8b15
     git: https://github.com/qnikst/ghc-timings-report
+- completed:
+    hackage: containers-0.7@sha256:e9b5fdcc609159410d408c47e0be13663bb0b4a42a5183b52aa0ac9c99e1dfec,2668
+    pantry-tree:
+      sha256: 265b0a6110df990b5f9f04d21856333ed5ed66f37a4b0a0215901d831f69629b
+      size: 2954
+  original:
+    hackage: containers-0.7
+- completed:
+    hackage: ghc-9.10.1@sha256:a281e1b3e7fb3fee7ba8c4b1a5b25da572b6ceb771a0037824df583fd46486f0,27483
+    pantry-tree:
+      sha256: 248912ad66a07c03086314cd977686d3adc1b1d05592e36c45e7383c090a5f5e
+      size: 53915
+  original:
+    hackage: ghc-9.10.1
+- completed:
+    hackage: ghc-internal-9.1001.0@sha256:dfa39788bc81ede2db08080a93ac8819e57a8d6df955243dcb4af550982fa5e7,15281
+    pantry-tree:
+      sha256: fa3749886ee8f60d07feb9a3009513af0273aedf38519d8121002b32e6639122
+      size: 22661
+  original:
+    hackage: ghc-internal-9.1001.0
 snapshots:
 - completed:
     sha256: fa3b5bc91ba72486026c6d9644df505eba3af4180ce072dd026064c62de92876
