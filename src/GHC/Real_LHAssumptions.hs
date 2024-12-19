@@ -46,4 +46,9 @@ class (Real a, Enum a) => Integral a where
 
 //  fixpoint can't handle (x mod y), only (x mod c) so we need to be more clever here
 //  mod :: x:a -> y:a -> {v:a | v = (x mod y) }
+
+define div x y        = (x / y)
+define mod x y        = (x mod y)
+define fromIntegral x = (x)
+
 @-}
