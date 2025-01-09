@@ -132,8 +132,8 @@ you can assume the reflection of both functions by defining a *pretended* functi
 as the actual function. Therein lies the assumption: if both functions don't actually behave in the same way, then you
 may introduce falsity in your logic. Thus, you have to use it with caution, only when the function wasn't already reflected,
 and when you actually know how it will behave. In the following snippet, `myfilter` is the pretended function whose definition
-is given in our module, and the actual function `GHC.List.filter` and `myfilter` and tied through 
-the `{-@ assume reflect filter as myfilter @-}` annotation. This annotation must be read as: "reflect `filter`, assuming it has the 
+is given in our module, and the actual function `GHC.List.filter` and `myfilter` and tied through
+the `{-@ assume reflect filter as myfilter @-}` annotation. This annotation must be read as: "reflect `filter`, assuming it has the
 same reflection as `myfilter`".
 
 ```Haskell
@@ -390,6 +390,29 @@ the error. If you don't want the above and instead, want only the
 By default, the inferred types will have fully qualified module names.
 To use unqualified names, much easier to read, use `--short-names`.
 
+## Logical aliasing
+
+**Directives:** `define`
+
+You can force LiquidHaskell to treat each occurrence of a Haskell name (such as
+a function or a data constructor) as a predefined logical expression with the
+`define` directive. This can be useful for treating Haskell system functions
+as  no-ops, or for linking operations on your datatypes directly to SMT theories.
+
+As an example,
+
+```haskell
+{-@ define foo x y = (Foo_t y) @-}
+```
+
+will replace every occurrence of a Haskell symbol `foo` applied to two arguments
+with a logical symbol `Foo_t` applied to only the second argument, when processing
+specifications. The symbol `foo` can either be defined in the current module or
+imported, and the defined alias is propagated to the dependencies.
+
+See `Language.Haskell.Liquid.Bag` and `Language.Haskell.Liquid.ProofCombinators`
+for examples.
+
 ## Disabling Checks on Functions
 
 **Directives:** `ignore`
@@ -444,18 +467,18 @@ See the [specifications section](specifications.md) for how to write termination
 ## Positivity Check
 
 **Options:** `no-positivity-check`
-By **default** a positivity check is performed on data definitions. 
+By **default** a positivity check is performed on data definitions.
 
 
 ```haskell
-data Bad = Bad (Bad -> Bad) | Good Bad 
+data Bad = Bad (Bad -> Bad) | Good Bad
     --           A      B           C
     -- A is in a negative position, B and C are OK
 ```
 
 Negative declarations are rejected because they admit non-terminating functions.
 
-If the positivity check is disabled, so that a similar declaration of `Bad` is allowed, 
+If the positivity check is disabled, so that a similar declaration of `Bad` is allowed,
 it is possible to construct a term of the empty type, even without recursion.
 For example see [tests/neg/Positivity1.hs](https://github.com/ucsd-progsys/liquidhaskell/blob/develop/tests/errors/Positivity1.hs)
 and [tests/neg/Positivity2.hs](https://github.com/ucsd-progsys/liquidhaskell/blob/develop/tests/errors/Positivity2.hs)

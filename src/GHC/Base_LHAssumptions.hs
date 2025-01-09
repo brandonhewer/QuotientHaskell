@@ -37,6 +37,8 @@ assume map       :: (a -> b) -> xs:[a] -> {v: [b] | len v == len xs}
 assume ++        :: xs:[a] -> ys:[a] -> {v:[a] | len v == len xs + len ys}
 
 assume $         :: (a -> b) -> a -> b
+define $             f          x = (f x)
+
 assume id        :: x:a -> {v:a | v = x}
 
 qualif IsEmp(v:Bool, xs: [a]) : (v <=> (len xs > 0))

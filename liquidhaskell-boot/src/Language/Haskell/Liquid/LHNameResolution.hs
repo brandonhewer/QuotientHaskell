@@ -137,9 +137,9 @@ resolveLHNames
   -> LogicMap
   -> BareSpecParsed
   -> TargetDependencies
-  -> Either [Error] (BareSpec, LogicNameEnv)
+  -> Either [Error] (BareSpec, LogicNameEnv, LogicMap)
 resolveLHNames cfg thisModule localVars impMods globalRdrEnv lmap bareSpec0 dependencies = do
-    let ((bs, logicNameEnv), (es, ns)) =
+    let ((bs, logicNameEnv, lmap2), (es, ns)) =
           flip runState mempty $ do
             -- A generic traversal that resolves names of Haskell entities
             sp1 <- mapMLocLHNames (\l -> (<$ l) <$> resolveLHName l) $
@@ -152,27 +152,37 @@ resolveLHNames cfg thisModule localVars impMods globalRdrEnv lmap bareSpec0 depe
 
             (es0,_) <- get
             if null es0 then do
+
               -- Now we do a second traversal to resolve logic names
               let (inScopeEnv, logicNameEnv0, privateReflectNames, unhandledNames) =
                     makeLogicEnvs impMods thisModule sp2 dependencies
+              -- Add resolved local defines to the logic map
+                  lmap1 =
+                    lmap <> mkLogicMap (HM.fromList $
+                                         (\(k , v) ->
+                                             let k' = lhNameToResolvedSymbol <$> k in
+                                             (F.val k', (val <$> v) { lmVar = k' }))
+                                         <$> defines sp2)
               sp3 <- fromBareSpecLHName <$>
                        resolveLogicNames
                          cfg
                          inScopeEnv
                          globalRdrEnv
                          unhandledNames
-                         lmap
+                         lmap1
                          localVars
                          logicNameEnv0
                          privateReflectNames
                          allEaliases
                          sp2
-              return (sp3, logicNameEnv0)
+              return (sp3, logicNameEnv0, lmap1)
             else
-              return (error "resolveLHNames: invalid spec", error "resolveLHNames: invalid logic environment")
+              return ( error "resolveLHNames: invalid spec"
+                     , error "resolveLHNames: invalid logic environment"
+                     , error "resolveLHNames: invalid logic map")
         logicNameEnv' = extendLogicNameEnv logicNameEnv ns
     if null es then
-      Right (bs, logicNameEnv')
+      Right (bs, logicNameEnv', lmap2)
     else
       Left es
   where
@@ -184,30 +194,32 @@ resolveLHNames cfg thisModule localVars impMods globalRdrEnv lmap bareSpec0 depe
         LHNUnresolved LHLogicNameBinder s -> pure $ makeLogicLHName s thisModule Nothing
         _ -> panic Nothing $ "unexpected name: " ++ show n
 
-    resolveLHName lname = case val lname of
-      LHNUnresolved LHTcName s
-        | isTuple s ->
-          pure $ LHNResolved (LHRGHC $ GHC.tupleTyConName GHC.BoxedTuple (tupleArity s)) s
-        | isList s ->
-          pure $ LHNResolved (LHRGHC GHC.listTyConName) s
-        | s == "*" ->
-          pure $ LHNResolved (LHRGHC GHC.liftedTypeKindTyConName) s
-        | otherwise ->
-          case HM.lookup s taliases of
-            Just (m, _) -> pure $ LHNResolved (LHRLogic $ LogicName s m Nothing) s
-            Nothing -> lookupGRELHName LHTcName lname s listToMaybe
-      LHNUnresolved ns@(LHVarName lcl) s
-        | isDataCon s -> lookupGRELHName (LHDataConName lcl) lname s listToMaybe
-        | otherwise ->
-            lookupGRELHName ns lname s
-              (fmap (either id GHC.getName) . Resolve.lookupLocalVar localVars (atLoc lname s))
-      LHNUnresolved LHLogicNameBinder s ->
-        pure $ makeLogicLHName s thisModule Nothing
-      n@(LHNUnresolved LHLogicName _) ->
-        -- This one will be resolved by resolveLogicNames
-        pure n
-      LHNUnresolved ns s -> lookupGRELHName ns lname s listToMaybe
-      n -> pure n
+    resolveLHName lname =
+      case val lname of
+        LHNUnresolved LHTcName s
+          | isTuple s ->
+            pure $ LHNResolved (LHRGHC $ GHC.tupleTyConName GHC.BoxedTuple (tupleArity s)) s
+          | isList s ->
+            pure $ LHNResolved (LHRGHC GHC.listTyConName) s
+          | s == "*" ->
+            pure $ LHNResolved (LHRGHC GHC.liftedTypeKindTyConName) s
+          | otherwise ->
+            case HM.lookup s taliases of
+              Just (m, _) -> pure $ LHNResolved (LHRLogic $ LogicName s m Nothing) s
+              Nothing -> lookupGRELHName LHTcName lname s listToMaybe
+        LHNUnresolved ns@(LHVarName lcl) s
+          | isDataCon s ->
+              lookupGRELHName (LHDataConName lcl) lname s listToMaybe
+          | otherwise ->
+              lookupGRELHName ns lname s
+                (fmap (either id GHC.getName) . Resolve.lookupLocalVar localVars (atLoc lname s))
+        LHNUnresolved LHLogicNameBinder s ->
+          pure $ makeLogicLHName s thisModule Nothing
+        n@(LHNUnresolved LHLogicName _) ->
+          -- This one will be resolved by resolveLogicNames
+          pure n
+        LHNUnresolved ns s -> lookupGRELHName ns lname s listToMaybe
+        n -> pure n
 
     lookupGRELHName ns lname s localNameLookup =
       case maybeDropImported ns $ GHC.lookupGRE globalRdrEnv (mkLookupGRE ns s) of

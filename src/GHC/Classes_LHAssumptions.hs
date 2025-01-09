@@ -7,6 +7,8 @@ import GHC.Types_LHAssumptions()
 {-@
 
 assume not :: x:Bool -> {v:Bool | ((v) <=> ~(x))}
+define not    x                         = (~ x)
+
 assume &&    :: x:Bool -> y:Bool
         -> {v:Bool | ((v) <=> ((x) && (y)))}
 assume ||    :: x:Bool -> y:Bool

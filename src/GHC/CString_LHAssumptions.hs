@@ -14,4 +14,6 @@ _f = unpackCString#
 assume GHC.CString.unpackCString#
   :: x:Addr#
   -> {v:[Char] | v ~~ x && len v == strLen x}
+
+define unpackCString# x = x
 @-}

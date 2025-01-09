@@ -19,11 +19,12 @@ import qualified Liquid.GHC.API         as O
 import           Liquid.GHC.API         as GHC hiding (Type)
 import qualified Text.PrettyPrint.HughesPJ               as PJ
 import qualified Language.Fixpoint.Types                 as F
-import qualified  Language.Haskell.Liquid.GHC.Misc        as LH
+import qualified Language.Haskell.Liquid.GHC.Misc        as LH
 import qualified Language.Haskell.Liquid.UX.CmdLine      as LH
 import qualified Language.Haskell.Liquid.GHC.Interface   as LH
 import           Language.Haskell.Liquid.LHNameResolution (resolveLHNames)
 import qualified Language.Haskell.Liquid.Liquid          as LH
+import qualified Language.Haskell.Liquid.Types.Names     as LH
 import qualified Language.Haskell.Liquid.Types.PrettyPrint as LH ( filterReportErrors
                                                                  , filterReportErrorsWith
                                                                  , defaultFilterReporter
@@ -286,7 +287,6 @@ typecheckHook cfg0 ms tcGblEnv = swapBreadcrumb thisModule Nothing >>= \case
   where
     thisModule = ms_mod ms
 
-
 typecheckHook' :: Config -> ModSummary -> TcGblEnv -> [SpecComment] -> TcM (Either LiquidCheckException TcGblEnv)
 typecheckHook' cfg ms tcGblEnv specComments = do
   debugLog $ "We are in module: " <> show (toStableModule thisModule)
@@ -375,7 +375,7 @@ processInputSpec cfg pipelineData modSummary inputSpec = do
   debugLog $ " Input spec: \n" ++ show (fromBareSpecParsed inputSpec)
   debugLog $ "Direct ===> \n" ++ unlines (renderModule <$> directImports tcg)
 
-  logicMap :: LogicMap <- liftIO LH.makeLogicMap
+  let logicMap = LH.listLMap
 
   -- debugLog $ "Logic map:\n" ++ show logicMap
 
@@ -543,25 +543,31 @@ processModule LiquidHaskellContext{..} = do
 
     tcg <- getGblEnv
     let localVars = Resolve.makeLocalVars preNormalizedCore
+        -- add defines from dependencies to the logical map
+        logicMapWithDeps =
+          foldr (\ls lmp ->
+                     lmp <> mkLogicMap (HM.map (fmap LH.lhNameToResolvedSymbol) $ liftedDefines ls))
+                lhModuleLogicMap $
+            (HM.elems . getDependencies) dependencies
         eBareSpec = resolveLHNames
           moduleCfg
           thisModule
           localVars
           (imp_mods $ tcg_imports tcg)
           (tcg_rdr_env tcg)
-          lhModuleLogicMap
+          logicMapWithDeps
           bareSpec0
           dependencies
     result <-
       case eBareSpec of
         Left errors -> pure $ Left $ mkDiagnostics [] errors
-        Right (bareSpec, lnameEnv) ->
+        Right (bareSpec, lnameEnv, lmap') ->
           fmap (,bareSpec) <$>
             makeTargetSpec
               moduleCfg
               localVars
               lnameEnv
-              lhModuleLogicMap
+              lmap'
               targetSrc
               bareSpec
               dependencies

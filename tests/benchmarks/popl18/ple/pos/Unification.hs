@@ -70,7 +70,7 @@ applyOne su (TFun tx t)
   = TFun (applyOne su tx) (applyOne su t)
 applyOne (P x t) (TVar v) | x == v
   = t
-applyOne _ t 
+applyOne _ t
   = t
 
 
@@ -105,17 +105,17 @@ split_fun :: Term -> Term -> Substitution -> Proof
       -> {apply θ (TFun t1 t2) == TFun (apply θ t1) (apply θ t2)} / [llen θ] @-}
 
 {-
-HACK: the above spe creates the rewrite rule 
+HACK: the above spe creates the rewrite rule
   apply θ (TFun t1 t2) -> TFun (apply θ t1) (apply θ t2)
-If I change the order of the equality to 
+If I change the order of the equality to
   TFun (apply θ t1) (apply θ t2) == apply θ (TFun t1 t2)
-then Liquid Haskell will not auto prove it  
+then Liquid Haskell will not auto prove it
 -}
 
 split_fun t1 t2 Emp
   = trivial
 split_fun t1 t2 (C su θ)
-   = split_fun t1 t2 θ --  &&& (applyOne su (TFun (apply θ t1) (apply θ t2)) *** QED) -- THIS 
+   = split_fun t1 t2 θ --  &&& (applyOne su (TFun (apply θ t1) (apply θ t2)) *** QED) -- THIS
 
 {-@ automatic-instances append_apply  @-}
 
@@ -135,8 +135,8 @@ append_apply (C su θ) θ2 t
 
 {-@ append_len ::  s1:Substitution -> s2:Substitution -> {llen (append s1 s2) == llen s1 + llen s2  } @-}
 append_len ::  Substitution -> Substitution -> Proof
-append_len Emp _       = trivial 
-append_len (C _ s1) s2 = append_len s1 s2 
+append_len Emp _       = trivial
+append_len (C _ s1) s2 = append_len s1 s2
 
 
 {-@ automatic-instances append_len  @-}
@@ -149,7 +149,7 @@ append_len (C _ s1) s2 = append_len s1 s2
              -> {apply (C (P i t) Emp) (TVar i) == apply (C (P i t) Emp) t } @-}
 theoremVar :: Term -> Int ->Proof
 theoremVar t i
-  =   theoremVarOne t i t 
+  =   theoremVarOne t i t
 
 
 {-@ automatic-instances theoremVarOne  @-}
@@ -160,9 +160,9 @@ theoremVar t i
              -> { applyOne (P i ti) t == t } @-}
 theoremVarOne :: Term -> Int -> Term -> Proof
 theoremVarOne (TFun t1 t2) i ti
-  = theoremVarOne t1 i ti &&& theoremVarOne t2 i ti 
+  = theoremVarOne t1 i ti &&& theoremVarOne t2 i ti
 theoremVarOne t i ti
-  = trivial 
+  = trivial
 
 
 
@@ -186,7 +186,7 @@ tsize (TFun t1 t2) = 1 + (tsize t1) + (tsize t2)
 {-@ reflect append @-}
 {-@ append :: xs:L a -> ys:L a -> {v:L a | llen v == llen xs + llen ys } @-}
 append :: L a -> L a -> L a
-append Emp ys = ys 
+append Emp ys = ys
 append (C x xs) ys = C x (append xs ys)
 
 data L a = Emp | C a (L a)

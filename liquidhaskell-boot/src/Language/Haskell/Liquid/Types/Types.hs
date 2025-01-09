@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveDataTypeable         #-}
 {-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE DeriveTraversable          #-}
+{-# LANGUAGE DerivingVia                #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses      #-}
 {-# LANGUAGE FlexibleInstances          #-}
@@ -8,7 +9,6 @@
 {-# LANGUAGE UndecidableInstances       #-}
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE ConstraintKinds            #-}
-{-# LANGUAGE DerivingVia                #-}
 {-# LANGUAGE NamedFieldPuns             #-}
 {-# LANGUAGE TupleSections              #-}
 
@@ -128,7 +128,7 @@ module Language.Haskell.Liquid.Types.Types (
   , mapRTAVars
 
   -- * CoreToLogic
-  , LogicMap(..), toLogicMap, eAppWithMap, LMap(..)
+  , LogicMap(..), toLMapV, mkLogicMap, toLogicMap, eAppWithMap, emapLMapM, LMapV(..), LMap
 
   -- * Refined Instances
   , RDEnv, DEnv(..), RInstance(..), RISig(..)
@@ -143,31 +143,33 @@ module Language.Haskell.Liquid.Types.Types (
   )
   where
 
-import           Liquid.GHC.API as Ghc hiding ( Expr
-                                                               , isFunTy
-                                                               , ($+$)
-                                                               , nest
-                                                               , text
-                                                               , blankLine
-                                                               , (<+>)
-                                                               , vcat
-                                                               , hsep
-                                                               , comma
-                                                               , colon
-                                                               , parens
-                                                               , empty
-                                                               , char
-                                                               , panic
-                                                               , int
-                                                               , hcat
-                                                               , showPpr
-                                                               , punctuate
-                                                               , ($$)
-                                                               , braces
-                                                               , angleBrackets
-                                                               , brackets
-                                                               )
+import           Liquid.GHC.API as Ghc hiding ( Binary
+                                              , Expr
+                                              , isFunTy
+                                              , ($+$)
+                                              , nest
+                                              , text
+                                              , blankLine
+                                              , (<+>)
+                                              , vcat
+                                              , hsep
+                                              , comma
+                                              , colon
+                                              , parens
+                                              , empty
+                                              , char
+                                              , panic
+                                              , int
+                                              , hcat
+                                              , showPpr
+                                              , punctuate
+                                              , ($$)
+                                              , braces
+                                              , angleBrackets
+                                              , brackets
+                                              )
 import           Data.String
+import           Data.Binary
 import           GHC.Generics
 import           Prelude                          hiding  (error)
 
@@ -261,19 +263,28 @@ instance Monoid LogicMap where
 instance Semigroup LogicMap where
   LM x1 x2 <> LM y1 y2 = LM (M.union x1 y1) (M.union x2 y2)
 
-data LMap = LMap
+data LMapV v = LMap
   { lmVar  :: F.LocSymbol
   , lmArgs :: [Symbol]
-  , lmExpr :: Expr
-  }
+  , lmExpr :: F.ExprV v
+  } deriving (Eq, Data, Generic, Functor)
+    deriving (Binary, Hashable) via Generically (LMapV v)
+type LMap = LMapV F.Symbol
 
-instance Show LMap where
+instance (Show v, Ord v, F.Fixpoint v) => Show (LMapV v) where
   show (LMap x xs e) = show x ++ " " ++ show xs ++ "\t |-> \t" ++ show e
 
-toLogicMap :: [(F.LocSymbol, [Symbol], Expr)] -> LogicMap
-toLogicMap ls = mempty {lmSymDefs = M.fromList $ map toLMap ls}
+toLMapV :: (F.Located LHName, ([Symbol], F.ExprV v)) -> (F.Located LHName, LMapV v)
+toLMapV (x, (ys, e)) = (x, LMap {lmVar = getLHNameSymbol <$> x, lmArgs = ys, lmExpr = e})
+
+mkLogicMap :: M.HashMap Symbol LMap -> LogicMap
+mkLogicMap ls = mempty {lmSymDefs = ls}
+
+toLogicMap :: [(F.LocSymbol, ([Symbol], Expr))] -> LogicMap
+toLogicMap = mkLogicMap . M.fromList . map toLMapV0
   where
-    toLMap (x, ys, e) = (F.val x, LMap {lmVar = x, lmArgs = ys, lmExpr = e})
+  toLMapV0 :: (F.LocSymbol, ([Symbol], F.ExprV v)) -> (Symbol, LMapV v)
+  toLMapV0 (x, (ys, e)) = (F.val x, LMap {lmVar = x, lmArgs = ys, lmExpr = e})
 
 eAppWithMap :: LogicMap -> Symbol -> [Expr] -> Expr -> Expr
 eAppWithMap lmap f es expr
@@ -282,6 +293,11 @@ eAppWithMap lmap f es expr
   = F.subst (F.mkSubst $ zip xs es) e
   | otherwise
   = expr
+
+emapLMapM :: Monad m => ([Symbol] -> v0 -> m v1) -> LMapV v0 -> m (LMapV v1)
+emapLMapM f l = do
+    lmExpr <- emapExprVM (f . (++ lmArgs l)) (lmExpr l)
+    return l {lmExpr}
 
 --------------------------------------------------------------------------------
 -- | Refined Instances ---------------------------------------------------------

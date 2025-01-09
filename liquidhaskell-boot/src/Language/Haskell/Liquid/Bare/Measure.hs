@@ -387,7 +387,7 @@ getLocReflects = S.unions . map names . M.elems
 -- Get all the symbols that are defined in the logic, based on the environment and the specs.
 -- Also, fully qualify the defined symbols by the way (for those for which it's possible and not already done).
 getDefinedSymbolsInLogic :: Bare.Env -> Bare.MeasEnv -> Bare.ModSpecs -> S.HashSet F.LocSymbol
-getDefinedSymbolsInLogic env measEnv specs = 
+getDefinedSymbolsInLogic env measEnv specs =
   S.unions (uncurry getFromAxioms <$> specsList) -- reflections that ended up in equations
     `S.union` getLocReflects specs -- reflected symbols
     `S.union` measVars -- Get the data constructors, ex. for Lit00.0
@@ -472,7 +472,7 @@ getUnfoldingOfVar = getExpr . Ghc.realUnfoldingInfo . Ghc.idInfo
 -- For this purpose, you need to give the variable naming the definition to reflect
 -- and its corresponding equation in the logic.
 getFreeVarsOfReflectionOfVar  :: Ghc.Var -> F.Equation -> S.HashSet Ghc.Var
-getFreeVarsOfReflectionOfVar var eq = 
+getFreeVarsOfReflectionOfVar var eq =
     S.filter (\v -> F.symbol v `S.member` freeSymbolsInReflectedBody) freeVarsInCoreExpr
   where
     reflExpr = getUnfoldingOfVar var
