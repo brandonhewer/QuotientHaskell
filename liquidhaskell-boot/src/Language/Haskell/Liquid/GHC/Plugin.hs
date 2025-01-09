@@ -375,14 +375,11 @@ processInputSpec cfg pipelineData modSummary inputSpec = do
   debugLog $ " Input spec: \n" ++ show (fromBareSpecParsed inputSpec)
   debugLog $ "Direct ===> \n" ++ unlines (renderModule <$> directImports tcg)
 
-  let logicMap = LH.listLMap
-
   -- debugLog $ "Logic map:\n" ++ show logicMap
 
   let lhContext = LiquidHaskellContext {
         lhGlobalCfg       = cfg
       , lhInputSpec       = inputSpec
-      , lhModuleLogicMap  = logicMap
       , lhModuleSummary   = modSummary
       , lhModuleTcData    = pdTcData pipelineData
       , lhModuleGuts      = pdUnoptimisedCore pipelineData
@@ -488,7 +485,6 @@ loadDependencies currentModuleConfig mods = do
 data LiquidHaskellContext = LiquidHaskellContext {
     lhGlobalCfg        :: Config
   , lhInputSpec        :: BareSpecParsed
-  , lhModuleLogicMap   :: LogicMap
   , lhModuleSummary    :: ModSummary
   , lhModuleTcData     :: TcData
   , lhModuleGuts       :: ModGuts
@@ -547,7 +543,7 @@ processModule LiquidHaskellContext{..} = do
         logicMapWithDeps =
           foldr (\ls lmp ->
                      lmp <> mkLogicMap (HM.map (fmap LH.lhNameToResolvedSymbol) $ liftedDefines ls))
-                lhModuleLogicMap $
+                LH.listLMap $
             (HM.elems . getDependencies) dependencies
         eBareSpec = resolveLHNames
           moduleCfg
