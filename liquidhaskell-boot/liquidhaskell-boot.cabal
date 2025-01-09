@@ -61,7 +61,6 @@ library
                       Liquid.GHC.API.Compat
                       Liquid.GHC.API.Extra
                       Liquid.GHC.API.StableModule
-                      Language.Haskell.Liquid.GHC.CoreToLogic
                       Language.Haskell.Liquid.GHC.Interface
                       Language.Haskell.Liquid.GHC.Logging
                       Language.Haskell.Liquid.GHC.Misc

@@ -375,7 +375,7 @@ processInputSpec cfg pipelineData modSummary inputSpec = do
   debugLog $ " Input spec: \n" ++ show (fromBareSpecParsed inputSpec)
   debugLog $ "Direct ===> \n" ++ unlines (renderModule <$> directImports tcg)
 
-  logicMap :: LogicMap <- liftIO LH.makeLogicMap
+  let logicMap = LH.listLMap
 
   -- debugLog $ "Logic map:\n" ++ show logicMap
 

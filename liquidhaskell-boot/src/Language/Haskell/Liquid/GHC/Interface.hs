@@ -26,7 +26,7 @@ module Language.Haskell.Liquid.GHC.Interface (
 
   -- * Internal exports (provisional)
   , extractSpecComments
-  , makeLogicMap
+  , listLMap
   , classCons
   , derivedVars
   , importVars
@@ -63,18 +63,14 @@ import Data.Maybe
 
 import qualified Data.HashSet        as S
 
-import System.IO
-import Text.Megaparsec.Error
 import Text.PrettyPrint.HughesPJ        hiding (first, (<>))
 import Language.Fixpoint.Types          hiding (err, panic, Error, Result, Expr)
 import qualified Language.Fixpoint.Misc as Misc
-import qualified Language.Haskell.Liquid.GHC.CoreToLogic as CoreToLogic
 import Language.Haskell.Liquid.GHC.Misc
 import Language.Haskell.Liquid.GHC.Types (MGIModGuts(..))
 import Language.Haskell.Liquid.GHC.Play
 import Language.Haskell.Liquid.WiredIn (isDerivedInstance)
 import qualified Language.Haskell.Liquid.Measure  as Ms
-import Language.Haskell.Liquid.Parse
 import Language.Haskell.Liquid.Types.Errors
 import Language.Haskell.Liquid.Types.PrettyPrint
 import Language.Haskell.Liquid.Types.Specs
@@ -260,18 +256,9 @@ extractSpecComment (Ghc.L sp (ApiBlockComment txt))
 
 extractSpecComment _ = Nothing
 
-
 --------------------------------------------------------------------------------
--- Assemble Information for Spec Extraction ------------------------------------
+-- Information for Spec Extraction ---------------------------------------------
 --------------------------------------------------------------------------------
-
-makeLogicMap :: IO LogicMap
-makeLogicMap = do
-  case parseSymbolToLogic "CoreToLogic.coreToLogic" CoreToLogic.coreToLogic of
-    Left peb -> do
-      hPutStrLn stderr (errorBundlePretty peb)
-      panic Nothing "makeLogicMap failed"
-    Right lm -> return (lm <> listLMap)
 
 listLMap :: LogicMap -- TODO-REBARE: move to wiredIn
 listLMap  = toLogicMap [ (dummyLoc nilName , ([]     , hNil))

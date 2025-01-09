@@ -13,7 +13,6 @@ module Language.Haskell.Liquid.Parse
   , parseSpecComments
   , singleSpecP
   , BPspec (..)
-  , parseSymbolToLogic
   , parseTest'
   )
   where
@@ -179,26 +178,6 @@ parseErrorError (e, pos) = ErrParse sp msg e
   where
     sp              = sourcePosSrcSpan pos
     msg             = "Error Parsing Specification from:" <+> PJ.text (sourceName pos)
-
---------------------------------------------------------------------------------
--- Parse to Logic  -------------------------------------------------------------
---------------------------------------------------------------------------------
-
-parseSymbolToLogic :: SourceName -> String -> Either (ParseErrorBundle String Void) LogicMap
-parseSymbolToLogic f = mapRight snd . parseWithError initPStateWithList toLogicP (initialPos f)
-
-toLogicP :: Parser LogicMap
-toLogicP
-  = toLogicMap <$> many toLogicOneP
-
-toLogicOneP :: Parser (LocSymbol, ([Symbol], Expr))
-toLogicOneP
-  = do reserved "define"
-       (x:xs) <- some locSymbolP
-       reservedOp "="
-       e      <- exprP <|> predP
-       return (x, (val <$> xs, val <$> e))
-
 
 --------------------------------------------------------------------------------
 -- | BareTypes -----------------------------------------------------------------
