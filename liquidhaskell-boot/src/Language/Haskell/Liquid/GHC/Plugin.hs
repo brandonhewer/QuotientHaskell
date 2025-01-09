@@ -24,7 +24,6 @@ import qualified Language.Haskell.Liquid.UX.CmdLine      as LH
 import qualified Language.Haskell.Liquid.GHC.Interface   as LH
 import           Language.Haskell.Liquid.LHNameResolution (resolveLHNames)
 import qualified Language.Haskell.Liquid.Liquid          as LH
-import qualified Language.Haskell.Liquid.Types.Names     as LH
 import qualified Language.Haskell.Liquid.Types.PrettyPrint as LH ( filterReportErrors
                                                                  , filterReportErrorsWith
                                                                  , defaultFilterReporter
@@ -539,19 +538,12 @@ processModule LiquidHaskellContext{..} = do
 
     tcg <- getGblEnv
     let localVars = Resolve.makeLocalVars preNormalizedCore
-        -- add defines from dependencies to the logical map
-        logicMapWithDeps =
-          foldr (\ls lmp ->
-                     lmp <> mkLogicMap (HM.map (fmap LH.lhNameToResolvedSymbol) $ liftedDefines ls))
-                LH.listLMap $
-            (HM.elems . getDependencies) dependencies
         eBareSpec = resolveLHNames
           moduleCfg
           thisModule
           localVars
           (imp_mods $ tcg_imports tcg)
           (tcg_rdr_env tcg)
-          logicMapWithDeps
           bareSpec0
           dependencies
     result <-
