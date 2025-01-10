@@ -191,11 +191,12 @@ resolveLHNames cfg thisModule localVars impMods globalRdrEnv bareSpec0 dependenc
 
     -- add defines from dependencies to the logical map
     lmap =
-      foldr (\ls lmp ->
-                 lmp <> mkLogicMap (HM.map (fmap lhNameToResolvedSymbol) $ liftedDefines ls)
-            )
-            LH.listLMap $
-            (HM.elems . getDependencies) dependencies
+        (LH.listLMap <>) $
+        mconcat $
+        reverse $
+        map (mkLogicMap . HM.map (fmap lhNameToResolvedSymbol) . liftedDefines) $
+        HM.elems $
+        getDependencies dependencies
 
     resolveFieldLogicName n =
       case n of
