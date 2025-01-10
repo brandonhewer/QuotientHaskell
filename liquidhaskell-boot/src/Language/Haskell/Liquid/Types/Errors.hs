@@ -485,7 +485,7 @@ data TError t =
 
   | ErrCtorRefinement { pos :: !SrcSpan
                       , ctorName :: !Doc
-                      } -- ^ The refinement of a doesn't admit
+                      } -- ^ The refinement of a data constructor doesn't admit
                         -- a refinement on the return type that
                         -- isn't deemd safe
 
@@ -1067,7 +1067,7 @@ ppError' _ dCtx (ErrPosTyCon _ tc dc)
             ]
 
 ppError' _ dCtx (ErrCtorRefinement _ ctorName)
-  = text "Refinement of the constructor" <+> ctorName <+> "doesn't admit an arbitrary refinements on the return type"
+  = text "Refinement of the data constructor" <+> ctorName <+> "doesn't admit an arbitrary refinements on the return type"
         $+$ dCtx
         $+$ nest 4 (text "Were you trying to use `Prop` from `Language.Haskell.Liquid.ProofCombinators`?")
 

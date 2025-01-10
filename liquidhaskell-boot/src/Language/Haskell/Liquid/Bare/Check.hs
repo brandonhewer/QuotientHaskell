@@ -194,6 +194,13 @@ checkTargetSpec specs src env cbs tsp
 
 
 
+-- | Tests that the returned refinement type of data constructors has predicate @True@ or @prop v == e@.
+--
+-- > data T = T Int
+-- > {-@ T :: x:Int -> { v:T | v = T x } @-} -- Should be rejected
+-- > {-@ T :: x:Int -> { v:T | True } @-} -- Should be fine
+-- > {-@ T :: x:Int -> { v:T | prop v = True } @-} -- Should be fine
+--
 checkConstructorRefinement :: [(Var, LocSpecType)] -> Diagnostics
 checkConstructorRefinement = mconcat . map checkOne
   where
