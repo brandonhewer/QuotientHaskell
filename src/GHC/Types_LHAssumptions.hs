@@ -33,6 +33,8 @@ assume True    :: {v:Bool | v     }
 assume False   :: {v:Bool | (~ v) }
 assume GHC.Types.isTrue# :: n:_ -> {v:Bool | (n = 1 <=> v)}
 
+define True = (true)
+
 assume GHC.Types.D# :: x:Double# -> {v: Double | v = (x :: real) }
 assume GHC.Types.F# :: x:Float# -> {v: Float | v = (x :: real) }
 assume GHC.Types.I# :: x:Int# -> {v: Int | v = (x :: int) }
@@ -52,4 +54,5 @@ type FF      = {v: Bool | not v}
 type String  = [Char]
 
 class measure len :: forall f a. f a -> Int
+
 @-}

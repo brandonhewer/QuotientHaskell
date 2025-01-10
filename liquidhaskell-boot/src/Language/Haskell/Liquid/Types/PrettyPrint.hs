@@ -159,7 +159,7 @@ pprXOT k (x, v) = (xd, pprintTidy k v)
   where
     xd          = maybe "unknown" (pprintTidy k) x
 
-instance PPrint LMap where
+instance (Ord v, F.Fixpoint v, PPrint v) => PPrint (LMapV v) where
   pprintTidy _ (LMap x xs e) = hcat [pprint x, pprint xs, text "|->", pprint e ]
 
 instance PPrint LogicMap where

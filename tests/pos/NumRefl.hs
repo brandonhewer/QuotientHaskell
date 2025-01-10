@@ -1,10 +1,9 @@
 {-
 
-Without the 
-  define GHC.Internal.Num.fromInteger x = (x)
-  define GHC.Num.Integer.IS             = (x)
+Without the
+  define fromInteger x = (x)
 
-this program crashes with: 
+this program crashes with:
 
     Illegal type specification for `NumRefl.toNum`
     NumRefl.toNum :: forall p .
@@ -15,10 +14,12 @@ this program crashes with:
                                              && VV == (-GHC.Internal.Num.fromInteger (GHC.Num.Integer.IS 1))}
     The sort @(176) is not numeric
 
-Because the resule type (Num p) => p cannot be decided to be a numeric type.
+Because the result type (Num p) => p cannot be decided to be a numeric type.
 -}
 
 module NumRefl where
+
+{-@ define fromInteger x = (x) @-}
 
 {-@ reflect toNum @-}
 toNum :: Num p => () -> p

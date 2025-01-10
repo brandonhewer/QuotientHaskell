@@ -1269,6 +1269,8 @@ executable unit-neg
                     , MultiParamTypeClasses
                     , MultipleInvariants
                     , Multi_pred_app_00
+                    , MyBag
+                    , MyBagDefine
                     , NameResolution
                     , NestedRecursion
                     , NoExhaustiveGuardsError
@@ -1863,7 +1865,10 @@ executable unit-pos-3
       buildable:      False
 
     other-modules:
-                      NumRefl
+                      MyBag
+                    , MyBagDefine
+                    , NumRefl
+                    , NumRefl1
                     , Streams
                     , StrictPair0
                     , StrictPair1
