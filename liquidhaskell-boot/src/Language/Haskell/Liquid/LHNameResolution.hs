@@ -56,6 +56,7 @@ module Language.Haskell.Liquid.LHNameResolution
   ) where
 
 import qualified Liquid.GHC.API         as GHC hiding (Expr, panic)
+import qualified Language.Haskell.Liquid.GHC.Interface   as LH
 import qualified Language.Haskell.Liquid.GHC.Misc        as LH
 import           Language.Haskell.Liquid.Types.Names
 import           Language.Haskell.Liquid.Types.RType
@@ -134,11 +135,10 @@ resolveLHNames
   -> LocalVars
   -> GHC.ImportedMods
   -> GHC.GlobalRdrEnv
-  -> LogicMap
   -> BareSpecParsed
   -> TargetDependencies
   -> Either [Error] (BareSpec, LogicNameEnv, LogicMap)
-resolveLHNames cfg thisModule localVars impMods globalRdrEnv lmap bareSpec0 dependencies = do
+resolveLHNames cfg thisModule localVars impMods globalRdrEnv bareSpec0 dependencies = do
     let ((bs, logicNameEnv, lmap2), (es, ns)) =
           flip runState mempty $ do
             -- A generic traversal that resolves names of Haskell entities
@@ -188,6 +188,14 @@ resolveLHNames cfg thisModule localVars impMods globalRdrEnv lmap bareSpec0 depe
   where
     taliases = collectTypeAliases thisModule bareSpec0 dependencies
     allEaliases = collectExprAliases bareSpec0 dependencies
+
+    -- add defines from dependencies to the logical map
+    lmap =
+      foldr (\ls lmp ->
+                 lmp <> mkLogicMap (HM.map (fmap lhNameToResolvedSymbol) $ liftedDefines ls)
+            )
+            LH.listLMap $
+            (HM.elems . getDependencies) dependencies
 
     resolveFieldLogicName n =
       case n of

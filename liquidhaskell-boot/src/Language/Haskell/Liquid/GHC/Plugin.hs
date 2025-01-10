@@ -24,7 +24,6 @@ import qualified Language.Haskell.Liquid.UX.CmdLine      as LH
 import qualified Language.Haskell.Liquid.GHC.Interface   as LH
 import           Language.Haskell.Liquid.LHNameResolution (resolveLHNames)
 import qualified Language.Haskell.Liquid.Liquid          as LH
-import qualified Language.Haskell.Liquid.Types.Names     as LH
 import qualified Language.Haskell.Liquid.Types.PrettyPrint as LH ( filterReportErrors
                                                                  , filterReportErrorsWith
                                                                  , defaultFilterReporter
@@ -375,14 +374,11 @@ processInputSpec cfg pipelineData modSummary inputSpec = do
   debugLog $ " Input spec: \n" ++ show (fromBareSpecParsed inputSpec)
   debugLog $ "Direct ===> \n" ++ unlines (renderModule <$> directImports tcg)
 
-  let logicMap = LH.listLMap
-
   -- debugLog $ "Logic map:\n" ++ show logicMap
 
   let lhContext = LiquidHaskellContext {
         lhGlobalCfg       = cfg
       , lhInputSpec       = inputSpec
-      , lhModuleLogicMap  = logicMap
       , lhModuleSummary   = modSummary
       , lhModuleTcData    = pdTcData pipelineData
       , lhModuleGuts      = pdUnoptimisedCore pipelineData
@@ -488,7 +484,6 @@ loadDependencies currentModuleConfig mods = do
 data LiquidHaskellContext = LiquidHaskellContext {
     lhGlobalCfg        :: Config
   , lhInputSpec        :: BareSpecParsed
-  , lhModuleLogicMap   :: LogicMap
   , lhModuleSummary    :: ModSummary
   , lhModuleTcData     :: TcData
   , lhModuleGuts       :: ModGuts
@@ -543,19 +538,12 @@ processModule LiquidHaskellContext{..} = do
 
     tcg <- getGblEnv
     let localVars = Resolve.makeLocalVars preNormalizedCore
-        -- add defines from dependencies to the logical map
-        logicMapWithDeps =
-          foldr (\ls lmp ->
-                     lmp <> mkLogicMap (HM.map (fmap LH.lhNameToResolvedSymbol) $ liftedDefines ls))
-                lhModuleLogicMap $
-            (HM.elems . getDependencies) dependencies
         eBareSpec = resolveLHNames
           moduleCfg
           thisModule
           localVars
           (imp_mods $ tcg_imports tcg)
           (tcg_rdr_env tcg)
-          logicMapWithDeps
           bareSpec0
           dependencies
     result <-
