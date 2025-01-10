@@ -76,7 +76,9 @@ _ *** _ = ()
 data QED = Admit | QED
 
 {-@ measure isAdmit :: QED -> Bool @-}
-{-@ Admit :: {v:QED | isAdmit v } @-}
+isAdmit :: QED -> Bool
+isAdmit Admit = True
+isAdmit QED   = False
 
 
 -------------------------------------------------------------------------------

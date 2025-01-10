@@ -1295,6 +1295,7 @@ executable unit-neg
                     , Record0
                     , RecQSort
                     , RecSelector
+                    , RefCtor
                     , RefinedProp
                     , Revshape
                     , ReWrite2
