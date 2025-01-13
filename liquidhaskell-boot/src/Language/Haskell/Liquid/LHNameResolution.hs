@@ -49,6 +49,7 @@
 
 module Language.Haskell.Liquid.LHNameResolution
   ( resolveLHNames
+  , resolveSymbolToTcName
   , exprArg
   , fromBareSpecLHName
   , toBareSpecLHName
@@ -258,9 +259,6 @@ resolveLHNames cfg thisModule localVars impMods globalRdrEnv bareSpec0 dependenc
                 (errResolve (nameSpaceKind ns) "Cannot resolve name" (s <$ lname))
               pure $ val lname
 
-    errResolve :: PJ.Doc -> String -> LocSymbol -> Error
-    errResolve k msg lx = ErrResolve (LH.fSrcSpan lx) k (pprint (val lx)) (PJ.text msg)
-
     maybeDropImported ns es
       | localNameSpace ns = filter GHC.isLocalGRE es
       | otherwise = es
@@ -282,16 +280,40 @@ resolveLHNames cfg thisModule localVars impMods globalRdrEnv bareSpec0 dependenc
       LHLogicNameBinder -> "logic name binder"
       LHLogicName -> "logic name"
 
-    tupleArity s =
+    isDataCon s = case Text.uncons (Text.takeWhileEnd (/= '.') (symbolText s)) of
+      Just (c, _) -> Char.isUpper c || c == ':'
+      Nothing -> False
+
+tupleArity :: Symbol -> Int
+tupleArity s =
       let a = read $ drop 5 $ symbolString s
        in if a > 64 then
             error $ "tupleArity: Too large (more than 64): " ++ show a
           else
             a
 
-    isDataCon s = case Text.uncons (Text.takeWhileEnd (/= '.') (symbolText s)) of
-      Just (c, _) -> Char.isUpper c || c == ':'
-      Nothing -> False
+errResolve :: PJ.Doc -> String -> LocSymbol -> Error
+errResolve k msg lx = ErrResolve (LH.fSrcSpan lx) k (pprint (val lx)) (PJ.text msg)
+
+-- | Produces an LHName from a symbol by looking it in the rdr environment.
+resolveSymbolToTcName :: GHC.GlobalRdrEnv -> LocSymbol -> Either Error (Located LHName)
+resolveSymbolToTcName globalRdrEnv lx
+    | isTuple s =
+      pure $ LHNResolved (LHRGHC $ GHC.tupleTyConName GHC.BoxedTuple (tupleArity s)) s <$ lx
+    | isList s =
+      pure $ LHNResolved (LHRGHC GHC.listTyConName) s <$ lx
+    | s == "*" =
+      pure $ LHNResolved (LHRGHC GHC.liftedTypeKindTyConName) s <$ lx
+    | otherwise =
+      case GHC.lookupGRE globalRdrEnv (mkLookupGRE LHTcName s) of
+        [e] -> Right $ LHNResolved (LHRGHC $ GHC.greName e) s <$ lx
+        [] -> Left $ errResolve "type constructor" "Cannot resolve name" lx
+        es -> Left $ ErrDupNames
+                (LH.fSrcSpan lx)
+                (pprint s)
+                (map (PJ.text . GHC.showPprUnsafe) es)
+  where
+    s = val lx
 
 -- | Resolving logic names can produce errors and new names to add to the
 -- environment. New names might be produced when encountering data constructors
