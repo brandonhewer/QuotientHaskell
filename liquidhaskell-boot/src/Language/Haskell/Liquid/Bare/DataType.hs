@@ -589,14 +589,14 @@ ofBDataDecl :: Bare.Env -> ModName -> Maybe DataDecl -> Maybe (Located LHName, [
             -> Bare.Lookup ( (ModName, TyConP, Maybe DataPropDecl), [Located DataConP] )
 ofBDataDecl env name (Just dd@(DataDecl tc as ps cts pos sfun pt _)) maybe_invariance_info = do
   let Loc lc lc' _ = dataNameSymbol tc
-  let πs           = Bare.ofBPVar env name pos <$> ps
+  let πs           = Bare.ofBPVar env pos <$> ps
   let αs           = RTV . GM.symbolTyVar <$> as
   let n            = length αs
   let initmap      = zip (RT.uPVar <$> πs) [0..]
   tc'             <- getDnTyCon env name tc
   cts'            <- mapM (ofBDataCtor env name lc lc' tc' αs ps πs) (Mb.fromMaybe [] cts)
   unless (checkDataDecl tc' dd) (Left [err])
-  let pd           = Bare.ofBareType env name lc (Just []) <$> F.tracepp "ofBDataDecl-prop" pt
+  let pd           = Bare.ofBareType env lc (Just []) <$> F.tracepp "ofBDataDecl-prop" pt
   let tys          = [t | dcp <- cts', (_, t) <- dcpTyArgs dcp]
   let varInfo      = L.nub $  concatMap (getPsSig initmap True) tys
   let defPs        = varSignToVariance varInfo <$> [0 .. (length πs - 1)]
@@ -652,8 +652,8 @@ ofBDataCtorTc env name l l' tc αs ps πs _ctor@(DataCtor _c as _ xts res) c' =
     , dcpLocE       = l'
     }
   where
-    ts'           = Bare.ofBareType env name l (Just ps) <$> ts
-    res'          = Bare.ofBareType env name l (Just ps) <$> res
+    ts'           = Bare.ofBareType env l (Just ps) <$> ts
+    res'          = Bare.ofBareType env l (Just ps) <$> res
     t0'           = dataConResultTy c' αs t0 res'
     _cfg          = getConfig env
     yts           = zip xs ts'

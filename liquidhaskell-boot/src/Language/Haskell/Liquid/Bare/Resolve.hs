@@ -399,9 +399,9 @@ lookupGhcIdLHName env lname =
 -------------------------------------------------------------------------------
 -- | Checking existence of names
 -------------------------------------------------------------------------------
-knownGhcType :: Env ->  ModName -> LocBareType -> Bool
-knownGhcType env name (F.Loc l _ t) =
-  case ofBareTypeE env name l Nothing t of
+knownGhcType :: Env -> LocBareType -> Bool
+knownGhcType env (F.Loc l _ t) =
+  case ofBareTypeE env l Nothing t of
     Left e  -> myTracepp ("knownType: " ++ F.showpp (t, e)) False
     Right _ -> True
 
@@ -666,14 +666,14 @@ maybeResolveSym env name kind x = case resolveLocSym env name kind x of
 -------------------------------------------------------------------------------
 -- | @ofBareType@ and @ofBareTypeE@ should be the _only_ @SpecType@ constructors
 -------------------------------------------------------------------------------
-ofBareType :: HasCallStack => Env -> ModName -> F.SourcePos -> Maybe [PVar BSort] -> BareType -> SpecType
-ofBareType env name l ps t = either fail' id (ofBareTypeE env name l ps t)
+ofBareType :: HasCallStack => Env -> F.SourcePos -> Maybe [PVar BSort] -> BareType -> SpecType
+ofBareType env l ps t = either fail' id (ofBareTypeE env l ps t)
   where
     fail'                  = Ex.throw
     -- fail                   = Misc.errorP "error-ofBareType" . F.showpp
 
-ofBareTypeE :: HasCallStack => Env -> ModName -> F.SourcePos -> Maybe [PVar BSort] -> BareType -> Lookup SpecType
-ofBareTypeE env name l ps t = ofBRType env name (const (resolveReft l ps t)) l t
+ofBareTypeE :: HasCallStack => Env -> F.SourcePos -> Maybe [PVar BSort] -> BareType -> Lookup SpecType
+ofBareTypeE env l ps t = ofBRType env (const (resolveReft l ps t)) l t
 
 resolveReft :: F.SourcePos -> Maybe [PVar BSort] -> BareType -> RReft -> RReft
 resolveReft l ps t
@@ -697,14 +697,14 @@ coSubReft :: F.CoSub -> F.Reft -> F.Reft
 coSubReft su (F.Reft (x, e)) = F.Reft (x, F.applyCoSub su e)
 
 
-ofBSort :: HasCallStack => Env -> ModName -> F.SourcePos -> BSort -> RSort
-ofBSort env name l t = either (Misc.errorP "error-ofBSort" . F.showpp) id (ofBSortE env name l t)
+ofBSort :: HasCallStack => Env -> F.SourcePos -> BSort -> RSort
+ofBSort env l t = either (Misc.errorP "error-ofBSort" . F.showpp) id (ofBSortE env l t)
 
-ofBSortE :: HasCallStack => Env -> ModName -> F.SourcePos -> BSort -> Lookup RSort
-ofBSortE env name l t = ofBRType env name (const id) l t
+ofBSortE :: HasCallStack => Env -> F.SourcePos -> BSort -> Lookup RSort
+ofBSortE env l t = ofBRType env (const id) l t
 
-ofBPVar :: Env -> ModName -> F.SourcePos -> BPVar -> RPVar
-ofBPVar env name l = fmap (ofBSort env name l)
+ofBPVar :: Env -> F.SourcePos -> BPVar -> RPVar
+ofBPVar env l = fmap (ofBSort env l)
 
 --------------------------------------------------------------------------------
 txParam :: F.SourcePos -> ((UsedPVar -> UsedPVar) -> t) -> [UsedPVar] -> RType c tv r -> t
@@ -734,9 +734,9 @@ type Expandable r = ( PPrint r
                     , Reftable (RTProp RTyCon RTyVar r)
                     , HasCallStack)
 
-ofBRType :: (Expandable r) => Env -> ModName -> ([F.Symbol] -> r -> r) -> F.SourcePos -> BRType r
+ofBRType :: (Expandable r) => Env -> ([F.Symbol] -> r -> r) -> F.SourcePos -> BRType r
          -> Lookup (RRType r)
-ofBRType env name f l = go []
+ofBRType env f l = go []
   where
     goReft bs r             = return (f bs r)
     goRFun bs x i t1 t2 r  = RFun x i{permitTC = Just (typeclass (getConfig env))} <$> (rebind x <$> go bs t1) <*> go (x:bs) t2 <*> goReft bs r
@@ -748,7 +748,7 @@ ofBRType env name f l = go []
     go bs (RAllT a t r)     = RAllT a' <$> go bs t <*> goReft bs r
       where a'              = dropTyVarInfo (mapTyVarValue RT.bareRTyVar a)
     go bs (RAllP a t)       = RAllP a' <$> go bs t
-      where a'              = ofBPVar env name l a
+      where a'              = ofBPVar env l a
     go bs (RAllE x t1 t2)   = RAllE x  <$> go bs t1    <*> go bs t2
     go bs (REx x t1 t2)     = REx   x  <$> go bs t1    <*> go (x:bs) t2
     go bs (RRTy xts r o t)  = RRTy  <$> xts' <*> goReft bs r <*> pure o <*> go bs t
@@ -757,7 +757,7 @@ ofBRType env name f l = go []
     go _ (RExprArg le)      = return    $ RExprArg le
     goRef bs (RProp ss (RHole r)) = rPropP <$> mapM goSyms ss <*> goReft bs r
     goRef bs (RProp ss t)         = RProp  <$> mapM goSyms ss <*> go bs t
-    goSyms (x, t)                 = (x,) <$> ofBSortE env name l t
+    goSyms (x, t)                 = (x,) <$> ofBSortE env l t
     goRApp bs tc ts rs r          = bareTCApp <$> goReft bs r <*> lc' <*> mapM (goRef bs) rs <*> mapM (go bs) ts
       where
         lc'                    = F.atLoc lc <$> lookupGhcTyConLHName (reTyLookupEnv env) lc

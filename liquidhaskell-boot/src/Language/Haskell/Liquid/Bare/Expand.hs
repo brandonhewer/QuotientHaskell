@@ -478,7 +478,7 @@ cookSpecTypeE :: Bare.Env -> Bare.SigEnv -> ModName -> Bare.PlugTV Ghc.Var -> Lo
               -> Bare.Lookup LocSpecType
 -----------------------------------------------------------------------------------------
 cookSpecTypeE env sigEnv name@(ModName _ _) x bt
-  = fmap f . bareSpecType env name $ bareExpandType rtEnv bt
+  = fmap f . bareSpecType env $ bareExpandType rtEnv bt
   where
     f = (if doplug || not allowTC then plugHoles allowTC sigEnv name x else id)
         . fmap (RT.addTyConInfo embs tyi)
@@ -528,8 +528,8 @@ bareExpandType = expandLoc
 specExpandType :: BareRTEnv -> LocSpecType -> LocSpecType
 specExpandType = expandLoc
 
-bareSpecType :: Bare.Env -> ModName -> LocBareType -> Bare.Lookup LocSpecType
-bareSpecType env name bt = case Bare.ofBareTypeE env name (F.loc bt) Nothing (val bt) of
+bareSpecType :: Bare.Env -> LocBareType -> Bare.Lookup LocSpecType
+bareSpecType env bt = case Bare.ofBareTypeE env (F.loc bt) Nothing (val bt) of
   Left e  -> Left e
   Right t -> Right (F.atLoc bt t)
 

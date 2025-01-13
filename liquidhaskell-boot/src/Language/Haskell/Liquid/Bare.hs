@@ -1028,12 +1028,12 @@ makeInvariants :: Bare.Env -> Bare.SigEnv -> (ModName, Ms.BareSpec) -> [(Maybe G
 makeInvariants env sigEnv (name, spec) =
   [ (Nothing, t)
     | (_, bt) <- Ms.invariants spec
-    , Bare.knownGhcType env name bt
+    , Bare.knownGhcType env bt
     , let t = Bare.cookSpecType env sigEnv name Bare.GenTV bt
   ] ++
   concat [ (Nothing,) . makeSizeInv l <$>  ts
     | (bts, l) <- Ms.dsize spec
-    , all (Bare.knownGhcType env name) bts
+    , all (Bare.knownGhcType env) bts
     , let ts = Bare.cookSpecType env sigEnv name Bare.GenTV <$> bts
   ]
 
