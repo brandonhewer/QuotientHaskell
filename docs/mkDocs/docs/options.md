@@ -500,10 +500,10 @@ worse = bad (Very bad)
 Note that all positive occurrences are permited, unlike Coq that only allows the strictly positive ones
 (see: https://vilhelms.github.io/posts/why-must-inductive-types-be-strictly-positive/)
 
-## Refined construcotrs
+## Refined data constructors
 
 **Options:** `allow-unsafe-constructors`
-By **default** only safe constructor refinements are allowed.
+By **default** only safe data constructor refinements are allowed.
 
 Allows the user to refine the return type of a data constructor with arbitrary refinements, also unsafe ones.
 
