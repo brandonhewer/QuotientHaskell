@@ -173,7 +173,9 @@ checkTargetSpec specs src env cbs tsp
                      <> checkSizeFun emb env                                      (gsTconsP (gsName tsp))
                      <> checkPlugged (catMaybes [ fmap (F.dropSym 2 $ GM.simplesymbol x,) (getMethodType t) | (x, t) <- gsMethods (gsSig tsp) ])
                      <> checkRewrites tsp
-                     <> checkConstructorRefinement (gsTySigs $ gsSig tsp) 
+                     <> if allowUnsafeConstructors $ getConfig tsp 
+                          then mempty 
+                          else checkConstructorRefinement (gsTySigs $ gsSig tsp) 
 
     _rClasses         = concatMap Ms.classes specs
     _rInsts           = concatMap Ms.rinstance specs

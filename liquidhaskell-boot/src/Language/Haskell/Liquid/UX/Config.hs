@@ -126,6 +126,7 @@ data Config = Config
   , excludeAutomaticAssumptionsFor :: [String]
   , dumpOpaqueReflections    :: Bool       -- Dumps all opaque reflections to the stdout
   , dumpPreNormalizedCore    :: Bool       -- Dumps the prenormalized core (before a-normalization)
+  , allowUnsafeConstructors  :: Bool       -- ^ Allow refining constructors with unsafe refinements
   } deriving (Generic, Data, Typeable, Show, Eq)
 
 allowPLE :: Config -> Bool
