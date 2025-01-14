@@ -173,6 +173,9 @@ checkTargetSpec specs src env cbs tsp
                      <> checkSizeFun emb env                                      (gsTconsP (gsName tsp))
                      <> checkPlugged (catMaybes [ fmap (F.dropSym 2 $ GM.simplesymbol x,) (getMethodType t) | (x, t) <- gsMethods (gsSig tsp) ])
                      <> checkRewrites tsp
+                     <> if allowUnsafeConstructors $ getConfig tsp 
+                          then mempty 
+                          else checkConstructorRefinement (gsTySigs $ gsSig tsp) 
 
     _rClasses         = concatMap Ms.classes specs
     _rInsts           = concatMap Ms.rinstance specs
@@ -193,6 +196,39 @@ checkTargetSpec specs src env cbs tsp
 
 
 
+-- | Tests that the returned refinement type of data constructors has predicate @True@ or @prop v == e@.
+--
+-- > data T = T Int
+-- > {-@ T :: x:Int -> { v:T | v = T x } @-} -- Should be rejected
+-- > {-@ T :: x:Int -> { v:T | True } @-} -- Should be fine
+-- > {-@ T :: x:Int -> { v:T | prop v = True } @-} -- Should be fine
+--
+checkConstructorRefinement :: [(Var, LocSpecType)] -> Diagnostics
+checkConstructorRefinement = mconcat . map checkOne
+  where
+    checkOne (s, ty) | isCtorName s
+                     , not $ validRef $ getRetTyRef $ val ty
+                     = mkDiagnostics mempty [ ErrCtorRefinement (GM.sourcePosSrcSpan $ loc ty) (pprint s) ]
+    checkOne _       = mempty
+
+    getRetTyRef (RFun _ _ _ t _) = getRetTyRef t
+    getRetTyRef (RAllT _ t _)    = getRetTyRef t
+    getRetTyRef t                = ur_reft $ rt_reft t
+
+    -- True refinement
+    validRef (F.Reft (_, F.PTrue))
+                      = True
+    -- Prop foo from ProofCombinators
+    validRef (F.Reft (v, F.PAtom F.Eq (F.EApp (F.EVar n) (F.EVar v')) _)) 
+      | n == "Language.Haskell.Liquid.ProofCombinators.prop"
+      , v == v' 
+      = True
+    validRef _ = False
+
+    isCtorName x = case idDetails x of
+      DataConWorkId _ -> True
+      DataConWrapId _ -> True
+      _               -> False
 
 
 checkPlugged :: PPrint v => [(v, LocSpecType)] -> Diagnostics

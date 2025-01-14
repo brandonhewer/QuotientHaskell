@@ -483,6 +483,11 @@ data TError t =
                 , dc   :: !Doc
                 }
 
+  | ErrCtorRefinement { pos :: !SrcSpan
+                      , ctorName :: !Doc
+                      } -- ^ The refinement of a data constructor doesn't admit
+                        -- a refinement on the return type that
+                        -- isn't deemd safe
 
   | ErrOther    { pos   :: SrcSpan
                 , msg   :: !Doc
@@ -1060,6 +1065,12 @@ ppError' _ dCtx (ErrPosTyCon _ tc dc)
              , " "
              , nest 2 "https://ucsd-progsys.github.io/liquidhaskell/options/#positivity-check"
             ]
+
+ppError' _ dCtx (ErrCtorRefinement _ ctorName)
+  = text "Refinement of the data constructor" <+> ctorName <+> "doesn't admit an arbitrary refinements on the return type"
+        $+$ dCtx
+        $+$ nest 4 (text "Were you trying to use `Prop` from `Language.Haskell.Liquid.ProofCombinators`?")
+        $+$ nest 4 (text "You can disable this error by enabling the flag `--allow-unsafe-constructors`")
 
 ppError' _ dCtx (ErrParseAnn _ msg)
   = text "Malformed annotation"

@@ -484,6 +484,10 @@ config = cmdArgsMode $ Config {
     = def &= help "Dump pre-normalized core (before a-normalization)"
           &= name "dump-pre-normalized-core"
           &= explicit
+  , allowUnsafeConstructors
+    = def &= help "Allow refining constructors with unsafe refinements"
+          &= name "allow-unsafe-constructors"
+          &= explicit
   } &= program "liquid"
     &= help    "Refinement Types for Haskell"
     &= summary copyright
@@ -748,6 +752,7 @@ defConfig = Config
   , excludeAutomaticAssumptionsFor = []
   , dumpOpaqueReflections    = False
   , dumpPreNormalizedCore    = False
+  , allowUnsafeConstructors  = False
   }
 
 -- | Write the annotations (i.e. the files in the \".liquid\" hidden folder) and

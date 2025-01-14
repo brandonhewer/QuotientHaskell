@@ -500,6 +500,23 @@ worse = bad (Very bad)
 Note that all positive occurrences are permited, unlike Coq that only allows the strictly positive ones
 (see: https://vilhelms.github.io/posts/why-must-inductive-types-be-strictly-positive/)
 
+## Refined data constructors
+
+**Options:** `allow-unsafe-constructors`
+By **default** only safe data constructor refinements are allowed.
+
+Allows the user to refine the return type of a data constructor with arbitrary refinements, also unsafe ones.
+
+```haskell
+data F where
+  {-@ MkF :: { _:F | false } @-}
+  MkF :: F
+
+{-@ bad :: { false } @-}
+bad :: F
+bad = () ? MkF
+```
+
 ## Total Haskell
 
 **Options:** `total-Haskell`
