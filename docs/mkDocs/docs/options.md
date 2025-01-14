@@ -500,7 +500,7 @@ worse = bad (Very bad)
 Note that all positive occurrences are permited, unlike Coq that only allows the strictly positive ones
 (see: https://vilhelms.github.io/posts/why-must-inductive-types-be-strictly-positive/)
 
-## Refined construcotr
+## Refined construcotrs
 
 **Options:** `allow-unsafe-constructors`
 By **default** only safe constructor refinements are allowed.
