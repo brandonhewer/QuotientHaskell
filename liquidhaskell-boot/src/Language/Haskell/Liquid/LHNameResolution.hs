@@ -194,7 +194,6 @@ resolveLHNames cfg thisModule localVars impMods globalRdrEnv bareSpec0 dependenc
     lmap =
         (LH.listLMap <>) $
         mconcat $
-        reverse $
         map (mkLogicMap . HM.map (fmap lhNameToResolvedSymbol) . liftedDefines) $
         HM.elems $
         getDependencies dependencies
