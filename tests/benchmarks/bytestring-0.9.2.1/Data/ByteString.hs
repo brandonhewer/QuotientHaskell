@@ -2308,18 +2308,18 @@ findFromEndUntil f ps@(PS x s l) =
   @-}
 
 -- // for ByteString.inits
-{-@ qualif BLenGt(v:Data.ByteString.Internal.ByteString, n:int): ((bLength v) > n)
+{-@ qualif BLenGt(v:[ByteString], n:int): ((bLength v) > n)
   @-}
 
 -- // for ByteString.concat
-{-@ qualif BLens(v:List Data.ByteString.Internal.ByteString) : (0 <= bLengths v)
+{-@ qualif BLens(v:[ByteString]) : (0 <= bLengths v)
   @-}
 
-{-@ qualif BLenLE(v:GHC.Ptr.Ptr a, bs:List Data.ByteString.Internal.ByteString): (bLengths bs <= plen v)
+{-@ qualif BLenLE(v:GHC.Ptr.Ptr a, bs:[ByteString]): (bLengths bs <= plen v)
   @-}
 
 -- // for ByteString.splitWith
-{-@ qualif SplitWith(v:List Data.ByteString.Internal.ByteString, l:int): ((bLengths v) + (len v) - 1 = l)
+{-@ qualif SplitWith(v:[ByteString], l:int): ((bLengths v) + (len v) - 1 = l)
   @-}
 
 -- // for ByteString.unfoldrN
@@ -2327,9 +2327,9 @@ findFromEndUntil f ps@(PS x s l) =
   @-}
 
 -- // for ByteString.split
-{-@ qualif BSValidOff(v:int,l:int,p:GHC.ForeignPtr.ForeignPtr a): (v + l <= fplen p)
+{-@ qualif BSValidOff(v:int,l:int,p:ForeignPtr a): (v + l <= fplen p)
   @-}
 
 
-{-@ qualif SplitLoop(v:List Data.ByteString.Internal.ByteString, l:int, n:int): ((bLengths v) + (len v) - 1 = l - n)
+{-@ qualif SplitLoop(v:[ByteString], l:int, n:int): ((bLengths v) + (len v) - 1 = l - n)
   @-}

@@ -259,30 +259,30 @@ import Foreign.ForeignPtr       (ForeignPtr, withForeignPtr)
         lbLength(v) = lbLengths(bs) + lbLength(b)
   @-}
 
-{-@ qualif ByteStringNE(v:Data.ByteString.Internal.ByteString): (bLength v) > 0 @-}
-{-@ qualif BLengthsAcc(v:List Data.ByteString.Internal.ByteString,
-                       c:Data.ByteString.Internal.ByteString,
-                       cs:List Data.ByteString.Internal.ByteString):
+{-@ qualif ByteStringNE(v:S.ByteString): (bLength v) > 0 @-}
+{-@ qualif BLengthsAcc(v:List S.ByteString,
+                       c:S.ByteString,
+                       cs:List S.ByteString):
         (bLengths v) = (bLength c) + (bLengths cs)
   @-}
 
-{-@ qualif BLengthsSum(v:List (List a), bs:List Data.ByteString.Internal.ByteString):
+{-@ qualif BLengthsSum(v:List (List a), bs:List S.ByteString):
        (sumLens v) = (bLengths bs)
   @-}
 
-{-@ qualif BLenLE(v:Data.ByteString.Internal.ByteString, n:int): (bLength v) <= n @-}
-{-@ qualif BLenEq(v:Data.ByteString.Internal.ByteString,
-                  b:Data.ByteString.Internal.ByteString):
+{-@ qualif BLenLE(v:S.ByteString, n:int): (bLength v) <= n @-}
+{-@ qualif BLenEq(v:S.ByteString,
+                  b:S.ByteString):
        (bLength v) = (bLength b)
   @-}
 
 {-@ qualif BLenAcc(v:int,
-                   b1:Data.ByteString.Internal.ByteString,
-                   b2:Data.ByteString.Internal.ByteString):
+                   b1:S.ByteString,
+                   b2:S.ByteString):
        v = (bLength b1) + (bLength b2)
   @-}
 {-@ qualif BLenAcc(v:int,
-                   b:Data.ByteString.Internal.ByteString,
+                   b:S.ByteString,
                    n:int):
        v = (bLength b) + n
   @-}
@@ -308,34 +308,34 @@ import Foreign.ForeignPtr       (ForeignPtr, withForeignPtr)
   @-}
 
 {-@ qualif Chunk(v:ByteString,
-                 sb:Data.ByteString.Internal.ByteString,
+                 sb:S.ByteString,
                  lb:ByteString):
        (lbLength v) = (bLength sb) + (lbLength lb)
   @-}
 
 --LIQUID for the myriad `comb` inner functions
 {-@ qualif LBComb(v:List ByteString,
-                  acc:List Data.ByteString.Internal.ByteString,
-                  ss:List Data.ByteString.Internal.ByteString,
+                  acc:List S.ByteString,
+                  ss:List S.ByteString,
                   cs:ByteString):
         ((lbLengths v) + (len v) - 1) = ((bLengths acc) + ((bLengths ss) + (len ss) - 1) + (lbLength cs))
   @-}
 
 {-@ qualif LBGroup(v:List ByteString,
-                   acc:List Data.ByteString.Internal.ByteString,
-                   ss:List Data.ByteString.Internal.ByteString,
+                   acc:List S.ByteString,
+                   ss:List S.ByteString,
                    cs:ByteString):
         (lbLengths v) = ((bLengths acc) + (bLengths ss) + (lbLength cs))
   @-}
 
 {-@ qualif LBLenIntersperse(v:ByteString,
-                            sb:Data.ByteString.Internal.ByteString,
+                            sb:S.ByteString,
                             lb:ByteString):
         (lbLength v) = ((bLength sb) * 2) + (lbLength lb)
  @-}
 
-{-@ qualif BLenDouble(v:Data.ByteString.Internal.ByteString,
-                      b:Data.ByteString.Internal.ByteString):
+{-@ qualif BLenDouble(v:S.ByteString,
+                      b:S.ByteString):
         (bLength v) = (bLength b) * 2
  @-}
 
@@ -346,7 +346,7 @@ import Foreign.ForeignPtr       (ForeignPtr, withForeignPtr)
 
 {-@ qualif RevChunksAcc(v:ByteString,
                         acc:ByteString,
-                        cs:List Data.ByteString.Internal.ByteString):
+                        cs:List S.ByteString):
         (lbLength v) = (lbLength acc) + (bLengths cs)
   @-}
 
@@ -356,7 +356,7 @@ import Foreign.ForeignPtr       (ForeignPtr, withForeignPtr)
         (lbLength v) = (lbLength z) + (sumLens cs)
   @-}
 {-@ qualif LBCountAcc(v:int,
-                     c:Data.ByteString.Internal.ByteString,
+                     c:S.ByteString,
                      cs:ByteString):
        v <= (bLength c) + (lbLength cs)
   @-}

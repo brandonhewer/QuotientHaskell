@@ -46,8 +46,8 @@ qualif Cmp(v:a, x:a)  : (v  = x)
 qualif Cmp(v:a, x:a)  : (v != x)
 
 qualif One(v:int)     : v = 1
-qualif True1(v:GHC.Types.Bool)   : (v)
-qualif False1(v:GHC.Types.Bool)  : (~ v)
+qualif True1(v:Bool)   : (v)
+qualif False1(v:Bool)  : (~ v)
 
 //  REBARE constant papp1 : func(1, [Pred @(0); @(0); bool])
 qualif Papp(v:a, p:Pred a) : (papp1 p v)
