@@ -1070,6 +1070,7 @@ ppError' _ dCtx (ErrCtorRefinement _ ctorName)
   = text "Refinement of the data constructor" <+> ctorName <+> "doesn't admit an arbitrary refinements on the return type"
         $+$ dCtx
         $+$ nest 4 (text "Were you trying to use `Prop` from `Language.Haskell.Liquid.ProofCombinators`?")
+        $+$ nest 4 (text "You can disable this error by enabling the flag `--allow-unsafe-constructors`")
 
 ppError' _ dCtx (ErrParseAnn _ msg)
   = text "Malformed annotation"
