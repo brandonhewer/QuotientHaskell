@@ -206,6 +206,7 @@ makeGhcSpec0
   -> [(ModName, Ms.BareSpec)]
   -> Ghc.TcRn (Diagnostics, GhcSpec)
 makeGhcSpec0 cfg ghcTyLookupEnv tcg instEnvs lenv localVars src lmap targetSpec dependencySpecs = do
+  globalRdrEnv <- Ghc.tcg_rdr_env <$> Ghc.getGblEnv
   -- build up environments
   tycEnv <- makeTycEnv1 name env (tycEnv0, datacons) coreToLg simplifier
   let tyi      = Bare.tcTyConMap   tycEnv
@@ -225,7 +226,7 @@ makeGhcSpec0 cfg ghcTyLookupEnv tcg instEnvs lenv localVars src lmap targetSpec 
   let (dg3, refl)    = withDiagnostics $ makeSpecRefl src specs env name elaboratedSig tycEnv
   let eqs            = gsHAxioms refl
   let (dg4, measEnv) = withDiagnostics $ addOpaqueReflMeas cfg tycEnv env mySpec measEnv0 specs eqs
-  let qual     = makeSpecQual cfg env tycEnv measEnv rtEnv specs
+  let qual = makeSpecQual cfg env globalRdrEnv tycEnv measEnv rtEnv mySpec iSpecs2
   let (dg5, spcVars) = withDiagnostics $ makeSpecVars cfg src mySpec env measEnv
   let (dg6, spcTerm) = withDiagnostics $ makeSpecTerm cfg     mySpec lenv env
   let sData    = makeSpecData  src env sigEnv measEnv elaboratedSig specs
@@ -474,15 +475,25 @@ resolveStringVar env name s = Bare.lookupGhcVar env name "resolve-string-var" lx
 
 
 ------------------------------------------------------------------------------------------
-makeSpecQual :: Config -> Bare.Env -> Bare.TycEnv -> Bare.MeasEnv -> BareRTEnv -> Bare.ModSpecs
-             -> GhcSpecQual
+makeSpecQual
+  :: Config
+  -> Bare.Env
+  -> Ghc.GlobalRdrEnv
+  -> Bare.TycEnv
+  -> Bare.MeasEnv
+  -> BareRTEnv
+  -> BareSpec
+  -> Bare.ModSpecs
+  -> GhcSpecQual
 ------------------------------------------------------------------------------------------
-makeSpecQual _cfg env tycEnv measEnv _rtEnv specs = SpQual
+makeSpecQual _cfg env globalRdrEnv tycEnv measEnv _rtEnv mySpec depSpecs = SpQual
   { gsQualifiers = filter okQual quals
   , gsRTAliases  = [] -- makeSpecRTAliases env rtEnv -- TODO-REBARE
   }
   where
-    quals        = concatMap (makeQualifiers env tycEnv) (M.toList specs)
+    quals =
+      makeQualifiers env globalRdrEnv tycEnv mySpec ++
+      concatMap qualifiers (M.elems depSpecs)
     -- mSyms        = F.tracepp "MSYMS" $ M.fromList (Bare.meSyms measEnv ++ Bare.meClassSyms measEnv)
     okQual q     = F.notracepp ("okQual: " ++ F.showpp q)
                    $ all (`S.member` mSyms) (F.syms q)
@@ -491,9 +502,14 @@ makeSpecQual _cfg env tycEnv measEnv _rtEnv specs = SpQual
                    ++ (fst <$> Bare.meSyms measEnv)
                    ++ (fst <$> Bare.meClassSyms measEnv)
 
-makeQualifiers :: Bare.Env -> Bare.TycEnv -> (ModName, Ms.Spec F.Symbol ty) -> [F.Qualifier]
-makeQualifiers env tycEnv (modn, spec) =
-    Mb.mapMaybe (resolveQParams env tycEnv modn) $ Ms.qualifiers spec
+makeQualifiers
+  :: Bare.Env
+  -> Ghc.GlobalRdrEnv
+  -> Bare.TycEnv
+  -> Ms.Spec F.Symbol ty
+  -> [F.Qualifier]
+makeQualifiers env globalRdrEnv tycEnv spec =
+    Mb.mapMaybe (resolveQParams env globalRdrEnv tycEnv) $ Ms.qualifiers spec
 
 
 -- | @resolveQualParams@ converts the sorts of parameters from, e.g.
@@ -502,8 +518,13 @@ makeQualifiers env tycEnv (modn, spec) =
 --   It would not be required if _all_ qualifiers are scraped from
 --   function specs, but we're keeping it around for backwards compatibility.
 
-resolveQParams :: Bare.Env -> Bare.TycEnv -> ModName -> F.Qualifier -> Maybe F.Qualifier
-resolveQParams env tycEnv name q = do
+resolveQParams
+  :: Bare.Env
+  -> Ghc.GlobalRdrEnv
+  -> Bare.TycEnv
+  -> F.Qualifier
+  -> Maybe F.Qualifier
+resolveQParams env globalRdrEnv tycEnv q = do
      qps   <- mapM goQP (F.qParams q)
      return $ q { F.qParams = qps }
   where
@@ -512,15 +533,23 @@ resolveQParams env tycEnv name q = do
     go (FAbs i s)    = FAbs i <$> go s
     go (FFunc s1 s2) = FFunc  <$> go s1 <*> go s2
     go (FApp  s1 s2) = FApp   <$> go s1 <*> go s2
-    go (FTC c)       = qualifyFTycon env tycEnv name c
+    go (FTC c)       = qualifyFTycon env globalRdrEnv tycEnv c
     go s             = Just s
 
-qualifyFTycon :: Bare.Env -> Bare.TycEnv -> ModName -> F.FTycon -> Maybe F.Sort
-qualifyFTycon env tycEnv name c
+qualifyFTycon
+  :: Bare.Env
+  -> Ghc.GlobalRdrEnv
+  -> Bare.TycEnv
+  -> F.FTycon
+  -> Maybe F.Sort
+qualifyFTycon env globalRdrEnv tycEnv c
   | isPrimFTC           = Just (FTC c)
   | otherwise           = tyConSort embs . F.atLoc tcs <$> ty
   where
-    ty                  = Bare.maybeResolveSym env name "qualify-FTycon" tcs
+    ty                  = case resolveSymbolToTcName globalRdrEnv tcs of
+      Left e -> Ex.throw [e]
+      Right lhname -> either Ex.throw Just $
+                        Bare.lookupGhcTyConLHName (Bare.reTyLookupEnv env) lhname
     isPrimFTC           = F.val tcs `elem` F.prims
     tcs                 = F.fTyconSymbol c
     embs                = Bare.tcEmbs tycEnv
@@ -1029,12 +1058,12 @@ makeInvariants :: Bare.Env -> Bare.SigEnv -> (ModName, Ms.BareSpec) -> [(Maybe G
 makeInvariants env sigEnv (name, spec) =
   [ (Nothing, t)
     | (_, bt) <- Ms.invariants spec
-    , Bare.knownGhcType env name bt
+    , Bare.knownGhcType env bt
     , let t = Bare.cookSpecType env sigEnv name Bare.GenTV bt
   ] ++
   concat [ (Nothing,) . makeSizeInv l <$>  ts
     | (bts, l) <- Ms.dsize spec
-    , all (Bare.knownGhcType env name) bts
+    , all (Bare.knownGhcType env) bts
     , let ts = Bare.cookSpecType env sigEnv name Bare.GenTV <$> bts
   ]
 

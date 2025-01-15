@@ -366,7 +366,7 @@ makeMeasureSpec :: Bare.Env -> Bare.SigEnv -> ModName -> (ModName, Ms.BareSpec) 
 ----------------------------------------------------------------------------------------------
 makeMeasureSpec env sigEnv myName (name, spec)
   = mkMeasureDCon env
-  . mkMeasureSort env               name
+  . mkMeasureSort env
   . first val
   . bareMSpec     env sigEnv myName name
   $ spec
@@ -519,7 +519,7 @@ bareMSpec env sigEnv myName name spec = Ms.mkMSpec ms cms ims oms
     rtEnv      = Bare.sigRTEnv          sigEnv
     force      = name == myName
     inScope z = F.notracepp ("inScope1: " ++ F.showpp (msName z)) (force ||  okSort z)
-    okSort     = Bare.knownGhcType env name . msSort
+    okSort     = Bare.knownGhcType env . msSort
 
 mkMeasureDCon :: Bare.Env -> Ms.MSpec t (F.Located LHName) -> Bare.Lookup (Ms.MSpec t Ghc.DataCon)
 mkMeasureDCon env m = do
@@ -539,13 +539,13 @@ mkMeasureDCon_ m ndcs = fmap (tx . val) m
 measureCtors ::  Ms.MSpec t (F.Located LHName) -> [F.Located LHName]
 measureCtors = Misc.sortNub . fmap ctor . concat . M.elems . Ms.ctorMap
 
-mkMeasureSort :: Bare.Env -> ModName -> Ms.MSpec BareType (F.Located LHName)
+mkMeasureSort :: Bare.Env -> Ms.MSpec BareType (F.Located LHName)
               -> Ms.MSpec SpecType (F.Located LHName)
-mkMeasureSort env name (Ms.MSpec c mm cm im) =
+mkMeasureSort env (Ms.MSpec c mm cm im) =
   Ms.MSpec (map txDef <$> c) (tx <$> mm) (tx <$> cm) (tx <$> im)
     where
       ofMeaSort :: F.SourcePos -> BareType -> SpecType
-      ofMeaSort l = Bare.ofBareType env name l Nothing
+      ofMeaSort l = Bare.ofBareType env l Nothing
 
       tx :: Measure BareType ctor -> Measure SpecType ctor
       tx (M n s eqs k u) = M n (ofMeaSort l s) (txDef <$> eqs) k u where l = GM.fSourcePos n
