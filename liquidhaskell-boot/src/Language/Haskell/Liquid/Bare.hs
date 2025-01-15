@@ -297,7 +297,7 @@ makeGhcSpec0 cfg ghcTyLookupEnv tcg instEnvs lenv localVars src lmap targetSpec 
              dm
              cfg
              (\x -> todo Nothing ("coreToLogic not working " ++ x))
-             (CoreToLogic.coreToLogic allowTC ce) of
+             (CoreToLogic.coreToLogic ce) of
         Left msg -> panic Nothing (F.showpp msg)
         Right e -> e
     elaborateSig si auxsig = do
@@ -367,7 +367,7 @@ makeTyConEmbeds env spec
 makeLiftedSpec1 :: Config -> GhcSrc -> Bare.TycEnv -> LogicMap -> Ms.BareSpec
                 -> Ms.BareSpec
 makeLiftedSpec1 config src tycEnv lmap mySpec = mempty
-  { Ms.measures  = Bare.makeHaskellMeasures config (typeclass config) src tycEnv lmap mySpec }
+  { Ms.measures  = Bare.makeHaskellMeasures config src tycEnv lmap mySpec }
 
 --------------------------------------------------------------------------------
 -- | [NOTE]: LIFTING-STAGES
@@ -384,7 +384,7 @@ makeLiftedSpec1 config src tycEnv lmap mySpec = mempty
 makeLiftedSpec0 :: Config -> GhcSrc -> F.TCEmb Ghc.TyCon -> LogicMap -> Ms.BareSpec
                 -> Ms.BareSpec
 makeLiftedSpec0 cfg src embs lmap mySpec = mempty
-  { Ms.ealiases  = lmapEAlias . snd <$> Bare.makeHaskellInlines cfg (typeclass cfg) src embs lmap mySpec
+  { Ms.ealiases  = lmapEAlias . snd <$> Bare.makeHaskellInlines cfg src embs lmap mySpec
   , Ms.dataDecls = Bare.makeHaskellDataDecls cfg name mySpec tcs
   }
   where

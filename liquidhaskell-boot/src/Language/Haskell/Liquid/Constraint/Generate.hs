@@ -1013,11 +1013,10 @@ argExpr _ _                = Nothing
 lamExpr :: CGEnv -> CoreExpr -> CG (Maybe F.Expr)
 lamExpr g e = do
     adts <- gets cgADTs
-    allowTC <- gets cgiTypeclass
     let dm = dataConMap adts
     return $ eitherToMaybe $ runToLogic (emb g) mempty dm (getConfig g)
       (\x -> todo Nothing ("coreToLogic not working lamExpr: " ++ x))
-      (coreToLogic allowTC e)
+      (coreToLogic e)
 
 --------------------------------------------------------------------------------
 (??=) :: (?callStack :: CallStack) => CGEnv -> Var -> CG SpecType
