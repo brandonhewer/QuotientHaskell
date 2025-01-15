@@ -1,6 +1,6 @@
 -- | test the error message when doing reflection of foreign functions with data selectors
 -- | W/O having specified the `exactdc`/`reflection` flag
-{-@ LIQUID "--expect-error-containing=Illegal type specification for `ReflExt02B.calories`" @-}
+{-@ LIQUID "--expect-error-containing=Cannot lift Haskell function `calories` to logic" @-}
 
 module ReflExt02A where
 

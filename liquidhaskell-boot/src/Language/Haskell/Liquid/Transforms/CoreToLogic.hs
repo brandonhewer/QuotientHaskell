@@ -35,7 +35,6 @@ import qualified Data.Char
 import qualified Text.Printf as Printf
 import           Data.Text.Encoding
 import           Data.Text.Encoding.Error
-import           Control.Monad.State
 import           Control.Monad.Except
 import           Control.Monad.Identity
 import qualified Language.Haskell.Liquid.Misc          as Misc
@@ -56,6 +55,8 @@ import           Language.Haskell.Liquid.Types.RTypeOp
 import           Language.Haskell.Liquid.Types.Types
 
 import qualified Data.HashMap.Strict                   as M
+import Control.Monad.Reader
+import Language.Haskell.Liquid.UX.Config
 
 logicType :: (Reftable r) => Bool -> Type -> RRType r
 logicType allowTC τ      = fromRTypeRep $ t { ty_binds = bs, ty_info = is, ty_args = as, ty_refts = rs}
@@ -131,7 +132,7 @@ weakenResult allowTC v t = F.notracepp msg t'
     xts          = zip (ty_binds rep) (ty_args rep)
     vF           = dummyLoc (symbol v)
 
-type LogicM = ExceptT Error (StateT LState Identity)
+type LogicM = ExceptT Error (ReaderT LState Identity)
 
 data LState = LState
   { lsSymMap  :: LogicMap
@@ -139,31 +140,33 @@ data LState = LState
   , lsEmb     :: TCEmb TyCon
   , lsBools   :: [Var]
   , lsDCMap   :: DataConMap
+  , lsConfig  :: Config
   }
 
 throw :: String -> LogicM a
 throw str = do
-  fmkError  <- gets lsError
+  fmkError  <- reader lsError
   throwError $ fmkError str
 
 getState :: LogicM LState
-getState = get
+getState = ask
 
 runToLogic
-  :: TCEmb TyCon -> LogicMap -> DataConMap -> (String -> Error)
+  :: TCEmb TyCon -> LogicMap -> DataConMap -> Config -> (String -> Error)
   -> LogicM t -> Either Error t
 runToLogic = runToLogicWithBoolBinds []
 
 runToLogicWithBoolBinds
-  :: [Var] -> TCEmb TyCon -> LogicMap -> DataConMap -> (String -> Error)
+  :: [Var] -> TCEmb TyCon -> LogicMap -> DataConMap -> Config -> (String -> Error)
   -> LogicM t -> Either Error t
-runToLogicWithBoolBinds xs tce lmap dm ferror m
-  = evalState (runExceptT m) $ LState
+runToLogicWithBoolBinds xs tce lmap dm cfg ferror m
+  = runReader (runExceptT m) $ LState
       { lsSymMap = lmap
       , lsError  = ferror
       , lsEmb    = tce
       , lsBools  = xs
       , lsDCMap  = dm
+      , lsConfig = cfg
       }
 
 coreAltToDef :: (Reftable r) => Bool -> Located LHName -> Var -> [Var] -> Var -> Type -> [C.CoreAlt]
@@ -309,7 +312,7 @@ coercionTypeEq co
 
 typeEqToLg :: (Type, Type) -> LogicM (Sort, Sort)
 typeEqToLg (s, t) = do
-  tce   <- gets lsEmb
+  tce   <- reader lsEmb
   let tx = typeSort tce . expandTypeSynonyms
   return $ F.notracepp "TYPE-EQ-TO-LOGIC" (tx s, tx t)
 
@@ -352,10 +355,15 @@ normalizeAlts alts      = ctorAlts ++ defAlts
 
 altToLg :: Bool -> Expr -> C.CoreAlt -> LogicM (C.AltCon, Expr)
 altToLg allowTC de (Alt a@(C.DataAlt d) xs e) = do
-  p  <- coreToLg allowTC e
-  dm <- gets lsDCMap
-  let su = mkSubst $ concat [ dataConProj dm de d x i | (x, i) <- zip (filter (not . if allowTC then GM.isEmbeddedDictVar else GM.isEvVar) xs) [1..]]
-  return (a, subst su p)
+  ctorReflected <- reader (exactDCFlag . lsConfig)
+  if not ctorReflected && not (primDataCon d) then do
+    throw $ "coreToLg: Cannot lift to logic the constructor `" ++ show d
+             ++ "` consider enabling one of the flags --exactdc or --reflection"
+  else do
+    p  <- coreToLg allowTC e
+    dm <- reader lsDCMap
+    let su = mkSubst $ concat [ dataConProj dm de d x i | (x, i) <- zip (filter (not . if allowTC then GM.isEmbeddedDictVar else GM.isEvVar) xs) [1..]]
+    return (a, subst su p)
 
 altToLg allowTC _ (Alt a _ e)
   = (a, ) <$> coreToLg allowTC e

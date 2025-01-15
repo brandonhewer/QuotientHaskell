@@ -60,20 +60,20 @@ import Control.Monad (mapM)
 import qualified Data.List as L
 
 --------------------------------------------------------------------------------
-makeHaskellMeasures :: Bool -> GhcSrc -> Bare.TycEnv -> LogicMap -> Ms.BareSpec
+makeHaskellMeasures :: Config -> Bool -> GhcSrc -> Bare.TycEnv -> LogicMap -> Ms.BareSpec
                     -> [Measure (Located BareType) (Located LHName)]
 --------------------------------------------------------------------------------
-makeHaskellMeasures allowTC src tycEnv lmap spec
+makeHaskellMeasures cfg allowTC src tycEnv lmap spec
           = Bare.measureToBare <$> ms
   where
-    ms    = makeMeasureDefinition allowTC tycEnv lmap cbs <$> mSyms
+    ms    = makeMeasureDefinition cfg allowTC tycEnv lmap cbs <$> mSyms
     cbs   = Ghc.flattenBinds (_giCbs src)
     mSyms = S.toList (Ms.hmeas spec)
 
 makeMeasureDefinition
-  :: Bool -> Bare.TycEnv -> LogicMap -> [(Ghc.Id, Ghc.CoreExpr)] -> Located LHName
+  :: Config -> Bool -> Bare.TycEnv -> LogicMap -> [(Ghc.Id, Ghc.CoreExpr)] -> Located LHName
   -> Measure LocSpecType Ghc.DataCon
-makeMeasureDefinition allowTC tycEnv lmap cbs x =
+makeMeasureDefinition cfg allowTC tycEnv lmap cbs x =
   case L.find ((x ==) . makeGHCLHNameLocatedFromId . fst) cbs of
     Nothing ->
       Ex.throw $
@@ -81,7 +81,7 @@ makeMeasureDefinition allowTC tycEnv lmap cbs x =
     Just (v, cexp) -> Ms.mkM vx vinfo mdef MsLifted (makeUnSorted allowTC (Ghc.varType v) mdef)
                      where
                        vx           = reflectLHName (Ghc.nameModule $ Ghc.getName v) <$> x
-                       mdef         = coreToDef' allowTC tycEnv lmap vx v cexp
+                       mdef         = coreToDef' cfg allowTC tycEnv lmap vx v cexp
                        vinfo        = GM.varLocInfo (logicType allowTC) v
 
 makeUnSorted :: Bool -> Ghc.Type -> [Def LocSpecType Ghc.DataCon] -> UnSortedExprs
@@ -108,10 +108,10 @@ makeUnSorted allowTC ty defs
     xx = F.vv $ Just 10000
     isErasable = if allowTC then GM.isEmbeddedDictType else Ghc.isClassPred
 
-coreToDef' :: Bool -> Bare.TycEnv -> LogicMap -> Located LHName -> Ghc.Var -> Ghc.CoreExpr
+coreToDef' :: Config -> Bool -> Bare.TycEnv -> LogicMap -> Located LHName -> Ghc.Var -> Ghc.CoreExpr
            -> [Def LocSpecType Ghc.DataCon]
-coreToDef' allowTC tycEnv lmap vx v defn =
-  case runToLogic embs lmap dm (errHMeas vx) (coreToDef allowTC vx v defn) of
+coreToDef' cfg allowTC tycEnv lmap vx v defn =
+  case runToLogic embs lmap dm cfg (errHMeas vx) (coreToDef allowTC vx v defn) of
     Right l -> l
     Left e  -> Ex.throw e
   where
@@ -122,22 +122,22 @@ errHMeas :: Located LHName -> String -> Error
 errHMeas x str = ErrHMeas (GM.sourcePosSrcSpan $ loc x) (pprint $ val x) (text str)
 
 --------------------------------------------------------------------------------
-makeHaskellInlines :: Bool -> GhcSrc -> F.TCEmb Ghc.TyCon -> LogicMap -> Ms.BareSpec
+makeHaskellInlines :: Config -> Bool -> GhcSrc -> F.TCEmb Ghc.TyCon -> LogicMap -> Ms.BareSpec
                    -> [(LocSymbol, LMap)]
 --------------------------------------------------------------------------------
-makeHaskellInlines allowTC src embs lmap spec
-         = makeMeasureInline allowTC embs lmap cbs <$> inls
+makeHaskellInlines cfg allowTC src embs lmap spec
+         = makeMeasureInline cfg allowTC embs lmap cbs <$> inls
   where
     cbs  = Ghc.flattenBinds (_giCbs src)
     inls = S.toList        (Ms.inlines spec)
 
 makeMeasureInline
-  :: Bool -> F.TCEmb Ghc.TyCon -> LogicMap -> [(Ghc.Id, Ghc.CoreExpr)] -> Located LHName
+  :: Config -> Bool -> F.TCEmb Ghc.TyCon -> LogicMap -> [(Ghc.Id, Ghc.CoreExpr)] -> Located LHName
   -> (LocSymbol, LMap)
-makeMeasureInline allowTC embs lmap cbs x =
+makeMeasureInline cfg allowTC embs lmap cbs x =
   case L.find ((val x ==) . makeGHCLHNameFromId . fst) cbs of
     Nothing        -> Ex.throw $ errHMeas x "Cannot inline haskell function"
-    Just (v, defn) -> (vx, coreToFun' allowTC embs Nothing lmap vx v defn ok)
+    Just (v, defn) -> (vx, coreToFun' cfg allowTC embs Nothing lmap vx v defn ok)
                      where
                        vx         = F.atLoc x (F.symbol v)
                        ok (xs, e) = LMap vx (F.symbol <$> xs) (either id id e)
@@ -147,11 +147,11 @@ makeMeasureInline allowTC embs lmap cbs x =
 --   but NOT when lifting inlines (which do not have case-of).
 --   For details, see [NOTE:Lifting-Stages]
 
-coreToFun' :: Bool -> F.TCEmb Ghc.TyCon -> Maybe Bare.DataConMap -> LogicMap -> LocSymbol -> Ghc.Var -> Ghc.CoreExpr
+coreToFun' :: Config -> Bool -> F.TCEmb Ghc.TyCon -> Maybe Bare.DataConMap -> LogicMap -> LocSymbol -> Ghc.Var -> Ghc.CoreExpr
            -> (([Ghc.Var], Either F.Expr F.Expr) -> a) -> a
-coreToFun' allowTC embs dmMb lmap x v defn ok = either Ex.throw ok act
+coreToFun' cfg allowTC embs dmMb lmap x v defn ok = either Ex.throw ok act
   where
-    act  = runToLogic embs lmap dm err xFun
+    act  = runToLogic embs lmap dm cfg err xFun
     xFun = coreToFun allowTC x v defn
     err  str = ErrHMeas (GM.sourcePosSrcSpan $ loc x) (pprint $ val x) (text str)
     dm   = Mb.fromMaybe mempty dmMb
