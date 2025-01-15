@@ -366,8 +366,8 @@ altToLg :: Expr -> C.CoreAlt -> LogicM (C.AltCon, Expr)
 altToLg de (Alt a@(C.DataAlt d) xs e) = do
   ctorReflected <- reader (exactDCFlag . lsConfig)
   if not ctorReflected && not (primDataCon d) then do
-    throw $ "coreToLg: Cannot lift to logic the constructor `" ++ show d
-             ++ "` consider enabling one of the flags --exactdc or --reflection"
+    throw $  "Cannot lift to logic the constructor `" ++ show d
+          ++ "` consider enabling either --exactdc or --reflection"
   else do
     p  <- coreToLg e
     dm <- reader lsDCMap
