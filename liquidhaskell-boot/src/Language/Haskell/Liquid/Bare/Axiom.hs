@@ -352,7 +352,7 @@ makeAssumeType cfg tce lmap dm sym mbT v def
     _msg  = unwords [showpp sym, showpp mbT]
     le    = case runToLogicWithBoolBinds bbs tce lmap dm cfg mkErr (coreToLogic def') of
               Right e -> e
-              Left  e -> panic Nothing (show e)
+              Left  e -> panic (Just $ sourcePosSrcSpan $ loc sym) (show e)
     ref        = F.Reft (F.vv_, F.PAtom F.Eq (F.EVar F.vv_) le)
     mkErr s    = ErrHMeas (sourcePosSrcSpan $ loc sym) (pprint $ val sym) (PJ.text s)
     bbs        = filter isBoolBind xs
