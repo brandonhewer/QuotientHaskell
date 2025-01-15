@@ -317,21 +317,20 @@ makeAxiom :: Bare.Env -> Bare.TycEnv -> LogicMap
 makeAxiom env tycEnv lmap (x, mbT, v, def)
             = (v, t, e)
   where
-    (t, e)  = makeAssumeType allowTC embs lmap dm x mbT v def
+    (t, e)  = makeAssumeType (getConfig env) embs lmap dm x mbT v def
     embs    = Bare.tcEmbs       tycEnv
     dm      = Bare.tcDataConMap tycEnv
-    allowTC = typeclass (getConfig env)
 
 mkError :: PPrint a => Located a -> String -> Error
 mkError x str = ErrHMeas (sourcePosSrcSpan $ loc x) (pprint $ val x) (PJ.text str)
 
 -- This function is uded to generate the fixpoint code for reflected functions
 makeAssumeType
-  :: Bool -- ^ typeclass enabled
+  :: Config
   -> F.TCEmb Ghc.TyCon -> LogicMap -> DataConMap -> LocSymbol -> Maybe SpecType
   -> Ghc.Var -> Ghc.CoreExpr
   -> (LocSpecType, F.Equation)
-makeAssumeType allowTC tce lmap dm sym mbT v def
+makeAssumeType cfg tce lmap dm sym mbT v def
   = ( sym {val = aty at `strengthenRes` F.subst su ref}
     , F.mkEquation 
         symbolV 
@@ -340,6 +339,7 @@ makeAssumeType allowTC tce lmap dm sym mbT v def
         (F.sortSubst sortSub out)
     )
   where
+    allowTC = typeclass cfg
     symbolV = F.symbol v
     rt    = fromRTypeRep .
             (\trep@RTypeRep{..} ->
@@ -350,9 +350,9 @@ makeAssumeType allowTC tce lmap dm sym mbT v def
     out   = rTypeSort tce $ ares at
     xArgs = F.EVar . fst <$> aargs at
     _msg  = unwords [showpp sym, showpp mbT]
-    le    = case runToLogicWithBoolBinds bbs tce lmap dm mkErr (coreToLogic allowTC def') of
+    le    = case runToLogicWithBoolBinds bbs tce lmap dm cfg mkErr (coreToLogic def') of
               Right e -> e
-              Left  e -> panic Nothing (show e)
+              Left  e -> Ex.throw e
     ref        = F.Reft (F.vv_, F.PAtom F.Eq (F.EVar F.vv_) le)
     mkErr s    = ErrHMeas (sourcePosSrcSpan $ loc sym) (pprint $ val sym) (PJ.text s)
     bbs        = filter isBoolBind xs

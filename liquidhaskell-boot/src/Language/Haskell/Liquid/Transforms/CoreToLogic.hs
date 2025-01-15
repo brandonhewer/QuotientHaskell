@@ -35,7 +35,6 @@ import qualified Data.Char
 import qualified Text.Printf as Printf
 import           Data.Text.Encoding
 import           Data.Text.Encoding.Error
-import           Control.Monad.State
 import           Control.Monad.Except
 import           Control.Monad.Identity
 import qualified Language.Haskell.Liquid.Misc          as Misc
@@ -56,6 +55,8 @@ import           Language.Haskell.Liquid.Types.RTypeOp
 import           Language.Haskell.Liquid.Types.Types
 
 import qualified Data.HashMap.Strict                   as M
+import Control.Monad.Reader
+import Language.Haskell.Liquid.UX.Config
 
 logicType :: (Reftable r) => Bool -> Type -> RRType r
 logicType allowTC τ      = fromRTypeRep $ t { ty_binds = bs, ty_info = is, ty_args = as, ty_refts = rs}
@@ -131,7 +132,7 @@ weakenResult allowTC v t = F.notracepp msg t'
     xts          = zip (ty_binds rep) (ty_args rep)
     vF           = dummyLoc (symbol v)
 
-type LogicM = ExceptT Error (StateT LState Identity)
+type LogicM = ExceptT Error (ReaderT LState Identity)
 
 data LState = LState
   { lsSymMap  :: LogicMap
@@ -139,36 +140,38 @@ data LState = LState
   , lsEmb     :: TCEmb TyCon
   , lsBools   :: [Var]
   , lsDCMap   :: DataConMap
+  , lsConfig  :: Config
   }
 
 throw :: String -> LogicM a
 throw str = do
-  fmkError  <- gets lsError
+  fmkError  <- reader lsError
   throwError $ fmkError str
 
 getState :: LogicM LState
-getState = get
+getState = ask
 
 runToLogic
-  :: TCEmb TyCon -> LogicMap -> DataConMap -> (String -> Error)
+  :: TCEmb TyCon -> LogicMap -> DataConMap -> Config -> (String -> Error)
   -> LogicM t -> Either Error t
 runToLogic = runToLogicWithBoolBinds []
 
 runToLogicWithBoolBinds
-  :: [Var] -> TCEmb TyCon -> LogicMap -> DataConMap -> (String -> Error)
+  :: [Var] -> TCEmb TyCon -> LogicMap -> DataConMap -> Config -> (String -> Error)
   -> LogicM t -> Either Error t
-runToLogicWithBoolBinds xs tce lmap dm ferror m
-  = evalState (runExceptT m) $ LState
+runToLogicWithBoolBinds xs tce lmap dm cfg ferror m
+  = runReader (runExceptT m) $ LState
       { lsSymMap = lmap
       , lsError  = ferror
       , lsEmb    = tce
       , lsBools  = xs
       , lsDCMap  = dm
+      , lsConfig = cfg
       }
 
-coreAltToDef :: (Reftable r) => Bool -> Located LHName -> Var -> [Var] -> Var -> Type -> [C.CoreAlt]
+coreAltToDef :: (Reftable r) => Located LHName -> Var -> [Var] -> Var -> Type -> [C.CoreAlt]
              -> LogicM [Def (Located (RRType r)) DataCon]
-coreAltToDef allowTC locSym z zs y t alts
+coreAltToDef locSym z zs y t alts
   | not (null litAlts) = measureFail locSym "Cannot lift definition with literal alternatives"
   | otherwise          = do
       d1s <- F.notracepp "coreAltDefs-1" <$> mapM (mkAlt locSym cc myArgs z) dataAlts
@@ -184,16 +187,18 @@ coreAltToDef allowTC locSym z zs y t alts
 
     -- mkAlt :: LocSymbol -> (Expr -> Body) -> [Var] -> Var -> (C.AltCon, [Var], C.CoreExpr)
     mkAlt x ctor _args dx (Alt (C.DataAlt d) xs e)
-      = Def x {- (toArgs id args) -} d (Just $ varRType dx) (toArgs Just xs')
-      . ctor
-      . (`subst1` (F.symbol dx, F.mkEApp (GM.namedLocSymbol d) (F.eVar <$> xs')))
-     <$> coreToLg allowTC e
-      where xs' = filter (not . if allowTC then GM.isEmbeddedDictVar else GM.isEvVar) xs
+      = do
+          allowTC <- reader (typeclass . lsConfig)
+          let xs' = filter (not . if allowTC then GM.isEmbeddedDictVar else GM.isEvVar) xs
+          Def x {- (toArgs id args) -} d (Just $ varRType dx) (toArgs Just xs')
+               . ctor
+               . (`subst1` (F.symbol dx, F.mkEApp (GM.namedLocSymbol d) (F.eVar <$> xs')))
+              <$> coreToLg e
     mkAlt _ _ _ _ alt
       = throw $ "Bad alternative" ++ GM.showPpr alt
 
     mkDef x ctor _args dx (Just dtss) (Just e) = do
-      eDef   <- ctor <$> coreToLg allowTC e
+      eDef   <- ctor <$> coreToLg e
       -- let ys  = toArgs id args
       let dxt = Just (varRType dx)
       return  [ Def x {- ys -} d dxt (defArgs x ts) eDef | (d, _, ts) <- dtss ]
@@ -210,15 +215,17 @@ defArgs x     = zipWith (\i t -> (defArg i, defRTyp t)) [0..]
     defArg    = tempSymbol (lhNameToResolvedSymbol $ val x)
     defRTyp   = Just . F.atLoc x . ofType
 
-coreToDef :: Reftable r => Bool -> Located LHName -> Var -> C.CoreExpr
+coreToDef :: Reftable r => Located LHName -> Var -> C.CoreExpr
           -> LogicM [Def (Located (RRType r)) DataCon]
-coreToDef allowTC locSym _                   = go [] . inlinePreds . simplify allowTC
+coreToDef locSym _ s              = do 
+    allowTC <- reader $ typeclass . lsConfig
+    go [] $ inlinePreds $ simplify allowTC s
   where
     go args   (C.Lam  x e)        = go (x:args) e
     go args   (C.Tick _ e)        = go args e
-    go (z:zs) (C.Case _ y t alts) = coreAltToDef allowTC locSym z zs y t alts
+    go (z:zs) (C.Case _ y t alts) = coreAltToDef locSym z zs y t alts
     go (z:zs) e
-      | Just t <- isMeasureArg z  = coreAltToDef allowTC locSym z zs z t [Alt C.DEFAULT [] e]
+      | Just t <- isMeasureArg z  = coreAltToDef locSym z zs z t [Alt C.DEFAULT [] e]
     go _ _                        = measureFail locSym "Does not have a case-of at the top-level"
 
     inlinePreds   = inline (eqType boolTy . GM.expandVarType)
@@ -244,56 +251,61 @@ isMeasureArg x
 varRType :: (Reftable r) => Var -> Located (RRType r)
 varRType = GM.varLocInfo ofType
 
-coreToFun :: Bool -> LocSymbol -> Var -> C.CoreExpr ->  LogicM ([Var], Either Expr Expr)
-coreToFun allowTC _ _v = go [] . normalize allowTC
+coreToFun :: LocSymbol -> Var -> C.CoreExpr ->  LogicM ([Var], Either Expr Expr)
+coreToFun _ _v s = do 
+  allowTC <- reader $ typeclass . lsConfig
+  go [] $ normalize allowTC s
   where
-    isE = if allowTC then GM.isEmbeddedDictVar else isErasable
-    go acc (C.Lam x e)  | isTyVar    x = go acc e
-    go acc (C.Lam x e)  | isE x = go acc e
-    go acc (C.Lam x e)  = go (x:acc) e
+    go acc (C.Lam x e)  | isTyVar x = go acc e
+    go acc (C.Lam x e)  = do 
+      allowTC <- reader $ typeclass . lsConfig
+      let isE = if allowTC then GM.isEmbeddedDictVar else isErasable
+      if isE x then go acc e else go (x:acc) e
     go acc (C.Tick _ e) = go acc e
-    go acc e            = (reverse acc,) . Right <$> coreToLg allowTC e
+    go acc e            = (reverse acc,) . Right <$> coreToLg e
 
 
 instance Show C.CoreExpr where
   show = GM.showPpr
 
-coreToLogic :: Bool -> C.CoreExpr -> LogicM Expr
-coreToLogic allowTC cb = coreToLg allowTC (normalize allowTC cb)
+coreToLogic :: C.CoreExpr -> LogicM Expr
+coreToLogic cb = do
+  allowTC <- reader $ typeclass . lsConfig
+  coreToLg $ normalize allowTC cb
 
 
-coreToLg :: Bool -> C.CoreExpr -> LogicM Expr
-coreToLg allowTC  (C.Let (C.NonRec x (C.Coercion c)) e)
-  = coreToLg allowTC (C.substExpr (C.extendCvSubst C.emptySubst x c) e)
-coreToLg allowTC  (C.Let b e)
-  = subst1 <$> coreToLg allowTC e <*>  makesub allowTC b
-coreToLg allowTC (C.Tick _ e)          = coreToLg allowTC e
-coreToLg allowTC (C.App (C.Var v) e)
-  | ignoreVar v                = coreToLg allowTC e
-coreToLg _allowTC (C.Var x)
+coreToLg :: C.CoreExpr -> LogicM Expr
+coreToLg (C.Let (C.NonRec x (C.Coercion c)) e)
+  = coreToLg (C.substExpr (C.extendCvSubst C.emptySubst x c) e)
+coreToLg (C.Let b e)
+  = subst1 <$> coreToLg e <*> makesub b
+coreToLg (C.Tick _ e)          = coreToLg e
+coreToLg (C.App (C.Var v) e)
+  | ignoreVar v                = coreToLg e
+coreToLg (C.Var x)
   | x == falseDataConId        = return PFalse
   | x == trueDataConId         = return PTrue
   | otherwise                  = eVarWithMap x . lsSymMap <$> getState
-coreToLg allowTC e@(C.App _ _)         = toPredApp allowTC e
-coreToLg allowTC (C.Case e b _ alts)
-  | eqType (GM.expandVarType b) boolTy  = checkBoolAlts alts >>= coreToIte allowTC e
+coreToLg e@(C.App _ _)         = toPredApp e
+coreToLg (C.Case e b _ alts)
+  | eqType (GM.expandVarType b) boolTy  = checkBoolAlts alts >>= coreToIte e
 -- coreToLg (C.Lam x e)           = do p     <- coreToLg e
 --                                     tce   <- lsEmb <$> getState
 --                                     return $ ELam (symbol x, typeSort tce (GM.expandVarType x)) p
-coreToLg allowTC (C.Case e b _ alts)   = do p <- coreToLg allowTC e
-                                            casesToLg allowTC b p alts
-coreToLg _ (C.Lit l)             = case mkLit l of
+coreToLg (C.Case e b _ alts)   = do p <- coreToLg e
+                                    casesToLg b p alts
+coreToLg (C.Lit l)             = case mkLit l of
                                           Nothing -> throw $ "Bad Literal in measure definition" ++ GM.showPpr l
                                           Just i  -> return i
-coreToLg allowTC (C.Cast e c)          = do (s, t) <- coerceToLg c
-                                            e'     <- coreToLg allowTC e
-                                            return (ECoerc s t e')
+coreToLg (C.Cast e c)          = do (s, t) <- coerceToLg c
+                                    e'     <- coreToLg e
+                                    return (ECoerc s t e')
 -- elaboration reuses coretologic
 -- TODO: fix this
-coreToLg allowTC    (C.Lam x e) = do p     <- coreToLg allowTC e
-                                     tce   <- lsEmb <$> getState
-                                     return $ ELam (symbol x, typeSort tce (GM.expandVarType x)) p
-coreToLg _ e                     = throw ("Cannot transform to Logic:\t" ++ GM.showPpr e)
+coreToLg (C.Lam x e) = do p     <- coreToLg e
+                          tce   <- lsEmb <$> getState
+                          return $ ELam (symbol x, typeSort tce (GM.expandVarType x)) p
+coreToLg e                     = throw ("Cannot transform to Logic:\t" ++ GM.showPpr e)
 
 
 
@@ -309,7 +321,7 @@ coercionTypeEq co
 
 typeEqToLg :: (Type, Type) -> LogicM (Sort, Sort)
 typeEqToLg (s, t) = do
-  tce   <- gets lsEmb
+  tce   <- reader lsEmb
   let tx = typeSort tce . expandTypeSynonyms
   return $ F.notracepp "TYPE-EQ-TO-LOGIC" (tx s, tx t)
 
@@ -324,8 +336,8 @@ checkBoolAlts [Alt (C.DataAlt true) [] etrue, Alt (C.DataAlt false) [] efalse]
 checkBoolAlts alts
   = throw ("checkBoolAlts failed on " ++ GM.showPpr alts)
 
-casesToLg :: Bool -> Var -> Expr -> [C.CoreAlt] -> LogicM Expr
-casesToLg allowTC v e alts = mapM (altToLg allowTC e) normAlts >>= go
+casesToLg :: Var -> Expr -> [C.CoreAlt] -> LogicM Expr
+casesToLg v e alts = mapM (altToLg e) normAlts >>= go
   where
     normAlts       = normalizeAlts alts
     go :: [(C.AltCon, Expr)] -> LogicM Expr
@@ -350,15 +362,21 @@ normalizeAlts alts      = ctorAlts ++ defAlts
     (defAlts, ctorAlts) = L.partition isDefault alts
     isDefault (Alt c _ _)   = c == C.DEFAULT
 
-altToLg :: Bool -> Expr -> C.CoreAlt -> LogicM (C.AltCon, Expr)
-altToLg allowTC de (Alt a@(C.DataAlt d) xs e) = do
-  p  <- coreToLg allowTC e
-  dm <- gets lsDCMap
-  let su = mkSubst $ concat [ dataConProj dm de d x i | (x, i) <- zip (filter (not . if allowTC then GM.isEmbeddedDictVar else GM.isEvVar) xs) [1..]]
-  return (a, subst su p)
+altToLg :: Expr -> C.CoreAlt -> LogicM (C.AltCon, Expr)
+altToLg de (Alt a@(C.DataAlt d) xs e) = do
+  ctorReflected <- reader (exactDCFlag . lsConfig)
+  if not ctorReflected && not (primDataCon d) then do
+    throw $  "Cannot lift to logic the constructor `" ++ show d
+          ++ "` consider enabling either --exactdc or --reflection"
+  else do
+    p  <- coreToLg e
+    dm <- reader lsDCMap
+    allowTC <- reader (typeclass . lsConfig)
+    let su = mkSubst $ concat [ dataConProj dm de d x i | (x, i) <- zip (filter (not . if allowTC then GM.isEmbeddedDictVar else GM.isEvVar) xs) [1..]]
+    return (a, subst su p)
 
-altToLg allowTC _ (Alt a _ e)
-  = (a, ) <$> coreToLg allowTC e
+altToLg _ (Alt a _ e)
+  = (a, ) <$> coreToLg e
 
 dataConProj :: DataConMap -> Expr -> DataCon -> Var -> Int -> [(Symbol, Expr)]
 dataConProj dm de d x i = [(symbol x, t), (GM.simplesymbol x, t)]
@@ -369,41 +387,43 @@ dataConProj dm de d x i = [(symbol x, t), (GM.simplesymbol x, t)]
 primDataCon :: DataCon -> Bool
 primDataCon d = d == intDataCon
 
-coreToIte :: Bool -> C.CoreExpr -> (C.CoreExpr, C.CoreExpr) -> LogicM Expr
-coreToIte allowTC e (efalse, etrue)
-  = do p  <- coreToLg allowTC e
-       e1 <- coreToLg allowTC efalse
-       e2 <- coreToLg allowTC etrue
+coreToIte :: C.CoreExpr -> (C.CoreExpr, C.CoreExpr) -> LogicM Expr
+coreToIte e (efalse, etrue)
+  = do p  <- coreToLg e
+       e1 <- coreToLg efalse
+       e2 <- coreToLg etrue
        return $ EIte p e2 e1
 
-toPredApp :: Bool -> C.CoreExpr -> LogicM Expr
-toPredApp allowTC p = go . first opSym . splitArgs allowTC $ p
+toPredApp :: C.CoreExpr -> LogicM Expr
+toPredApp p = do
+  allowTC <- reader (typeclass . lsConfig)
+  go . first opSym . splitArgs allowTC $ p
   where
     opSym = tomaybesymbol
     go (Just f, [e1, e2])
       | Just rel <- M.lookup f brels
-      = PAtom rel <$> coreToLg allowTC e1 <*> coreToLg allowTC e2
+      = PAtom rel <$> coreToLg e1 <*> coreToLg e2
     go (Just f, [e])
       | f == symbol ("GHC.Classes.not" :: String)
-      = PNot <$>  coreToLg allowTC e
+      = PNot <$>  coreToLg e
     go (Just f, [e1, e2])
       | f == symbol ("GHC.Classes.||" :: String)
-      = POr <$> mapM (coreToLg allowTC) [e1, e2]
+      = POr <$> mapM coreToLg [e1, e2]
       | f == symbol ("GHC.Classes.&&" :: String)
-      = PAnd <$> mapM (coreToLg allowTC) [e1, e2]
+      = PAnd <$> mapM coreToLg [e1, e2]
       | f == symbol ("Language.Haskell.Liquid.Prelude.==>" :: String)
-      = PImp <$> coreToLg allowTC e1 <*> coreToLg allowTC e2
+      = PImp <$> coreToLg e1 <*> coreToLg e2
       | f == symbol ("Language.Haskell.Liquid.Prelude.<=>" :: String)
-      = PIff <$> coreToLg allowTC e1 <*> coreToLg allowTC e2
+      = PIff <$> coreToLg e1 <*> coreToLg e2
       | f == symbol ("GHC.Base.const" :: String)
-      = coreToLg allowTC e1
+      = coreToLg e1
     go (Just f, [es])
       | f == symbol ("GHC.Internal.Data.Foldable.or" :: String)
-      = POr  . deList <$> coreToLg allowTC es
+      = POr  . deList <$> coreToLg es
       | f == symbol ("GHC.Internal.Data.Foldable.and" :: String)
-      = PAnd . deList <$> coreToLg allowTC es
+      = PAnd . deList <$> coreToLg es
     go (_, _)
-      = toLogicApp allowTC p
+      = toLogicApp p
 
     deList :: Expr -> [Expr]
     deList (EApp (EApp (EVar cons) e) es)
@@ -415,16 +435,17 @@ toPredApp allowTC p = go . first opSym . splitArgs allowTC $ p
     deList e
       = [e]
 
-toLogicApp :: Bool -> C.CoreExpr -> LogicM Expr
-toLogicApp allowTC e = do
+toLogicApp :: C.CoreExpr -> LogicM Expr
+toLogicApp e = do
+  allowTC <- reader (typeclass . lsConfig)
   let (f, es) = splitArgs allowTC e
   case f of
-    C.Var _ -> do args <- mapM (coreToLg allowTC) es
+    C.Var _ -> do args <- mapM coreToLg es
                   lmap <- lsSymMap <$> getState
                   def  <- (`mkEApp` args) <$> tosymbol f
                   (\x -> makeApp def lmap x args) <$> tosymbol' f
-    _       -> do fe   <- coreToLg allowTC f
-                  args <- mapM (coreToLg allowTC) es
+    _       -> do fe   <- coreToLg f
+                  args <- mapM coreToLg es
                   return $ foldl EApp fe args
 
 makeApp :: Expr -> LogicMap -> Located Symbol-> [Expr] -> Expr
@@ -518,9 +539,9 @@ tosymbol' :: C.CoreExpr -> LogicM (Located Symbol)
 tosymbol' (C.Var x) = return $ dummyLoc $ symbol x
 tosymbol' e        = throw ("Bad Measure Definition:\n" ++ GM.showPpr e ++ "\t cannot be applied")
 
-makesub :: Bool -> C.CoreBind -> LogicM (Symbol, Expr)
-makesub allowTC (C.NonRec x e) =  (symbol x,) <$> coreToLg allowTC e
-makesub _       _              = throw "Cannot make Logical Substitution of Recursive Definitions"
+makesub :: C.CoreBind -> LogicM (Symbol, Expr)
+makesub (C.NonRec x e) = (symbol x,) <$> coreToLg e
+makesub _              = throw "Cannot make Logical Substitution of Recursive Definitions"
 
 mkLit :: Literal -> Maybe Expr
 mkLit (LitNumber _ n) = mkI n

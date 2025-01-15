@@ -65,7 +65,12 @@ import           Language.Haskell.Liquid.Constraint.Termination
 import           Language.Haskell.Liquid.Constraint.RewriteCase
 import           Language.Haskell.Liquid.Transforms.CoreToLogic (weakenResult, runToLogic, coreToLogic)
 import           Language.Haskell.Liquid.Bare.DataType (dataConMap, makeDataConChecker)
-import           Language.Haskell.Liquid.UX.Config
+import Language.Haskell.Liquid.UX.Config
+    ( HasConfig(getConfig),
+      Config(typeclass, gradual, checkDerived, extensionality,
+             nopolyinfer, noADT, dependantCase, exactDC, rankNTypes),
+      patternFlag,
+      higherOrderFlag )
 
 --------------------------------------------------------------------------------
 -- | Constraint Generation: Toplevel -------------------------------------------
@@ -1008,11 +1013,10 @@ argExpr _ _                = Nothing
 lamExpr :: CGEnv -> CoreExpr -> CG (Maybe F.Expr)
 lamExpr g e = do
     adts <- gets cgADTs
-    allowTC <- gets cgiTypeclass
     let dm = dataConMap adts
-    return $ eitherToMaybe $ runToLogic (emb g) mempty dm
+    return $ eitherToMaybe $ runToLogic (emb g) mempty dm (getConfig g)
       (\x -> todo Nothing ("coreToLogic not working lamExpr: " ++ x))
-      (coreToLogic allowTC e)
+      (coreToLogic e)
 
 --------------------------------------------------------------------------------
 (??=) :: (?callStack :: CallStack) => CGEnv -> Var -> CG SpecType
