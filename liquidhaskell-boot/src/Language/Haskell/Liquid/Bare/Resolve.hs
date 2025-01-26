@@ -23,14 +23,12 @@ module Language.Haskell.Liquid.Bare.Resolve
   , Lookup
 
   -- * Looking up names
-  , maybeResolveSym
   , lookupGhcDataCon
   , lookupGhcDataConLHName
   , lookupGhcDnTyCon
   , lookupGhcTyCon
   , lookupGhcVar
   , lookupGhcIdLHName
-  , lookupGhcNamedVar
   , lookupLocalVar
   , lookupGhcTyConLHName
   , lookupGhcId
@@ -306,13 +304,6 @@ srcVars src = filter Ghc.isId .  fmap Misc.thd3 . Misc.fstByRank $ concat
 
 dataConVars :: [Ghc.DataCon] -> [Ghc.Var]
 dataConVars dcs = (Ghc.dataConWorkId <$> dcs) ++ (Ghc.dataConWrapId <$> dcs)
-
--------------------------------------------------------------------------------
-lookupGhcNamedVar :: (Ghc.NamedThing a, F.Symbolic a) => Env -> ModName -> a -> Maybe Ghc.Var
--------------------------------------------------------------------------------
-lookupGhcNamedVar env name z = maybeResolveSym  env name "Var" lx
-  where
-    lx                       = GM.namedLocSymbol z
 
 lookupGhcVar :: Env -> ModName -> String -> LocSymbol -> Lookup Ghc.Var
 lookupGhcVar env name kind lx = case resolveLocSym env name kind lx of
@@ -633,20 +624,6 @@ splitModuleNameExact x' = myTracepp ("splitModuleNameExact for " ++ F.showpp x)
 
 errResolve :: PJ.Doc -> String -> LocSymbol -> Error
 errResolve k msg lx = ErrResolve (GM.fSrcSpan lx) k (F.pprint (F.val lx)) (PJ.text msg)
-
--- -- | @strictResolve@ wraps the plain @resolve@ to throw an error
--- --   if the name being searched for is unknown.
--- strictResolveSym :: (ResolveSym a) => Env -> ModName -> String -> LocSymbol -> a
--- strictResolveSym env name kind x = case resolveLocSym env name kind x of
---   Left  err -> Misc.errorP "error-strictResolveSym" (F.showpp err)
---   Right val -> val
-
--- | @maybeResolve@ wraps the plain @resolve@ to return @Nothing@
---   if the name being searched for is unknown.
-maybeResolveSym :: (ResolveSym a) => Env -> ModName -> String -> LocSymbol -> Maybe a
-maybeResolveSym env name kind x = case resolveLocSym env name kind x of
-  Left  _   -> Nothing
-  Right val -> Just val
 
 -------------------------------------------------------------------------------
 -- | @ofBareType@ and @ofBareTypeE@ should be the _only_ @SpecType@ constructors
