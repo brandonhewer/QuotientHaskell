@@ -23,7 +23,6 @@ module Language.Haskell.Liquid.Bare.Resolve
   , Lookup
 
   -- * Looking up names
-  , lookupGhcDataCon
   , lookupGhcDataConLHName
   , lookupGhcDnTyCon
   , lookupGhcTyCon
@@ -348,9 +347,6 @@ lookupLocalVar localVars lx gvs = findNearest lxn kvs
     argMin :: (Ord k) => [(k, v)] -> Maybe v
     argMin = Mb.listToMaybe . map snd . L.sortBy (compare `on` fst)
 
-
-lookupGhcDataCon :: Env -> ModName -> String -> LocSymbol -> Lookup Ghc.DataCon
-lookupGhcDataCon = resolveLocSym -- strictResolveSym
 
 lookupGhcTyCon :: Env -> ModName -> String -> LocSymbol -> Lookup Ghc.TyCon
 lookupGhcTyCon env name k lx = myTracepp ("LOOKUP-TYCON: " ++ F.showpp (val lx))
