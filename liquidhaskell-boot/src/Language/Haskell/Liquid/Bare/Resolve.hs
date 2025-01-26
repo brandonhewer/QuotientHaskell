@@ -19,7 +19,6 @@ module Language.Haskell.Liquid.Bare.Resolve
   , GHCTyLookupEnv(..)
 
     -- * Resolving symbols
-  , ResolveSym (..)
   , Lookup
 
   -- * Looking up names
@@ -53,7 +52,6 @@ module Language.Haskell.Liquid.Bare.Resolve
   ) where
 
 import qualified Control.Exception                 as Ex
-import           Control.Monad (mplus)
 import           Data.Bifunctor (first)
 import           Data.Function (on)
 import           Data.IORef (newIORef)
@@ -61,7 +59,6 @@ import qualified Data.List                         as L
 import qualified Data.HashSet                      as S
 import qualified Data.Maybe                        as Mb
 import qualified Data.HashMap.Strict               as M
-import qualified Data.Text                         as T
 import           GHC.Stack
 import           Text.Megaparsec.Pos (sourceColumn, sourceLine)
 import qualified Text.PrettyPrint.HughesPJ         as PJ
@@ -392,203 +389,6 @@ _rTypeTyCons        = Misc.sortNub . foldRType f []
   where
     f acc t@RApp {} = rt_tycon t : acc
     f acc _         = acc
-
--------------------------------------------------------------------------------
--- | Using the environment
--------------------------------------------------------------------------------
-class ResolveSym a where
-  resolveLocSym :: Env -> ModName -> String -> LocSymbol -> Lookup a
-
-instance ResolveSym Ghc.Var where
-  resolveLocSym = resolveWith "variable" $ \case
-                    Ghc.AnId x -> Just x
-                    _          -> Nothing
-
-instance ResolveSym Ghc.TyCon where
-  resolveLocSym = resolveWith "type constructor" $ \case
-                    Ghc.ATyCon x -> Just x
-                    _            -> Nothing
-
-instance ResolveSym Ghc.DataCon where
-  resolveLocSym = resolveWith "data constructor" $ \case
-                    Ghc.AConLike (Ghc.RealDataCon x) -> Just x
-                    _                                -> Nothing
-
-
-{- Note [ResolveSym for Symbol]
-
-In case we need to resolve (aka qualify) a 'Symbol', we need to do some extra work. Generally speaking,
-all these 'ResolveSym' instances perform a lookup into a 'Map' keyed by the 'Symbol' in
-order to find a 'TyThing'. More specifically such map is known as the 'TyThingMap':
-
-type TyThingMap = M.HashMap F.Symbol [(F.Symbol, Ghc.TyThing)]
-
-This means, in practice, that we might have more than one result indexed by a given 'Symbol', and we need
-to make a choice. The function 'rankedThings' does this. By default, we try to extract only /identifiers/
-(i.e. a GHC's 'Id') out of an input 'TyThing', but in the case of test \"T1688\", something different happened.
-By tracing calls to 'rankedThings' (called by 'resolveLocSym') there were cases where we had something like
-this as our input TyThingMap:
-
-[
- 1 : T1688Lib : Data constructor T1688Lib.Lambda,
- 1 : T1688Lib : Identifier T1688Lib.Lambda
-]
-
-Here name resolution worked because 'resolveLocSym' used the 'ResolveSym' instance defined for 'GHC.Var' that
-looks only for 'Id's (contained inside 'Identifier's, and we had one). In some other cases, though,
-'resolveLocSym' got called with only this:
-
-[1 : T1688Lib : Data constructor T1688Lib.Lambda]
-
-This would /not/ yield a match, despite the fact a \"Data constructor\" in principle /does/ contain an 'Id'
-(it can be extracted out of a 'RealDataCon' by calling 'dataConWorkId'). In the case of test T1688, such
-failed lookup caused the 'Symbol' to /not/ qualify, which in turn caused the symbols inside the type synonym:
-
-ProofOf( Step (App (Lambda x e) v) e)
-
-To not qualify. Finally, by the time 'expand' was called, the 'ProofOf' type alias would be replaced with
-the correct refinement, but the unqualified 'Symbol's would now cause a test failure when refining the client
-module.
-
-It's not clear to me (Alfredo) why 'resolveLocSym' is called multiple times within the same module with
-different inputs, but it definitely makes sense to allow for the special case here, at least for 'Symbol's.
-
-Probably finding the /root cause/ would entail partially rewriting the name resoultion engine.
-
--}
-
-
-instance ResolveSym F.Symbol where
-  resolveLocSym env name _ lx =
-    -- If we can't resolve the input 'Symbol' from an 'Id', try again
-    -- by grabbing the 'Id' of an 'AConLike', if any.
-    -- See Note [ResolveSym for Symbol].
-    let resolved =  resolveLocSym env name "Var" lx
-                 <> resolveWith "variable" lookupVarInsideRealDataCon env name "Var" lx
-    in case resolved of
-      Left _               -> Right (val lx)
-      Right (v :: Ghc.Var) -> Right (F.symbol v)
-    where
-      lookupVarInsideRealDataCon :: Ghc.TyThing -> Maybe Ghc.Var
-      lookupVarInsideRealDataCon = \case
-        Ghc.AConLike (Ghc.RealDataCon x) -> Just (Ghc.dataConWorkId x)
-        _                                -> Nothing
-
-
-
-resolveWith :: (PPrint a) => PJ.Doc -> (Ghc.TyThing -> Maybe a) -> Env -> ModName -> String -> LocSymbol
-            -> Lookup a
-resolveWith kind f env name str lx =
-  -- case Mb.mapMaybe f things of
-  case rankedThings f things of
-    []  -> Left [errResolve kind str lx]
-    [x] -> Right x
-    xs  -> Left [ErrDupNames sp (pprint (F.val lx)) (pprint <$> xs)]
-  where
-    _xSym   = F.val lx
-    sp      = GM.fSrcSpanSrcSpan (F.srcSpan lx)
-    things  = myTracepp msg $ lookupTyThingLH env name lx
-    msg     = "resolveWith: " ++ str ++ " " ++ F.showpp (val lx)
-
-
-rankedThings :: (Misc.EqHash k) => (a -> Maybe b) -> [(k, a)] -> [b]
-rankedThings f ias = case Misc.sortOn fst (Misc.groupList ibs) of
-                       (_,ts):_ -> ts
-                       []       -> []
-  where
-    ibs            = Mb.mapMaybe (\(k, x) -> (k,) <$> f x) ias
-
--------------------------------------------------------------------------------
--- | @lookupTyThingLH@ is the central place where we lookup the @Env@ to find
---   any @Ghc.TyThing@ that match that name. The code is a bit hairy as we
---   have various heuristics to approximiate how GHC resolves names. e.g.
---   see tests-names-pos-*.hs, esp. vector04.hs where we need the name `Vector`
---   to resolve to `Data.Vector.Vector` and not `Data.Vector.Generic.Base.Vector`...
--------------------------------------------------------------------------------
-lookupTyThingLH :: Env -> ModName -> LocSymbol -> [((Int, F.Symbol), Ghc.TyThing)]
--------------------------------------------------------------------------------
-lookupTyThingLH env mdname lsym = [ (k, t) | (k, ts) <- ordMatches, t <- ts]
-
-  where
-    ordMatches             = Misc.sortOn fst (Misc.groupList matches)
-    matches                = myTracepp ("matches-" ++ msg)
-                             [ ((k, m), t) | (m, t) <- lookupThings env x
-                                           , k      <- myTracepp msg $ mm nameSym m mds ]
-    msg                    = "lookupTyThingLH: " ++ F.showpp (lsym, x, mds)
-    (x, mds)               = symbolModules env (F.val lsym)
-    nameSym                = F.symbol mdname
-    mm name m mods         = myTracepp ("matchMod: " ++ F.showpp (lsym, name, m, mods)) $
-                               matchMod env name m mods
-
-lookupThings :: Env -> F.Symbol -> [(F.Symbol, Ghc.TyThing)]
-lookupThings env x = myTracepp ("lookupThings: " ++ F.showpp x)
-                   $ Mb.fromMaybe [] $ get x `mplus` get (GM.stripParensSym x)
-  where
-    get z          = M.lookup z (_reTyThings env)
-
-matchMod :: Env -> F.Symbol -> F.Symbol -> Maybe [F.Symbol] -> [Int]
-matchMod env tgtName defName = go
-  where
-    go Nothing               -- Score UNQUALIFIED names
-     | defName == tgtName = [0]                       -- prioritize names defined in *this* module
-     | otherwise          = [matchImp env defName 1]  -- prioritize directly imported modules over
-                                                      -- names coming from elsewhere, with a
-
-    go (Just ms)             -- Score QUALIFIED names
-     |  isEmptySymbol defName
-     && ms == [tgtName]   = [0]                       -- local variable, see tests-names-pos-local00.hs
-     | ms == [defName]    = [1]
-     | isExt              = [matchImp env defName 2]  -- to allow matching re-exported names e.g. Data.Set.union for Data.Set.Internal.union
-     | otherwise          = []
-     where
-       isExt              = any (`isParentModuleOf` defName) ms
-
--- | Returns 'True' if the 'Symbol' given as a first argument represents a parent module for the second.
---
--- >>> L.symbolic "Data.Text" `isParentModuleOf` L.symbolic "Data.Text.Internal"
--- True
---
--- Invariants:
---
--- * The empty 'Symbol' is always considered the module prefix of the second,
---   in compliance with 'isPrefixOfSym' (AND: why?)
--- * If the parent \"hierarchy\" is smaller than the children's one, this is clearly not a parent module.
-isParentModuleOf :: F.Symbol -> F.Symbol -> Bool
-isParentModuleOf parentModule childModule
-  | isEmptySymbol parentModule = True
-  | otherwise                  =
-    length parentHierarchy <= length childHierarchy && all (uncurry (==)) (zip parentHierarchy childHierarchy)
-  where
-    parentHierarchy :: [T.Text]
-    parentHierarchy = T.splitOn "." . F.symbolText $ parentModule
-
-    childHierarchy :: [T.Text]
-    childHierarchy = T.splitOn "." . F.symbolText $ childModule
-
-
-symbolModules :: Env -> F.Symbol -> (F.Symbol, Maybe [F.Symbol])
-symbolModules env s = (x, glerb <$> modMb)
-  where
-    (modMb, x)      = unQualifySymbol s
-    glerb m         = M.lookupDefault [m] m qImps
-    qImps           = qiNames (reQualImps env)
-
--- | @matchImp@ lets us prioritize @TyThing@ defined in directly imported modules over
---   those defined elsewhere. Specifically, in decreasing order of priority we have
---   TyThings that we:
---   * DIRECTLY     imported WITHOUT qualification
---   * TRANSITIVELY imported (e.g. were re-exported by SOME imported module)
---   * QUALIFIED    imported (so qualify the symbol to get this result!)
-
-matchImp :: Env -> F.Symbol -> Int -> Int
-matchImp env defName i
-  | isUnqualImport = i
-  | isQualImport   = i + 2
-  | otherwise      = i + 1
-  where
-    isUnqualImport = S.member defName (reAllImps env) && not isQualImport
-    isQualImport   = S.member defName (qiModules (reQualImps env))
-
 
 -- | `unQualifySymbol name sym` splits `sym` into a pair `(mod, rest)` where
 --   `mod` is the name of the module, derived from `sym` if qualified.
