@@ -1173,8 +1173,8 @@ makeTycEnv0 cfg myName env embs mySpec iSpecs = (diag0 <> diag1, datacons, Bare.
     tyi           = makeTyConInfo embs fiTcs tycons
     -- tycons        = F.tracepp "TYCONS" $ Misc.replaceWith tcpCon tcs wiredTyCons
     -- datacons      =  Bare.makePluggedDataCons embs tyi (Misc.replaceWith (dcpCon . val) (F.tracepp "DATACONS" $ concat dcs) wiredDataCons)
-    tycons        = tcs ++ knownWiredTyCons env myName
-    datacons      = Bare.makePluggedDataCon (typeclass cfg) embs tyi <$> (concat dcs ++ knownWiredDataCons env myName)
+    tycons        = tcs ++ wiredTyCons
+    datacons      = Bare.makePluggedDataCon (typeclass cfg) embs tyi <$> (concat dcs ++ wiredDataCons)
     tds           = [(name, tcpCon tcp, dd) | (name, tcp, Just dd) <- tcDds]
     (diag1, adts) = Bare.makeDataDecls cfg embs myName tds       datacons
     dm            = Bare.dataConMap adts
@@ -1200,18 +1200,6 @@ makeTycEnv1 myName env (tycEnv, datacons) coreToLg simplifier = do
     (classdcs, dcs) =
       L.partition
         (Ghc.isClassTyCon . Ghc.dataConTyCon . dcpCon . F.val) datacons
-
-
-knownWiredDataCons :: Bare.Env -> ModName -> [Located DataConP]
-knownWiredDataCons env name = filter isKnown wiredDataCons
-  where
-    isKnown                 = Bare.knownGhcDataCon env name . GM.namedLocSymbol . dcpCon . val
-
-knownWiredTyCons :: Bare.Env -> ModName -> [TyConP]
-knownWiredTyCons env name = filter isKnown wiredTyCons
-  where
-    isKnown               = Bare.knownGhcTyCon env name . GM.namedLocSymbol . tcpCon
-
 
 -- REBARE: formerly, makeGhcCHOP2
 -------------------------------------------------------------------------------------------
