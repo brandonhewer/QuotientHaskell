@@ -208,7 +208,7 @@ makeGhcSpec0
 makeGhcSpec0 cfg ghcTyLookupEnv tcg instEnvs lenv localVars src lmap targetSpec dependencySpecs = do
   globalRdrEnv <- Ghc.tcg_rdr_env <$> Ghc.getGblEnv
   -- build up environments
-  tycEnv <- makeTycEnv1 name env (tycEnv0, datacons) coreToLg simplifier
+  tycEnv <- makeTycEnv1 env (tycEnv0, datacons) coreToLg simplifier
   let tyi      = Bare.tcTyConMap   tycEnv
   let sigEnv   = makeSigEnv  embs tyi (_gsExports src) rtEnv
   let lSpec1   = makeLiftedSpec1 cfg src tycEnv lmap mySpec1
@@ -1184,16 +1184,15 @@ makeTycEnv0 cfg myName env embs mySpec iSpecs = (diag0 <> diag1, datacons, Bare.
 
 
 makeTycEnv1 ::
-     ModName
-  -> Bare.Env
+     Bare.Env
   -> (Bare.TycEnv, [Located DataConP])
   -> (Ghc.CoreExpr -> F.Expr)
   -> (Ghc.CoreExpr -> Ghc.TcRn Ghc.CoreExpr)
   -> Ghc.TcRn Bare.TycEnv
-makeTycEnv1 myName env (tycEnv, datacons) coreToLg simplifier = do
+makeTycEnv1 env (tycEnv, datacons) coreToLg simplifier = do
   -- fst for selector generation, snd for dataconsig generation
   lclassdcs <- forM classdcs $ traverse (Bare.elaborateClassDcp coreToLg simplifier)
-  let recSelectors = Bare.makeRecordSelectorSigs env myName (dcs ++ (fmap . fmap) snd lclassdcs)
+  let recSelectors = Bare.makeRecordSelectorSigs env (dcs ++ (fmap . fmap) snd lclassdcs)
   pure $
     tycEnv {Bare.tcSelVars = recSelectors, Bare.tcDataCons = F.val <$> ((fmap . fmap) fst lclassdcs ++ dcs )}
   where

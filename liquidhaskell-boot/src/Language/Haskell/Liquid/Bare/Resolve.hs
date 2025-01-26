@@ -33,6 +33,7 @@ module Language.Haskell.Liquid.Bare.Resolve
   , lookupGhcNamedVar
   , lookupLocalVar
   , lookupGhcTyConLHName
+  , lookupGhcId
 
   -- * Checking if names exist
   , knownGhcType
@@ -392,6 +393,16 @@ lookupGhcIdLHName env lname =
      Ghc.AnId x -> Right x
      _ -> panic
            (Just $ GM.fSrcSpan lname) $ "not a variable or data constructor: " ++ show (val lname)
+
+lookupGhcId :: Env -> Ghc.Name -> Maybe Ghc.Id
+-- see note about unsafePerformIO in lookupTyThingMaybe
+lookupGhcId env n =
+    case unsafePerformIO $ Ghc.reflectGhc (Interface.lookupTyThing (gtleTypeEnv env') n) (gtleSession env') of
+      Just (Ghc.AConLike (Ghc.RealDataCon d)) -> Just (Ghc.dataConWorkId d)
+      Just (Ghc.AnId x) -> Just x
+      _ -> Nothing
+  where
+    env' = reTyLookupEnv env
 
 -------------------------------------------------------------------------------
 -- | Checking existence of names

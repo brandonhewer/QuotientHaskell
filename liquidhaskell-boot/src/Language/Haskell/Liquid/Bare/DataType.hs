@@ -775,8 +775,8 @@ unDummy :: F.Symbol -> Int -> F.Symbol
 unDummy x i | x /= F.dummySymbol = x
             | otherwise          = F.symbol ("_cls_lq" ++ show i)
 
-makeRecordSelectorSigs :: Bare.Env -> ModName -> [Located DataConP] -> [(Ghc.Var, LocSpecType)]
-makeRecordSelectorSigs env name = checkRecordSelectorSigs . concatMap makeOne
+makeRecordSelectorSigs :: Bare.Env -> [Located DataConP] -> [(Ghc.Var, LocSpecType)]
+makeRecordSelectorSigs env = checkRecordSelectorSigs . concatMap makeOne
   where
   makeOne (Loc l l' dcp)
     | Just cls <- maybe_cls
@@ -793,7 +793,7 @@ makeRecordSelectorSigs env name = checkRecordSelectorSigs . concatMap makeOne
       maybe_cls = Ghc.tyConClass_maybe (Ghc.dataConTyCon dc)
       dc  = dcpCon dcp
       fls = Ghc.dataConFieldLabels dc
-      fs  = Bare.lookupGhcNamedVar env name . Ghc.flSelector <$> fls
+      fs  = Bare.lookupGhcId env . Ghc.flSelector <$> fls
       ts :: [ LocSpecType ]
       ts = [ Loc l l' (mkArrow (map (, mempty) (makeRTVar <$> dcpFreeTyVars dcp)) []
                                  [(z, classRFInfo True, res, mempty)]
