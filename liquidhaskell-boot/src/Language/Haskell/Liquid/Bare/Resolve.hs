@@ -25,8 +25,6 @@ module Language.Haskell.Liquid.Bare.Resolve
   -- * Looking up names
   , lookupGhcDataConLHName
   , lookupGhcDnTyCon
-  , lookupGhcTyCon
-  , lookupGhcVar
   , lookupGhcIdLHName
   , lookupLocalVar
   , lookupGhcTyConLHName
@@ -304,15 +302,6 @@ srcVars src = filter Ghc.isId .  fmap Misc.thd3 . Misc.fstByRank $ concat
 dataConVars :: [Ghc.DataCon] -> [Ghc.Var]
 dataConVars dcs = (Ghc.dataConWorkId <$> dcs) ++ (Ghc.dataConWrapId <$> dcs)
 
-lookupGhcVar :: Env -> ModName -> String -> LocSymbol -> Lookup Ghc.Var
-lookupGhcVar env name kind lx = case resolveLocSym env name kind lx of
-    Right v -> Mb.maybe (Right v) (either Right Right) (lookupLocalVar (reLocalVars env) lx [v])
-    Left  e -> Mb.maybe (Left  e) (either Right Right) (lookupLocalVar (reLocalVars env) lx [])
-
-  -- where
-    -- err e   = Misc.errorP "error-lookupGhcVar" (F.showpp (e, F.loc lx, lx))
-  --  err     = Ex.throw
-
 -- | @lookupLocalVar@ takes as input the list of "global" (top-level) vars
 --   that also match the name @lx@; we then pick the "closest" definition.
 --   See tests/names/LocalSpec.hs for a motivating example.
@@ -347,10 +336,6 @@ lookupLocalVar localVars lx gvs = findNearest lxn kvs
     argMin :: (Ord k) => [(k, v)] -> Maybe v
     argMin = Mb.listToMaybe . map snd . L.sortBy (compare `on` fst)
 
-
-lookupGhcTyCon :: Env -> ModName -> String -> LocSymbol -> Lookup Ghc.TyCon
-lookupGhcTyCon env name k lx = myTracepp ("LOOKUP-TYCON: " ++ F.showpp (val lx))
-                               $ {- strictResolveSym -} resolveLocSym env name k lx
 
 lookupGhcDnTyCon :: Env -> ModName -> DataName -> Lookup (Maybe Ghc.TyCon)
 lookupGhcDnTyCon env name = failMaybe env name . lookupGhcDnTyConE env
