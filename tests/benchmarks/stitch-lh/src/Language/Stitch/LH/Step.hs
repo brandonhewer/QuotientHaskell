@@ -18,11 +18,8 @@
 
 module Language.Stitch.LH.Step where
 
--- XXX: Needed to avoid missing symbols in LH
-import qualified Data.Map as Map
 import Language.Haskell.Liquid.ProofCombinators
 import Language.Stitch.LH.Data.List (List(..))
--- XXX: Needed to avoid missing symbols in LH
 import qualified Language.Stitch.LH.Data.List as List
 import Language.Stitch.LH.Data.Nat
 import Language.Stitch.LH.Check

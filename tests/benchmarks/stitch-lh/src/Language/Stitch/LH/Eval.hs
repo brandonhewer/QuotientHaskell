@@ -19,8 +19,6 @@
 
 module Language.Stitch.LH.Eval where
 
--- XXX: Needed to avoid missing symbols in LH
-import qualified Data.Map as Map
 import Language.Haskell.Liquid.ProofCombinators (Proof, trivial, (?))
 import Language.Stitch.LH.Data.List (List(..))
 import qualified Language.Stitch.LH.Data.List as List
