@@ -448,13 +448,16 @@ makeSpecVars :: Config -> GhcSrc -> Ms.BareSpec -> Bare.Env -> Bare.MeasEnv
              -> Bare.Lookup GhcSpecVars
 ------------------------------------------------------------------------------------------
 makeSpecVars cfg src mySpec env measEnv = do
-  tgtVars     <-   mapM (resolveStringVar  env name)              (checks     cfg)
+  let tgtVars = Mb.mapMaybe (`M.lookup` hvars) (checks     cfg)
   igVars      <-  sMapM (Bare.lookupGhcIdLHName env) (Ms.ignores mySpec)
   lVars       <-  sMapM (Bare.lookupGhcIdLHName env) (Ms.lvars   mySpec)
   return (SpVar tgtVars igVars lVars cMethods)
   where
-    name       = _giTargetMod src
     cMethods   = snd3 <$> Bare.meMethods measEnv
+    hvars = M.fromList
+      [ (Ghc.occNameString $ Ghc.getOccName b, b)
+      | b <- Ghc.bindersOfBinds (_giCbs src)
+      ]
 
 sMapM :: (Monad m, Eq b, Hashable b) => (a -> m b) -> S.HashSet a -> m (S.HashSet b)
 sMapM f xSet = do
@@ -463,16 +466,6 @@ sMapM f xSet = do
 
 sForM :: (Monad m, Eq b, Hashable b) =>S.HashSet a -> (a -> m b) -> m (S.HashSet b)
 sForM xs f = sMapM f xs
-
-qualifySymbolic :: (F.Symbolic a) => ModName -> a -> F.Symbol
-qualifySymbolic name s = GM.qualifySymbol (F.symbol name) (F.symbol s)
-
-resolveStringVar :: Bare.Env -> ModName -> String -> Bare.Lookup Ghc.Var
-resolveStringVar env name s = Bare.lookupGhcVar env name "resolve-string-var" lx
-  where
-    lx                      = dummyLoc (qualifySymbolic name s)
-
-
 
 ------------------------------------------------------------------------------------------
 makeSpecQual
