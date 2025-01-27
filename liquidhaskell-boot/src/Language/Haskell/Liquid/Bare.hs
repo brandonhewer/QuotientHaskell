@@ -973,11 +973,8 @@ getAsmSigs myName name spec
   | otherwise      =
       [ (False, x, t)
       | (x, t) <- Ms.asmSigs spec
-                  ++ map (first (fmap (updateLHNameSymbol qSym))) (Ms.sigs spec)
+                  ++ Ms.sigs spec
       ]
-  where
-    qSym           = GM.qualifySymbol ns
-    ns             = F.symbol name
 
 makeSigEnv :: F.TCEmb Ghc.TyCon -> Bare.TyConMap -> S.HashSet StableName -> BareRTEnv -> Bare.SigEnv
 makeSigEnv embs tyi exports rtEnv = Bare.SigEnv
