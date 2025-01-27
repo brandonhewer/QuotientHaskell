@@ -5,7 +5,6 @@
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE FlexibleInstances     #-}
-{-# LANGUAGE LambdaCase            #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE ConstraintKinds       #-}
