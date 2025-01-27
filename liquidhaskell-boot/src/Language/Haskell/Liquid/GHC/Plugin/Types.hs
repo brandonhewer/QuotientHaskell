@@ -21,8 +21,6 @@ module Language.Haskell.Liquid.GHC.Plugin.Types
 
     -- * Acquiring and manipulating data from the typechecking phase
     , TcData
-    , tcAllImports
-    , tcQualifiedImports
     , tcResolvedNames
     , tcAvailableTyCons
     , tcAvailableVars
@@ -33,14 +31,10 @@ import           Data.Binary                             as B
 import           Data.Data                               ( Data )
 import           GHC.Generics                      hiding ( moduleName )
 
-import qualified Data.HashSet        as HS
-
 import           Language.Haskell.Liquid.Parse (BPspec)
 import           Language.Haskell.Liquid.Types.Specs
 import           Liquid.GHC.API         as GHC
-import qualified Language.Haskell.Liquid.GHC.Interface   as LH
 import           Language.Haskell.Liquid.GHC.Misc (realSrcLocSourcePos)
-import           Language.Fixpoint.Types.Names            ( Symbol )
 import           Language.Fixpoint.Types.Spans            ( SourcePos, dummyPos )
 
 
@@ -104,9 +98,7 @@ data PipelineData = PipelineData {
 -- guaranteed not to change, but things like identifiers might, so they shouldn't
 -- land here.
 data TcData = TcData {
-    tcAllImports       :: HS.HashSet Symbol
-  , tcQualifiedImports :: QImports
-  , tcResolvedNames    :: [(Name, Maybe TyThing)]
+    tcResolvedNames    :: [(Name, Maybe TyThing)]
   , tcAvailableTyCons  :: [GHC.TyCon]
   -- ^ Sometimes we might be in a situation where we have \"wrapper\" modules that
   -- simply re-exports everything from the original module, and therefore when LH
@@ -121,22 +113,17 @@ data TcData = TcData {
 
 instance Outputable TcData where
     ppr (TcData{..}) =
-          text "TcData { imports     = " <+> text (show $ HS.toList tcAllImports)
-      <+> text "       , qImports    = " <+> text (show tcQualifiedImports)
-      <+> text "       , names       = " <+> ppr tcResolvedNames
+          text "       , names       = " <+> ppr tcResolvedNames
       <+> text "       , availTyCons = " <+> ppr tcAvailableTyCons
       <+> text " }"
 
 -- | Constructs a 'TcData' out of a 'TcGblEnv'.
-mkTcData :: [LImportDecl GhcRn]
-         -> [(Name, Maybe TyThing)]
+mkTcData :: [(Name, Maybe TyThing)]
          -> [TyCon]
          -> [Var]
          -> TcData
-mkTcData imps resolvedNames availTyCons availVars = TcData {
-    tcAllImports       = LH.allImports       imps
-  , tcQualifiedImports = LH.qualifiedImports imps
-  , tcResolvedNames    = resolvedNames
+mkTcData resolvedNames availTyCons availVars = TcData {
+    tcResolvedNames    = resolvedNames
   , tcAvailableTyCons  = availTyCons
   , tcAvailableVars    = availVars
   }

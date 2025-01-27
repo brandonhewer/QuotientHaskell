@@ -30,8 +30,6 @@ module Language.Haskell.Liquid.GHC.Interface (
   , classCons
   , derivedVars
   , importVars
-  , allImports
-  , qualifiedImports
   , modSummaryHsFile
   , makeFamInstEnv
   , clearSpec
@@ -140,25 +138,6 @@ updLiftedSpec s1 (Just s2) = clearSpec s1 `mappend` s2
 
 clearSpec :: Ms.BareSpec -> Ms.BareSpec
 clearSpec s = s { sigs = [], asmSigs = [], aliases = [], ealiases = [], qualifiers = [], dataDecls = [] }
-
-allImports :: [LImportDecl GhcRn] -> S.HashSet Symbol
-allImports imps = S.fromList (symbol . unLoc . ideclName . unLoc <$> imps)
-
-qualifiedImports :: [LImportDecl GhcRn] -> QImports
-qualifiedImports imps =
-  qImports [ (qn, n) | i         <- imps
-                                  , let decl   = unLoc i
-                                  , let m      = unLoc (ideclName decl)
-                                  , qm        <- maybeToList (unLoc <$> ideclAs decl)
-                                  , let [n,qn] = symbol <$> [m, qm]
-                                  ]
-
-qImports :: [(Symbol, Symbol)] -> QImports
-qImports qns  = QImports
-  { qiNames   = Misc.group qns
-  , qiModules = S.fromList (snd <$> qns)
-  }
-
 
 ---------------------------------------------------------------------------------------
 -- | @lookupTyThings@ grabs all the @Name@s and associated @TyThing@ known to GHC

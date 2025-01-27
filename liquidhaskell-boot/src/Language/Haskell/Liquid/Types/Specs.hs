@@ -185,8 +185,6 @@ data TargetSrc = TargetSrc
   , gsFiTcs     :: ![TyCon]               -- ^ Family instance TyCons
   , gsFiDcs     :: ![(F.Symbol, DataCon)] -- ^ Family instance DataCons
   , gsPrimTcs   :: ![TyCon]               -- ^ Primitive GHC TyCons (from TysPrim.primTyCons)
-  , gsQualImps  :: !QImports              -- ^ Map of qualified imports
-  , gsAllImps   :: !(HashSet F.Symbol)    -- ^ Set of _all_ imported modules
   , gsTyThings  :: ![TyThing]             -- ^ All the @TyThing@s known to GHC
   }
 
@@ -876,8 +874,6 @@ data GhcSrc = Src
   , _gsFiTcs     :: ![TyCon]               -- ^ Family instance TyCons
   , _gsFiDcs     :: ![(F.Symbol, DataCon)] -- ^ Family instance DataCons
   , _gsPrimTcs   :: ![TyCon]               -- ^ Primitive GHC TyCons (from TysPrim.primTyCons)
-  , _gsQualImps  :: !QImports              -- ^ Map of qualified imports
-  , _gsAllImps   :: !(S.HashSet F.Symbol)  -- ^ Set of _all_ imported modules
   , _gsTyThings  :: ![TyThing]             -- ^ All the @TyThing@s known to GHC
   }
 
@@ -913,8 +909,6 @@ toTargetSrc a = TargetSrc
   , gsFiTcs     = _gsFiTcs a
   , gsFiDcs     = _gsFiDcs a
   , gsPrimTcs   = _gsPrimTcs a
-  , gsQualImps  = _gsQualImps a
-  , gsAllImps   = _gsAllImps a
   , gsTyThings  = _gsTyThings a
   }
 
@@ -933,8 +927,6 @@ fromTargetSrc a = Src
   , _gsFiTcs     = gsFiTcs a
   , _gsFiDcs     = gsFiDcs a
   , _gsPrimTcs   = gsPrimTcs a
-  , _gsQualImps  = gsQualImps a
-  , _gsAllImps   = gsAllImps a
   , _gsTyThings  = gsTyThings a
   }
 

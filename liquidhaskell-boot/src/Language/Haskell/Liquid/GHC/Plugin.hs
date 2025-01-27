@@ -327,7 +327,7 @@ mkPipelineData ms tcg0 specs = do
     let availTyCons = [ tc | ATyCon tc <- avails ]
         availVars   = [ var | AnId var <- avails ]
 
-    let tcData = mkTcData (tcg_rn_imports tcg) resolvedNames availTyCons availVars
+    let tcData = mkTcData resolvedNames availTyCons availVars
     return $ PipelineData unoptimisedGuts tcData specs
   where
     noWarnings dflags = dflags { warningFlags = mempty }
@@ -627,8 +627,6 @@ makeTargetSrc cfg file tcData modGuts hscEnv = do
   debugLog $ "gsFiDcs   => " ++ show fiDcs
   debugLog $ "gsPrimTcs => " ++ (O.showSDocUnsafe . O.ppr $ GHC.primTyCons)
   debugLog $ "things   => " ++ (O.showSDocUnsafe . O.vcat . map O.ppr $ things)
-  debugLog $ "allImports => " ++ show (tcAllImports tcData)
-  debugLog $ "qualImports => " ++ show (tcQualifiedImports tcData)
   return $ TargetSrc
     { giTarget    = file
     , giTargetMod = ModName Target (moduleName (mg_module modGuts))
@@ -643,8 +641,6 @@ makeTargetSrc cfg file tcData modGuts hscEnv = do
     , gsFiTcs     = fiTcs
     , gsFiDcs     = fiDcs
     , gsPrimTcs   = GHC.primTyCons
-    , gsQualImps  = tcQualifiedImports tcData
-    , gsAllImps   = tcAllImports       tcData
     , gsTyThings  = [ t | (_, Just t) <- things ]
     }
   where
