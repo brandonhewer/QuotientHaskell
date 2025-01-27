@@ -386,13 +386,12 @@ makeLiftedSpec0 :: Config -> GhcSrc -> F.TCEmb Ghc.TyCon -> LogicMap -> Ms.BareS
                 -> Ms.BareSpec
 makeLiftedSpec0 cfg src embs lmap mySpec = mempty
   { Ms.ealiases  = lmapEAlias . snd <$> Bare.makeHaskellInlines cfg src embs lmap mySpec
-  , Ms.dataDecls = Bare.makeHaskellDataDecls cfg name mySpec tcs
+  , Ms.dataDecls = Bare.makeHaskellDataDecls cfg mySpec tcs
   }
   where
     tcs          = uniqNub (_gsTcs src ++ refTcs)
     refTcs       = reflectedTyCons cfg embs cbs  mySpec
     cbs          = _giCbs       src
-    name         = _giTargetMod src
 
 uniqNub :: (Ghc.Uniquable a) => [a] -> [a]
 uniqNub xs = M.elems $ M.fromList [ (index x, x) | x <- xs ]
@@ -1276,7 +1275,7 @@ addOpaqueReflMeas cfg tycEnv env spec measEnv specs eqs = do
       , shouldBeUsedForScanning $ makeGHCLHName (Ghc.getName v) (symbol v)
       ]
     tcs           = S.toList $ Ghc.dataConTyCon `S.map` Bare.getReflDCs measEnv varsUsedForTcScanning
-    dataDecls     = Bare.makeHaskellDataDecls cfg name spec tcs
+    dataDecls     = Bare.makeHaskellDataDecls cfg spec tcs
     tyi           = Bare.tcTyConMap    tycEnv
     embs          = Bare.tcEmbs        tycEnv
     dm            = Bare.tcDataConMap  tycEnv

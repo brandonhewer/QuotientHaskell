@@ -160,14 +160,14 @@ coreToFun' cfg embs dmMb lmap x v defn ok = either Ex.throw ok act
 
 
 -------------------------------------------------------------------------------
-makeHaskellDataDecls :: Config -> ModName -> Ms.BareSpec -> [Ghc.TyCon]
+makeHaskellDataDecls :: Config -> Ms.BareSpec -> [Ghc.TyCon]
                      -> [DataDecl]
 --------------------------------------------------------------------------------
-makeHaskellDataDecls cfg name spec tcs
+makeHaskellDataDecls cfg spec tcs
   | exactDCFlag cfg = Bare.dataDeclSize spec
                     . Mb.mapMaybe tyConDataDecl
                     -- . F.tracepp "makeHaskellDataDecls-3"
-                    . zipMap   (hasDataDecl name spec . fst)
+                    . zipMap   (hasDataDecl spec . fst)
                     -- . F.tracepp "makeHaskellDataDecls-2"
                     . liftableTyCons
                     -- . F.tracepp "makeHaskellDataDecls-1"
@@ -195,21 +195,15 @@ zipMap f xs = zip xs (map f xs)
 zipMapMaybe :: (a -> Maybe b) -> [a] -> [(a, b)]
 zipMapMaybe f = Mb.mapMaybe (\x -> (x, ) <$> f x)
 
-hasDataDecl :: ModName -> Ms.BareSpec -> Ghc.TyCon -> HasDataDecl
-hasDataDecl modName spec
-                 = \tc -> F.notracepp (msg tc) $ M.lookupDefault defn (tcName tc) decls
+hasDataDecl :: Ms.BareSpec -> Ghc.TyCon -> HasDataDecl
+hasDataDecl spec
+                 = \tc -> F.notracepp (msg tc) $ M.lookupDefault defn (tyConDataName tc) decls
   where
-    msg tc       = "hasDataDecl " ++ show (tcName tc)
+    msg tc       = "hasDataDecl " ++ show (tyConDataName tc)
     defn         = NoDecl Nothing
-    tcName       = fmap (qualifiedDataName modName) . tyConDataName
-    dcName       =       qualifiedDataName modName  . tycName
     decls        = M.fromList [ (Just dn, hasDecl d)
                                 | d     <- Ms.dataDecls spec
-                                , let dn = dcName d]
-
-qualifiedDataName :: ModName -> DataName -> DataName
-qualifiedDataName modName (DnName lx) = DnName (updateLHNameSymbol (qualifyModName modName) <$> lx)
-qualifiedDataName modName (DnCon  lx) = DnCon  (updateLHNameSymbol (qualifyModName modName) <$> lx)
+                                , let dn = tycName d]
 
 {-tyConDataDecl :: {tc:TyCon | isAlgTyCon tc} -> Maybe DataDecl @-}
 tyConDataDecl :: ((Ghc.TyCon, DataName), HasDataDecl) -> Maybe DataDecl
