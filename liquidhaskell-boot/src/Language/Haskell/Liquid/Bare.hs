@@ -208,7 +208,7 @@ makeGhcSpec0
 makeGhcSpec0 cfg ghcTyLookupEnv tcg instEnvs lenv localVars src lmap targetSpec dependencySpecs = do
   globalRdrEnv <- Ghc.tcg_rdr_env <$> Ghc.getGblEnv
   -- build up environments
-  tycEnv <- makeTycEnv1 name env (tycEnv0, datacons) coreToLg simplifier
+  tycEnv <- makeTycEnv1 env (tycEnv0, datacons) coreToLg simplifier
   let tyi      = Bare.tcTyConMap   tycEnv
   let sigEnv   = makeSigEnv  embs tyi (_gsExports src) rtEnv
   let lSpec1   = makeLiftedSpec1 cfg src tycEnv lmap mySpec1
@@ -386,13 +386,12 @@ makeLiftedSpec0 :: Config -> GhcSrc -> F.TCEmb Ghc.TyCon -> LogicMap -> Ms.BareS
                 -> Ms.BareSpec
 makeLiftedSpec0 cfg src embs lmap mySpec = mempty
   { Ms.ealiases  = lmapEAlias . snd <$> Bare.makeHaskellInlines cfg src embs lmap mySpec
-  , Ms.dataDecls = Bare.makeHaskellDataDecls cfg name mySpec tcs
+  , Ms.dataDecls = Bare.makeHaskellDataDecls cfg mySpec tcs
   }
   where
     tcs          = uniqNub (_gsTcs src ++ refTcs)
     refTcs       = reflectedTyCons cfg embs cbs  mySpec
     cbs          = _giCbs       src
-    name         = _giTargetMod src
 
 uniqNub :: (Ghc.Uniquable a) => [a] -> [a]
 uniqNub xs = M.elems $ M.fromList [ (index x, x) | x <- xs ]
@@ -448,13 +447,16 @@ makeSpecVars :: Config -> GhcSrc -> Ms.BareSpec -> Bare.Env -> Bare.MeasEnv
              -> Bare.Lookup GhcSpecVars
 ------------------------------------------------------------------------------------------
 makeSpecVars cfg src mySpec env measEnv = do
-  tgtVars     <-   mapM (resolveStringVar  env name)              (checks     cfg)
+  let tgtVars = Mb.mapMaybe (`M.lookup` hvars) (checks     cfg)
   igVars      <-  sMapM (Bare.lookupGhcIdLHName env) (Ms.ignores mySpec)
   lVars       <-  sMapM (Bare.lookupGhcIdLHName env) (Ms.lvars   mySpec)
   return (SpVar tgtVars igVars lVars cMethods)
   where
-    name       = _giTargetMod src
     cMethods   = snd3 <$> Bare.meMethods measEnv
+    hvars = M.fromList
+      [ (Ghc.occNameString $ Ghc.getOccName b, b)
+      | b <- Ghc.bindersOfBinds (_giCbs src)
+      ]
 
 sMapM :: (Monad m, Eq b, Hashable b) => (a -> m b) -> S.HashSet a -> m (S.HashSet b)
 sMapM f xSet = do
@@ -463,16 +465,6 @@ sMapM f xSet = do
 
 sForM :: (Monad m, Eq b, Hashable b) =>S.HashSet a -> (a -> m b) -> m (S.HashSet b)
 sForM xs f = sMapM f xs
-
-qualifySymbolic :: (F.Symbolic a) => ModName -> a -> F.Symbol
-qualifySymbolic name s = GM.qualifySymbol (F.symbol name) (F.symbol s)
-
-resolveStringVar :: Bare.Env -> ModName -> String -> Bare.Lookup Ghc.Var
-resolveStringVar env name s = Bare.lookupGhcVar env name "resolve-string-var" lx
-  where
-    lx                      = dummyLoc (qualifySymbolic name s)
-
-
 
 ------------------------------------------------------------------------------------------
 makeSpecQual
@@ -980,11 +972,8 @@ getAsmSigs myName name spec
   | otherwise      =
       [ (False, x, t)
       | (x, t) <- Ms.asmSigs spec
-                  ++ map (first (fmap (updateLHNameSymbol qSym))) (Ms.sigs spec)
+                  ++ Ms.sigs spec
       ]
-  where
-    qSym           = GM.qualifySymbol ns
-    ns             = F.symbol name
 
 makeSigEnv :: F.TCEmb Ghc.TyCon -> Bare.TyConMap -> S.HashSet StableName -> BareRTEnv -> Bare.SigEnv
 makeSigEnv embs tyi exports rtEnv = Bare.SigEnv
@@ -1173,8 +1162,8 @@ makeTycEnv0 cfg myName env embs mySpec iSpecs = (diag0 <> diag1, datacons, Bare.
     tyi           = makeTyConInfo embs fiTcs tycons
     -- tycons        = F.tracepp "TYCONS" $ Misc.replaceWith tcpCon tcs wiredTyCons
     -- datacons      =  Bare.makePluggedDataCons embs tyi (Misc.replaceWith (dcpCon . val) (F.tracepp "DATACONS" $ concat dcs) wiredDataCons)
-    tycons        = tcs ++ knownWiredTyCons env myName
-    datacons      = Bare.makePluggedDataCon (typeclass cfg) embs tyi <$> (concat dcs ++ knownWiredDataCons env myName)
+    tycons        = tcs ++ wiredTyCons
+    datacons      = Bare.makePluggedDataCon (typeclass cfg) embs tyi <$> (concat dcs ++ wiredDataCons)
     tds           = [(name, tcpCon tcp, dd) | (name, tcp, Just dd) <- tcDds]
     (diag1, adts) = Bare.makeDataDecls cfg embs myName tds       datacons
     dm            = Bare.dataConMap adts
@@ -1184,34 +1173,21 @@ makeTycEnv0 cfg myName env embs mySpec iSpecs = (diag0 <> diag1, datacons, Bare.
 
 
 makeTycEnv1 ::
-     ModName
-  -> Bare.Env
+     Bare.Env
   -> (Bare.TycEnv, [Located DataConP])
   -> (Ghc.CoreExpr -> F.Expr)
   -> (Ghc.CoreExpr -> Ghc.TcRn Ghc.CoreExpr)
   -> Ghc.TcRn Bare.TycEnv
-makeTycEnv1 myName env (tycEnv, datacons) coreToLg simplifier = do
+makeTycEnv1 env (tycEnv, datacons) coreToLg simplifier = do
   -- fst for selector generation, snd for dataconsig generation
   lclassdcs <- forM classdcs $ traverse (Bare.elaborateClassDcp coreToLg simplifier)
-  let recSelectors = Bare.makeRecordSelectorSigs env myName (dcs ++ (fmap . fmap) snd lclassdcs)
+  let recSelectors = Bare.makeRecordSelectorSigs env (dcs ++ (fmap . fmap) snd lclassdcs)
   pure $
     tycEnv {Bare.tcSelVars = recSelectors, Bare.tcDataCons = F.val <$> ((fmap . fmap) fst lclassdcs ++ dcs )}
   where
     (classdcs, dcs) =
       L.partition
         (Ghc.isClassTyCon . Ghc.dataConTyCon . dcpCon . F.val) datacons
-
-
-knownWiredDataCons :: Bare.Env -> ModName -> [Located DataConP]
-knownWiredDataCons env name = filter isKnown wiredDataCons
-  where
-    isKnown                 = Bare.knownGhcDataCon env name . GM.namedLocSymbol . dcpCon . val
-
-knownWiredTyCons :: Bare.Env -> ModName -> [TyConP]
-knownWiredTyCons env name = filter isKnown wiredTyCons
-  where
-    isKnown               = Bare.knownGhcTyCon env name . GM.namedLocSymbol . tcpCon
-
 
 -- REBARE: formerly, makeGhcCHOP2
 -------------------------------------------------------------------------------------------
@@ -1299,7 +1275,7 @@ addOpaqueReflMeas cfg tycEnv env spec measEnv specs eqs = do
       , shouldBeUsedForScanning $ makeGHCLHName (Ghc.getName v) (symbol v)
       ]
     tcs           = S.toList $ Ghc.dataConTyCon `S.map` Bare.getReflDCs measEnv varsUsedForTcScanning
-    dataDecls     = Bare.makeHaskellDataDecls cfg name spec tcs
+    dataDecls     = Bare.makeHaskellDataDecls cfg spec tcs
     tyi           = Bare.tcTyConMap    tycEnv
     embs          = Bare.tcEmbs        tycEnv
     dm            = Bare.tcDataConMap  tycEnv

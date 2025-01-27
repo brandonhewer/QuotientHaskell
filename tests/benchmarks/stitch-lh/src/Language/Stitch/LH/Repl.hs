@@ -21,8 +21,6 @@ module Language.Stitch.LH.Repl ( main ) where
 
 import Prelude hiding ( lex )
 
--- XXX: LH requires Map to be in scope ??
-import Data.Map (Map)
 import Language.Stitch.LH.Data.List (List)
 import qualified Language.Stitch.LH.Data.List as List -- XXX: required by LH
 import Language.Stitch.LH.Check
