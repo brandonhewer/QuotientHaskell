@@ -1485,92 +1485,6 @@ executable unit-pos-1
                     , Poly2
                     , Poly3a
                     , Poly3
-                    , Poly4
-                    , PolySet
-                    , PolyBag
-                    , Polyfun
-                    , Polyqual
-                    , PositivityCheck
-                    , Poslist_dc
-                    , Poslist
-                    , Pragma0
-                    , Pred
-                    , PrimInt0
-                    , Product
-                    , Profcrasher
-                    , PromotedDataCons
-                    , Propability
-                    , Propmeasure1
-                    , Propmeasure
-                    , QQTySig
-                    , QQTySigTyVars
-                    , QQTySyn
-                    , QualTest
-                    , Range1
-                    , RangeAdt
-                    , Range
-                    , RBTree_col_height
-                    , RBTree_color
-                    , RBTree_height
-                    , RBTree
-                    , RBTree_ord
-                    , RealProps
-                    , Rebind
-                    , Rec_annot_go
-                    , Record0
-                    , Record1
-                    , RecordSelectorError
-                    , RecQSort0
-                    , RecQSort
-                    , RecSelector
-                    , Recursion0
-                    , Reduction
-                    , RefinedADTs
-                    , Reflect0
-                    , ReflectAlias
-                    , ReflectBooleanFunctions
-                    , ReflectMutual
-                    , RelativeComplete
-                    , RepeatHigherOrder
-                    , Repeat
-                    , ResolveA
-                    , ResolveB
-                    , Resolve
-                    , ResolvePred
-                    , Rest
-                    , ReWrite10
-                    , ReWrite2
-                    , ReWrite3
-                    , ReWrite4
-                    , ReWrite5
-                    , ReWrite6
-                    , ReWrite7
-                    , ReWrite8
-                    , ReWrite9
-                    , ReWrite
-                    , Risers
-                    , Rta
-                    , SafePartialFunctions
-                    , Scanr
-                    , SelfList
-                    , SimplerNotation
-                    , SimplifyTup00
-                    , SingletonLists
-                    , SinPosTest
-                    , Solver
-                    , SqrtPosTest
-                    , Spec0
-                    , StackClass
-                    , StackMachine
-                    , Stacks0
-                    , State00
-                    , StateConstraints00
-                    , StateConstraints0
-                    , StateConstraints
-                    , StateF00
-                    , State
-                    , StateInvarint
-                    , StateLib
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
@@ -1607,115 +1521,7 @@ executable unit-pos-2
       buildable:      False
 
     other-modules:
-                      Abs
-                    , AbsPosTest
-                    , Absref_crash0
-                    , Absref_crash
-                    , Ackermann
-                    , Adt0
-                    , AdtList0
-                    , AdtList1
-                    , AdtList2
-                    , AdtList3
-                    , AdtList4
-                    , AdtList5
-                    , AdtPeano0
-                    , AdtPeano1
-                    , Alias00
-                    , Alias01
-                    , Alphaconvert_List
-                    , Alphaconvert_Set
-                    , AmortizedQueue
-                    , Anfbug
-                    , Anftest
-                    , Anish1
-                    , AssumedRecursive
-                    , Assume
-                    , Automate
-                    , AutoSize
-                    , AutoTerm1
-                    , AutoTerm
-                    , Avg
-                    , AVL
-                    , AVLRJ
-                    , Bag1
-                    , BangPatterns
-                    , BinarySearch
-                    , BinarySearchOverflow
-                    , Books
-                    , Bool0
-                    , Bool1
-                    , Bool2
-                    , Bounds1
-                    , BST000
-                    , BST
-                    , Case_lambda_join
-                    , CasesToLogic
-                    , Cat
-                    , CharLiterals
-                    , CheckedNum
-                    , Chunks
-                    , Class2
-                    , Class
-                    , ClassReg
-                    , Client521
-                    , ClojurVector
-                    , Cmptag0
-                    , Coercion
-                    , Comma
-                    , CommentedOut
-                    , Compare1
-                    , Compare2
-                    , CompareConstraints
-                    , Compare
-                    , Comprehension
-                    , ComprehensionTerm
-                    , ConstraintsAppend
-                    , Constraints
-                    , Coretologic
-                    , CosPosTest
-                    , CountMonad
-                    , Csgordon_issue_296
-                    , Cut00
-                    , Data2
-                    , DataBase
-                    , Datacon0
-                    , Datacon1
-                    , Datacon_inv
-                    , DataConQuals
-                    , DB00
-                    , Deepmeas0
-                    , DepData
-                    , DependentPairsFun
-                    , DependentPairs
-                    , DepTriples
-                    , Deptup1
-                    , Deptup3
-                    , Deptup
-                    , DeptupW
-                    , Div000
-                    , Dropwhile
-                    , Duplicate_bind
-                    , Elements
-                    , Elems
-                    , Elim00
-                    , Elim01
-                    , Elim_ex_compose
-                    , Elim_ex_let
-                    , Elim_ex_list
-                    , Elim_ex_map_1
-                    , Elim_ex_map_2
-                    , Elim_ex_map_3
-                    , Eqelems
-                    , Eq_poly_measure
-                    , Eval
-                    , EvalQuery
-                    , Even0
-                    , Even
-                    , Ex01
-                    , Ex0
-                    , Ex1
-                    , ExactADT6
+                      ExactADT6
                     , ExactGADT0
                     , ExactGADT1
                     , ExactGADT2
@@ -2035,6 +1841,266 @@ executable unit-pos-3
                     --- IGNORED
                     -- , Variance
 
+
+    -- LANGUAGE extensions used by modules in this package.
+    -- other-extensions:
+    ghc-options:      -fplugin=LiquidHaskell -fkeep-going -O0
+    if flag(measure-timings)
+      ghc-options:    -fforce-recomp -ddump-timings -ddump-to-file
+    build-depends:    base
+                    , liquid-prelude
+                    , containers
+                    , liquid-vector
+                    , bytestring
+                    , ghc-prim
+                    , liquidhaskell
+                    , transformers
+                    , primitive
+                    , template-haskell
+                    , deepseq
+                    , vector
+
+    hs-source-dirs:   app
+                    , pos
+
+    c-sources:        ffi-include/foo.c
+    include-dirs:     ffi-include
+    default-language: Haskell2010
+
+
+flag unit-pos-4
+     default: False
+
+executable unit-pos-4
+    main-is:          Main.hs
+    -- Modules included in this executable, other than Main.
+    if !flag(unit-pos-4) && flag(stack)
+      buildable:      False
+
+    other-modules:
+                      Abs
+                    , AbsPosTest
+                    , Absref_crash0
+                    , Absref_crash
+                    , Ackermann
+                    , Adt0
+                    , AdtList0
+                    , AdtList1
+                    , AdtList2
+                    , AdtList3
+                    , AdtList4
+                    , AdtList5
+                    , AdtPeano0
+                    , AdtPeano1
+                    , Alias00
+                    , Alias01
+                    , Alphaconvert_List
+                    , Alphaconvert_Set
+                    , AmortizedQueue
+                    , Anfbug
+                    , Anftest
+                    , Anish1
+                    , AssumedRecursive
+                    , Assume
+                    , Automate
+                    , AutoSize
+                    , AutoTerm1
+                    , AutoTerm
+                    , Avg
+                    , AVL
+                    , AVLRJ
+                    , Bag1
+                    , BangPatterns
+                    , BinarySearch
+                    , BinarySearchOverflow
+                    , Books
+                    , Bool0
+                    , Bool1
+                    , Bool2
+                    , Bounds1
+                    , BST000
+                    , BST
+                    , Case_lambda_join
+                    , CasesToLogic
+                    , Cat
+                    , CharLiterals
+                    , CheckedNum
+                    , Chunks
+                    , Class2
+                    , Class
+                    , ClassReg
+                    , Client521
+                    , ClojurVector
+                    , Cmptag0
+                    , Coercion
+                    , Comma
+                    , CommentedOut
+                    , Compare1
+                    , Compare2
+                    , CompareConstraints
+                    , Compare
+                    , Comprehension
+                    , ComprehensionTerm
+                    , ConstraintsAppend
+                    , Constraints
+                    , Coretologic
+                    , CosPosTest
+                    , CountMonad
+                    , Csgordon_issue_296
+                    , Cut00
+                    , Data2
+                    , DataBase
+                    , Datacon0
+                    , Datacon1
+                    , Datacon_inv
+                    , DataConQuals
+                    , DB00
+                    , Deepmeas0
+                    , DepData
+                    , DependentPairsFun
+                    , DependentPairs
+                    , DepTriples
+                    , Deptup1
+                    , Deptup3
+                    , Deptup
+                    , DeptupW
+                    , Div000
+                    , Dropwhile
+                    , Duplicate_bind
+                    , Elements
+                    , Elems
+                    , Elim00
+                    , Elim01
+                    , Elim_ex_compose
+                    , Elim_ex_let
+                    , Elim_ex_list
+                    , Elim_ex_map_1
+                    , Elim_ex_map_2
+                    , Elim_ex_map_3
+                    , Eqelems
+                    , Eq_poly_measure
+                    , Eval
+                    , EvalQuery
+                    , Even0
+                    , Even
+                    , Ex01
+                    , Ex0
+                    , Ex1
+
+    ghc-options:      -fplugin=LiquidHaskell -fkeep-going -O0
+    if flag(measure-timings)
+      ghc-options:    -fforce-recomp -ddump-timings -ddump-to-file
+    build-depends:    base
+                    , liquid-prelude
+                    , containers
+                    , liquid-vector
+                    , bytestring
+                    , ghc-prim
+                    , liquidhaskell
+                    , transformers
+                    , primitive
+                    , template-haskell
+                    , deepseq
+                    , vector
+
+    hs-source-dirs:   app
+                    , pos
+
+    c-sources:        ffi-include/foo.c
+    include-dirs:     ffi-include
+    default-language: Haskell2010
+
+
+flag unit-pos-5
+     default: False
+
+executable unit-pos-5
+    main-is:          Main.hs
+    -- Modules included in this executable, other than Main.
+    if !flag(unit-pos-5) && flag(stack)
+      buildable:      False
+
+    other-modules:
+                      Malformed0
+                    , Map0
+                    , Map2
+                    , MapFusion
+                    , Map
+                    , Mapreduce_bare
+                    , MapReduceVerified
+                    , Maps1
+                    , Maps
+                    , MapTvCrash
+                    , MaskError
+                    , Maybe000
+                    , Maybe0
+                    , Maybe1
+                    , Maybe2
+                    , Maybe3
+                    , Maybe4
+                    , Maybe5
+                    , Maybe
+                    , Meas00a
+                    , Meas00
+                    , Meas0a
+                    , Meas0
+                    , Meas10
+                    , Meas11
+                    , Meas1
+                    , Meas2
+                    , Meas4
+                    , Meas5
+                    , Meas6
+                    , Meas7
+                    , Meas8
+                    , Meas9
+                    , MeasureContains
+                    , MeasureDups
+                    , Measures1
+                    , MeasureSets
+                    , Measures
+                    , Merge1
+                    , MergeSort_bag
+                    , MergeSort
+                    , Mod
+                    , ModLib
+                    , ModTest
+                    , Monad2
+                    , Monad5
+                    , Monad6
+                    , Multi_pred_app_00
+                    , Mutrec
+                    , MutuallyDependentADT
+                    , MutualRec
+                    , Nats
+                    , Niki1
+                    , Niki
+                    , NoCaseExpand
+                    , NoExhaustiveGuardsError
+                    , NoPositivityCheck
+                    , Null
+                    , OrdList
+                    , ORM
+                    , Pair00
+                    , Pair0
+                    , Pair
+                    , PairMeasure0
+                    , PairMeasure
+                    , Pargs1
+                    , Pargs
+                    , Partialmeasure
+                    , Partial_tycon
+                    , Permutation
+                    , PersistentVector
+                    , Ple1
+                    , PointDist
+                    , Poly0
+                    , Poly1
+                    , Poly2_degenerate
+                    , Poly2
+                    , Poly3a
+                    , Poly3
+                    , Poly4
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
