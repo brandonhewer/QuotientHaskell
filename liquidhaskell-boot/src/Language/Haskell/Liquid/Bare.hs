@@ -285,6 +285,7 @@ makeGhcSpec0 cfg ghcTyLookupEnv tcg instEnvs lenv localVars src lmap targetSpec 
                 , embeds = Ms.embeds targetSpec
                 , privateReflects = mconcat $ map (privateReflects . snd) mspecs
                 , defines = Ms.defines targetSpec
+                , usedDataCons = usedDcs
                 }
     })
   where
@@ -332,7 +333,8 @@ makeGhcSpec0 cfg ghcTyLookupEnv tcg instEnvs lenv localVars src lmap targetSpec 
     embs     = makeEmbeds          src ghcTyLookupEnv (mySpec0 : map snd dependencySpecs)
     dm       = Bare.tcDataConMap tycEnv0
     (dg0, datacons, tycEnv0) = makeTycEnv0   cfg name env embs mySpec2 iSpecs2
-    env      = Bare.makeEnv cfg ghcTyLookupEnv tcg instEnvs localVars src lmap ((name, targetSpec) : dependencySpecs)
+    usedDcs  = S.unions $ map usedDataCons $ targetSpec : map snd dependencySpecs
+    env      = Bare.makeEnv cfg ghcTyLookupEnv usedDcs tcg instEnvs localVars src lmap ((name, targetSpec) : dependencySpecs)
     -- check barespecs
     name     = F.notracepp ("ALL-SPECS" ++ zzz) $ _giTargetMod  src
     zzz      = F.showpp (fst <$> mspecs)

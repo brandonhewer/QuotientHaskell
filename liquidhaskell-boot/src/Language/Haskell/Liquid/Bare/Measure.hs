@@ -573,7 +573,7 @@ varMeasures :: (Monoid r) => Bare.Env -> [(F.Symbol, Located (RRType r))]
 ------------------------------------------------------------------------------
 varMeasures env =
   [ (F.symbol v, varSpecType v)
-      | v <- knownVars env
+      | v <- Bare.reDataConIds env
       , GM.isDataConId v
       , isSimpleType (Ghc.varType v) ]
 
@@ -582,8 +582,8 @@ getMeasVars env measEnv = Bare.meSyms measEnv -- ms'
                             ++ Bare.meClassSyms measEnv -- cms'
                             ++ varMeasures env
 
-knownVars :: Bare.Env -> [Ghc.Var]
-knownVars env = [ v | (_, xThings)   <- M.toList (Bare._reTyThings env)
+_knownVars :: Bare.Env -> [Ghc.Var]
+_knownVars env = [ v | (_, xThings)   <- M.toList (Bare._reTyThings env)
                     , (_,Ghc.AnId v) <- xThings
                 ]
 

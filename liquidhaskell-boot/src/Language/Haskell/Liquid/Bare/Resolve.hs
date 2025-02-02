@@ -91,14 +91,15 @@ type Lookup a = Either [Error] a
 -------------------------------------------------------------------------------
 -- | Creating an environment
 -------------------------------------------------------------------------------
-makeEnv :: Config -> GHCTyLookupEnv -> Ghc.TcGblEnv -> Ghc.InstEnvs -> LocalVars -> GhcSrc -> LogicMap -> [(ModName, BareSpec)] -> Env
-makeEnv cfg ghcTyLookupEnv tcg instEnv localVars src lmap specs = RE
+makeEnv :: Config -> GHCTyLookupEnv -> S.HashSet LHName -> Ghc.TcGblEnv -> Ghc.InstEnvs -> LocalVars -> GhcSrc -> LogicMap -> [(ModName, BareSpec)] -> Env
+makeEnv cfg ghcTyLookupEnv usedDcs tcg instEnv localVars src lmap specs = RE
   { reTyLookupEnv = ghcTyLookupEnv
   , reTcGblEnv  = tcg
   , reInstEnvs = instEnv
   , reUsedExternals = usedExternals
   , reLMap      = lmap
   , reSyms      = syms
+  , reDataConIds = dataConIds
   , _reTyThings = makeTyThingMap src
   , reLocalVars = localVars
   , reSrc       = src
@@ -110,6 +111,12 @@ makeEnv cfg ghcTyLookupEnv tcg instEnv localVars src lmap specs = RE
     syms        = [ (F.symbol v, v) | v <- vars ]
     vars        = srcVars src
     usedExternals = Ghc.exprsOrphNames $ map snd $ Ghc.flattenBinds $ _giCbs src
+    dataConIds =
+      [ Ghc.dataConWorkId dc
+      | lhn <- S.toList usedDcs
+      , Just (Ghc.AConLike (Ghc.RealDataCon dc)) <-
+          [maybeReflectedLHName lhn >>= lookupGhcTyThingFromName ghcTyLookupEnv]
+      ]
 
 
 getGlobalSyms :: (ModName, BareSpec) -> [F.Symbol]
@@ -360,10 +367,14 @@ lookupGhcIdLHName env lname =
      _ -> panic
            (Just $ GM.fSrcSpan lname) $ "not a variable or data constructor: " ++ show (val lname)
 
-lookupGhcId :: Env -> Ghc.Name -> Maybe Ghc.Id
+lookupGhcTyThingFromName :: GHCTyLookupEnv -> Ghc.Name -> Maybe Ghc.TyThing
 -- see note about unsafePerformIO in lookupTyThingMaybe
+lookupGhcTyThingFromName env n =
+   unsafePerformIO $ Ghc.reflectGhc (Interface.lookupTyThing (gtleTypeEnv env) n) (gtleSession env)
+
+lookupGhcId :: Env -> Ghc.Name -> Maybe Ghc.Id
 lookupGhcId env n =
-    case unsafePerformIO $ Ghc.reflectGhc (Interface.lookupTyThing (gtleTypeEnv env') n) (gtleSession env') of
+    case lookupGhcTyThingFromName env' n of
       Just (Ghc.AConLike (Ghc.RealDataCon d)) -> Just (Ghc.dataConWorkId d)
       Just (Ghc.AnId x) -> Just x
       _ -> Nothing

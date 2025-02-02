@@ -421,6 +421,7 @@ data Spec lname ty = Spec
   , bounds     :: !(RRBEnvV lname (F.Located ty))
   , axeqs      :: ![F.EquationV lname]                                -- ^ Equalities used for Proof-By-Evaluation
   , defines    :: ![(F.Located LHName, LMapV lname)]                  -- ^ Logic aliases
+  , usedDataCons :: S.HashSet LHName                                  -- ^ Data constructors used in specs
   } deriving (Data, Generic)
 
 instance (Show lname, F.PPrint lname, Show ty, F.PPrint ty, F.PPrint (RTypeV lname BTyCon BTyVar (RReftV lname))) => F.PPrint (Spec lname ty) where
@@ -632,6 +633,7 @@ instance Semigroup (Spec lname ty) where
            , bounds     = M.union   (bounds   s1)  (bounds   s2)
            , autois     = S.union   (autois s1)      (autois s2)
            , defines    =            defines  s1 ++ defines  s2
+           , usedDataCons = S.union (usedDataCons s1) (usedDataCons s2)
            }
 
 instance Monoid (Spec lname ty) where
@@ -677,6 +679,7 @@ instance Monoid (Spec lname ty) where
            , axeqs      = []
            , bounds     = M.empty
            , defines    = []
+           , usedDataCons = mempty
            }
 
 -- $liftedSpec
@@ -760,6 +763,8 @@ data LiftedSpec = LiftedSpec
     -- ^ Equalities used for Proof-By-Evaluation
   , liftedDefines    :: HashMap F.Symbol (LMapV LHName)
     -- ^ Logic aliases
+  , liftedUsedDataCons :: HashSet LHName
+    -- ^ Data constructors used in specs
   } deriving (Eq, Data, Generic)
     deriving Hashable via Generically LiftedSpec
     deriving Binary   via Generically LiftedSpec
@@ -812,6 +817,7 @@ emptyLiftedSpec = LiftedSpec
   , liftedBounds     = mempty
   , liftedAxeqs      = mempty
   , liftedDefines    = mempty
+  , liftedUsedDataCons = mempty
   }
 
 -- $trackingDeps
@@ -981,6 +987,7 @@ toLiftedSpec a = LiftedSpec
   , liftedBounds     = bounds a
   , liftedAxeqs      = S.fromList . axeqs $ a
   , liftedDefines    = M.fromList . map (first (lhNameToResolvedSymbol . F.val)) . defines $ a
+  , liftedUsedDataCons = usedDataCons a
   }
 
 -- This is a temporary internal function that we use to convert the input dependencies into a format
@@ -1027,4 +1034,5 @@ unsafeFromLiftedSpec a = Spec
   , bounds     = liftedBounds a
   , axeqs      = S.toList . liftedAxeqs $ a
   , defines    = map (first (dummyLoc . makeLocalLHName)) . M.toList . liftedDefines $ a
+  , usedDataCons = liftedUsedDataCons a
   }
