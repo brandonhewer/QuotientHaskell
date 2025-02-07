@@ -52,6 +52,7 @@ common common-ghc-options
     ghc-options:      -fplugin=LiquidHaskell
                       -fkeep-going
                       -O0
+                      -no-link
 
 flag benchmark-stitch-lh
      default: False
