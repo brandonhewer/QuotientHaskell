@@ -251,6 +251,8 @@ import GHC.Core                       as Ghc
     , mkLets
     , mkTyApps
     , mkTyArg
+    , rhssOfAlts
+    , rhssOfBind
     )
 import GHC.Core.Class                 as Ghc
     ( classAllSelIds

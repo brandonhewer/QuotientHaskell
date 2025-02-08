@@ -118,7 +118,6 @@ makeEnv cfg ghcTyLookupEnv usedDcs tcg instEnv localVars src lmap specs = RE
           [maybeReflectedLHName lhn >>= lookupGhcTyThingFromName ghcTyLookupEnv]
       ]
 
-
 getGlobalSyms :: (ModName, BareSpec) -> [F.Symbol]
 getGlobalSyms (_, spec)
   = filter (not . GM.isQualifiedSym)
