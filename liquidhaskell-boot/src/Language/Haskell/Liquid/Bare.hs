@@ -44,6 +44,7 @@ import           Language.Haskell.Liquid.Types.RType
 import           Language.Haskell.Liquid.Types.RTypeOp
 import           Language.Haskell.Liquid.Types.Specs
 import           Language.Haskell.Liquid.Types.Types
+import           Language.Haskell.Liquid.Types.Visitors
 import           Language.Haskell.Liquid.WiredIn
 import qualified Language.Haskell.Liquid.Measure            as Ms
 import qualified Language.Haskell.Liquid.Bare.Types         as Bare
@@ -333,11 +334,17 @@ makeGhcSpec0 cfg ghcTyLookupEnv tcg instEnvs lenv localVars src lmap targetSpec 
     embs     = makeEmbeds          src ghcTyLookupEnv (mySpec0 : map snd dependencySpecs)
     dm       = Bare.tcDataConMap tycEnv0
     (dg0, datacons, tycEnv0) = makeTycEnv0   cfg name env embs mySpec2 iSpecs2
-    usedDcs  = S.unions $ (castDCs :) $ map usedDataCons $ targetSpec : map snd dependencySpecs
     env      = Bare.makeEnv cfg ghcTyLookupEnv usedDcs tcg instEnvs localVars src lmap ((name, targetSpec) : dependencySpecs)
     -- check barespecs
     name     = F.notracepp ("ALL-SPECS" ++ zzz) $ _giTargetMod  src
     zzz      = F.showpp (fst <$> mspecs)
+
+    usedDcs  = collectAllDataCons (_giCbs src) $ targetSpec : map snd dependencySpecs
+
+collectAllDataCons :: Ghc.CoreProgram -> [BareSpec] -> S.HashSet LHName
+collectAllDataCons cbs =
+    S.unions .  (castDCs :) . (usedInCoreDCs :) . map usedDataCons
+  where
     -- Constraint generation might inserts data constructors which are not
     -- present in the original program.
     -- See Note [Type classes with a single method] in
@@ -346,7 +353,7 @@ makeGhcSpec0 cfg ghcTyLookupEnv tcg instEnvs lenv localVars src lmap targetSpec 
       S.fromList $
       map makeLogicLHNameFromDC $
       Mb.mapMaybe isClassConCoDC $
-      collectCastCoercions $ _giCbs src
+      collectCastCoercions cbs
 
     makeLogicLHNameFromDC dc =
       let n = Ghc.getName dc
@@ -356,34 +363,45 @@ makeGhcSpec0 cfg ghcTyLookupEnv tcg instEnvs lenv localVars src lmap targetSpec 
             (Mb.fromMaybe (error "expected module") $ Ghc.nameModule_maybe n)
             (Just n)
 
-collectCastCoercions :: [Ghc.CoreBind] -> [Ghc.Coercion]
-collectCastCoercions = gos [] . concatMap Ghc.rhssOfBind
-  where
-    go acc e = case e of
-      Ghc.Var{} -> acc
-      Ghc.Lit{} -> acc
-      Ghc.Type{} -> acc
-      Ghc.Coercion{} -> acc
-      Ghc.App e1 e2 -> go (go acc e1) e2
-      Ghc.Cast e1 c -> go (c:acc) e1
-      Ghc.Tick _ e1 -> go acc e1
-      Ghc.Lam _ e1 -> go acc e1
-      Ghc.Let b e1 -> go (gos acc (Ghc.rhssOfBind b)) e1
-      Ghc.Case e1 _ _ alts -> go (gos acc (Ghc.rhssOfAlts alts)) e1
+    usedInCoreDCs =
+      S.fromList $
+      map makeLogicLHNameFromDC $
+      [ dc
+      | v <- freeVars S.empty cbs
+      , dc <- case Ghc.idDetails v of
+          Ghc.DataConWrapId dc -> [dc]
+          Ghc.DataConWorkId dc -> [dc]
+          _ -> []
+      ]
 
-    gos acc = foldr ($) acc . map (flip go)
+    isClassConCoDC :: Ghc.Coercion -> Maybe Ghc.DataCon
+    -- See Note [Type classes with a single method] in
+    -- Haskell.Liquid.Constraint.Generate
+    isClassConCoDC co
+      | Ghc.Pair _t1 t2 <- Ghc.coercionKind co
+      , Ghc.isClassPred t2
+      , (tc,_ts) <- Ghc.splitTyConApp t2
+      , [dc]    <- Ghc.tyConDataCons tc
+      = Just dc
+      | otherwise
+      = Nothing
 
-isClassConCoDC :: Ghc.Coercion -> Maybe Ghc.DataCon
--- See Note [Type classes with a single method] in
--- Haskell.Liquid.Constraint.Generate
-isClassConCoDC co
-  | Ghc.Pair _t1 t2 <- Ghc.coercionKind co
-  , Ghc.isClassPred t2
-  , (tc,_ts) <- Ghc.splitTyConApp t2
-  , [dc]    <- Ghc.tyConDataCons tc
-  = Just dc
-  | otherwise
-  = Nothing
+    collectCastCoercions :: [Ghc.CoreBind] -> [Ghc.Coercion]
+    collectCastCoercions = gos [] . concatMap Ghc.rhssOfBind
+      where
+        go acc e = case e of
+          Ghc.Var{} -> acc
+          Ghc.Lit{} -> acc
+          Ghc.Type{} -> acc
+          Ghc.Coercion{} -> acc
+          Ghc.App e1 e2 -> go (go acc e1) e2
+          Ghc.Cast e1 c -> go (c:acc) e1
+          Ghc.Tick _ e1 -> go acc e1
+          Ghc.Lam _ e1 -> go acc e1
+          Ghc.Let b e1 -> go (gos acc (Ghc.rhssOfBind b)) e1
+          Ghc.Case e1 _ _ alts -> go (gos acc (Ghc.rhssOfAlts alts)) e1
+
+        gos acc = foldr ($) acc . map (flip go)
 
 
 makeImports :: [(ModName, Ms.BareSpec)] -> [(F.Symbol, F.Sort)]
