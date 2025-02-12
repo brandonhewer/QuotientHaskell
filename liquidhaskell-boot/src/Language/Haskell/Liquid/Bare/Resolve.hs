@@ -247,7 +247,7 @@ isEmptySymbol x = F.lengthSym x == 0
 
 srcThings :: GhcSrc -> [Ghc.TyThing]
 srcThings src = myTracepp "SRCTHINGS"
-              $ Misc.hashNubWith F.showpp (_gsTyThings src ++ mySrcThings src)
+              $ Misc.hashNubWith F.showpp (mySrcThings src)
 
 mySrcThings :: GhcSrc -> [Ghc.TyThing]
 mySrcThings src = [ Ghc.AnId   x | x <- vars ]
@@ -279,7 +279,7 @@ typeTyCons t = tops t ++ inners t
     tops     = Mb.maybeToList . Ghc.tyConAppTyCon_maybe
     inners   = concatMap typeTyCons . snd . Ghc.splitAppTys
 
--- | We prioritize the @Ghc.Var@ in @srcVars@ because @_giDefVars@ and @gsTyThings@
+-- | We prioritize the @Ghc.Var@ in @srcVars@ because @_giDefVars@
 --   have _different_ values for the same binder, with different types where the
 --   type params are alpha-renamed. However, for absref, we need _the same_
 --   type parameters as used by GHC as those are used inside the lambdas and
@@ -292,7 +292,6 @@ srcVars src = filter Ghc.isId .  fmap Misc.thd3 . Misc.fstByRank $ concat
   , key "SRC-VAR-DER" 1 <$> S.toList (_giDerVars src)
   , key "SRC-VAR-IMP" 2 <$> _giImpVars src
   , key "SRC-VAR-USE" 3 <$> _giUseVars src
-  , key "SRC-VAR-THN" 4 <$> [ x | Ghc.AnId x <- _gsTyThings src ]
   ]
   where
     key :: String -> Int -> Ghc.Var -> (Int, F.Symbol, Ghc.Var)

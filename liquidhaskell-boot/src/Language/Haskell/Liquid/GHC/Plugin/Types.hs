@@ -21,7 +21,6 @@ module Language.Haskell.Liquid.GHC.Plugin.Types
 
     -- * Acquiring and manipulating data from the typechecking phase
     , TcData
-    , tcResolvedNames
     , tcAvailableTyCons
     , tcAvailableVars
     , mkTcData
@@ -98,8 +97,7 @@ data PipelineData = PipelineData {
 -- guaranteed not to change, but things like identifiers might, so they shouldn't
 -- land here.
 data TcData = TcData {
-    tcResolvedNames    :: [(Name, Maybe TyThing)]
-  , tcAvailableTyCons  :: [GHC.TyCon]
+    tcAvailableTyCons  :: [GHC.TyCon]
   -- ^ Sometimes we might be in a situation where we have \"wrapper\" modules that
   -- simply re-exports everything from the original module, and therefore when LH
   -- tries to resolve the GHC identifier associated to a data constructor in scope
@@ -113,17 +111,14 @@ data TcData = TcData {
 
 instance Outputable TcData where
     ppr (TcData{..}) =
-          text "       , names       = " <+> ppr tcResolvedNames
-      <+> text "       , availTyCons = " <+> ppr tcAvailableTyCons
+          text "       , availTyCons = " <+> ppr tcAvailableTyCons
       <+> text " }"
 
 -- | Constructs a 'TcData' out of a 'TcGblEnv'.
-mkTcData :: [(Name, Maybe TyThing)]
-         -> [TyCon]
+mkTcData :: [TyCon]
          -> [Var]
          -> TcData
-mkTcData resolvedNames availTyCons availVars = TcData {
-    tcResolvedNames    = resolvedNames
-  , tcAvailableTyCons  = availTyCons
+mkTcData availTyCons availVars = TcData {
+    tcAvailableTyCons  = availTyCons
   , tcAvailableVars    = availVars
   }

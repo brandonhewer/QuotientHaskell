@@ -185,7 +185,6 @@ data TargetSrc = TargetSrc
   , gsFiTcs     :: ![TyCon]               -- ^ Family instance TyCons
   , gsFiDcs     :: ![(F.Symbol, DataCon)] -- ^ Family instance DataCons
   , gsPrimTcs   :: ![TyCon]               -- ^ Primitive GHC TyCons (from TysPrim.primTyCons)
-  , gsTyThings  :: ![TyThing]             -- ^ All the @TyThing@s known to GHC
   }
 
 -- | 'QImports' is a map of qualified imports.
@@ -880,7 +879,6 @@ data GhcSrc = Src
   , _gsFiTcs     :: ![TyCon]               -- ^ Family instance TyCons
   , _gsFiDcs     :: ![(F.Symbol, DataCon)] -- ^ Family instance DataCons
   , _gsPrimTcs   :: ![TyCon]               -- ^ Primitive GHC TyCons (from TysPrim.primTyCons)
-  , _gsTyThings  :: ![TyThing]             -- ^ All the @TyThing@s known to GHC
   }
 
 data GhcSpec = SP
@@ -915,7 +913,6 @@ toTargetSrc a = TargetSrc
   , gsFiTcs     = _gsFiTcs a
   , gsFiDcs     = _gsFiDcs a
   , gsPrimTcs   = _gsPrimTcs a
-  , gsTyThings  = _gsTyThings a
   }
 
 fromTargetSrc :: TargetSrc -> GhcSrc
@@ -933,7 +930,6 @@ fromTargetSrc a = Src
   , _gsFiTcs     = gsFiTcs a
   , _gsFiDcs     = gsFiDcs a
   , _gsPrimTcs   = gsPrimTcs a
-  , _gsTyThings  = gsTyThings a
   }
 
 toTargetSpec ::  GhcSpec -> TargetSpec
