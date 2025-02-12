@@ -26,6 +26,7 @@ module Language.Haskell.Liquid.Bare.Resolve
   , lookupGhcIdLHName
   , lookupLocalVar
   , lookupGhcTyConLHName
+  , lookupGhcTyThingFromName
   , lookupGhcId
 
   -- * Checking if names exist
@@ -91,8 +92,8 @@ type Lookup a = Either [Error] a
 -------------------------------------------------------------------------------
 -- | Creating an environment
 -------------------------------------------------------------------------------
-makeEnv :: Config -> GHCTyLookupEnv -> S.HashSet LHName -> Ghc.TcGblEnv -> Ghc.InstEnvs -> LocalVars -> GhcSrc -> LogicMap -> [(ModName, BareSpec)] -> Env
-makeEnv cfg ghcTyLookupEnv usedDcs tcg instEnv localVars src lmap specs = RE
+makeEnv :: Config -> GHCTyLookupEnv -> [Ghc.Id] -> Ghc.TcGblEnv -> Ghc.InstEnvs -> LocalVars -> GhcSrc -> LogicMap -> [(ModName, BareSpec)] -> Env
+makeEnv cfg ghcTyLookupEnv dataConIds tcg instEnv localVars src lmap specs = RE
   { reTyLookupEnv = ghcTyLookupEnv
   , reTcGblEnv  = tcg
   , reInstEnvs = instEnv
@@ -110,12 +111,6 @@ makeEnv cfg ghcTyLookupEnv usedDcs tcg instEnv localVars src lmap specs = RE
     syms        = [ (F.symbol v, v) | v <- vars ]
     vars        = srcVars src
     usedExternals = Ghc.exprsOrphNames $ map snd $ Ghc.flattenBinds $ _giCbs src
-    dataConIds =
-      [ Ghc.dataConWorkId dc
-      | lhn <- S.toList usedDcs
-      , Just (Ghc.AConLike (Ghc.RealDataCon dc)) <-
-          [maybeReflectedLHName lhn >>= lookupGhcTyThingFromName ghcTyLookupEnv]
-      ]
 
 getGlobalSyms :: (ModName, BareSpec) -> [F.Symbol]
 getGlobalSyms (_, spec)

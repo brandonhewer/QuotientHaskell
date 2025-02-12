@@ -297,6 +297,7 @@ data GhcSpecNames = SpNames
   , gsTcEmbeds   :: !(F.TCEmb TyCon)              -- ^ Embedding GHC Tycons into fixpoint sorts e.g. "embed Set as Set_set"
   , gsADTs       :: ![F.DataDecl]                 -- ^ ADTs extracted from Haskell 'data' definitions
   , gsTyconEnv   :: !TyConMap
+  , gsDataConIds :: [Var]
   }
   deriving Show
 
