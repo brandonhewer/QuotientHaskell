@@ -1373,12 +1373,10 @@ makeLiftedSpec name src env refl sData sig qual myRTE lSpec0 = lSpec0
   where
     myDCs         = filter (isLocalName . val . fst) $ mkSigs (gsCtors sData)
     mkSigs xts    = [ toBare (x, t) | (x, t) <- xts
-                    ,  S.member x sigVars && isExportedVar (toTargetSrc src) x
+                    , not (S.member x reflVars) && isExportedVar (toTargetSrc src) x
                     ]
     toBare (x, t) = (makeGHCLHNameLocatedFromId x, Bare.specToBare <$> t)
     xbs           = toBare <$> reflTySigs
-    sigVars       = S.difference defVars reflVars
-    defVars       = S.fromList (_giDefVars src)
     reflTySigs    = [(x, t) | (x,t,_) <- gsHAxioms refl]
     reflVars      = S.fromList (fst <$> reflTySigs)
     -- myAliases fld = M.elems . fld $ myRTE
