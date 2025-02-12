@@ -1609,7 +1609,6 @@ executable unit-pos-2
                     , LazyWhere
                     , Lets
                     , Lex
-                    , Lib521
                     , ListAnf
                     , ListConcat
                     , ListElem
@@ -1991,6 +1990,7 @@ executable unit-pos-4
                     , Ex01
                     , Ex0
                     , Ex1
+                    , Lib521
 
     if flag(measure-timings)
       ghc-options:    -fforce-recomp -ddump-timings -ddump-to-file
