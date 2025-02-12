@@ -322,12 +322,11 @@ mkPipelineData ms tcg0 specs = do
         let lcl_hsc_env = hscUpdateFlags (noWarnings . desugarerDynFlags) hsc_env in
         liftIO $ hscDesugar lcl_hsc_env ms tcg
 
-    resolvedNames   <- LH.lookupTyThings tcg
     avails          <- LH.availableTyThings tcg (tcg_exports tcg)
     let availTyCons = [ tc | ATyCon tc <- avails ]
         availVars   = [ var | AnId var <- avails ]
 
-    let tcData = mkTcData (tcg_rn_imports tcg) resolvedNames availTyCons availVars
+    let tcData = mkTcData availTyCons availVars
     return $ PipelineData unoptimisedGuts tcData specs
   where
     noWarnings dflags = dflags { warningFlags = mempty }
@@ -608,7 +607,6 @@ makeTargetSrc cfg file tcData modGuts hscEnv = do
 
   let dataCons       = concatMap (map dataConWorkId . tyConDataCons) allTcs
   let (fiTcs, fiDcs) = LH.makeFamInstEnv (getFamInstances modGuts)
-  let things         = tcResolvedNames tcData
   let impVars        = LH.importVars coreBinds ++ LH.classCons (mgi_cls_inst mgiModGuts)
 
   debugLog $ "_gsTcs   => " ++ show allTcs
@@ -626,9 +624,6 @@ makeTargetSrc cfg file tcData modGuts hscEnv = do
   debugLog $ "gsFiTcs   => " ++ (O.showSDocUnsafe . O.ppr $ fiTcs)
   debugLog $ "gsFiDcs   => " ++ show fiDcs
   debugLog $ "gsPrimTcs => " ++ (O.showSDocUnsafe . O.ppr $ GHC.primTyCons)
-  debugLog $ "things   => " ++ (O.showSDocUnsafe . O.vcat . map O.ppr $ things)
-  debugLog $ "allImports => " ++ show (tcAllImports tcData)
-  debugLog $ "qualImports => " ++ show (tcQualifiedImports tcData)
   return $ TargetSrc
     { giTarget    = file
     , giTargetMod = ModName Target (moduleName (mg_module modGuts))
@@ -643,9 +638,6 @@ makeTargetSrc cfg file tcData modGuts hscEnv = do
     , gsFiTcs     = fiTcs
     , gsFiDcs     = fiDcs
     , gsPrimTcs   = GHC.primTyCons
-    , gsQualImps  = tcQualifiedImports tcData
-    , gsAllImps   = tcAllImports       tcData
-    , gsTyThings  = [ t | (_, Just t) <- things ]
     }
   where
     mgiModGuts :: MGIModGuts
