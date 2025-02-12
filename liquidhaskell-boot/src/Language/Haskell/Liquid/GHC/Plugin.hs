@@ -323,10 +323,9 @@ mkPipelineData ms tcg0 specs = do
         liftIO $ hscDesugar lcl_hsc_env ms tcg
 
     avails          <- LH.availableTyThings tcg (tcg_exports tcg)
-    let availTyCons = [ tc | ATyCon tc <- avails ]
-        availVars   = [ var | AnId var <- avails ]
+    let availVars   = [ var | AnId var <- avails ]
 
-    let tcData = mkTcData availTyCons availVars
+    let tcData = mkTcData availVars
     return $ PipelineData unoptimisedGuts tcData specs
   where
     noWarnings dflags = dflags { warningFlags = mempty }
@@ -599,11 +598,7 @@ makeTargetSrc cfg file tcData modGuts hscEnv = do
     putStrLn $ unlines $ L.intersperse "" $ map (GHC.showPpr (GHC.hsc_dflags hscEnv)) (mg_binds modGuts)
   coreBinds <- anormalize cfg hscEnv modGuts
 
-  -- The type constructors for a module are the (nubbed) union of the ones defined and
-  -- the ones exported. This covers the case of \"wrapper modules\" that simply re-exports
-  -- everything from the imported modules.
-  let availTcs    = tcAvailableTyCons tcData
-  let allTcs      = L.nub (mgi_tcs mgiModGuts ++ availTcs)
+  let allTcs      = mgi_tcs mgiModGuts
 
   let dataCons       = concatMap (map dataConWorkId . tyConDataCons) allTcs
   let (fiTcs, fiDcs) = LH.makeFamInstEnv (getFamInstances modGuts)
