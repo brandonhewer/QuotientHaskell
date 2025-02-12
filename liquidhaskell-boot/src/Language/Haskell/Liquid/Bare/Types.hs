@@ -79,7 +79,6 @@ data Env = RE
   , reLMap      :: LogicMap
   , reSyms      :: [(F.Symbol, Ghc.Var)]    -- ^ see "syms" in old makeGhcSpec'
   , reDataConIds :: [Ghc.Id]                -- ^ Data constructors used in the current module
-  , _reTyThings :: TyThingMap
   , reCfg       :: Config
   , reLocalVars :: LocalVars                -- ^ lines at which local variables are defined.
   , reGlobSyms  :: S.HashSet F.Symbol       -- ^ global symbols, typically unlifted measures like 'len', 'fromJust'

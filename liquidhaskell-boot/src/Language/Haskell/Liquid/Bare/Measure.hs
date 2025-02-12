@@ -582,11 +582,6 @@ getMeasVars env measEnv = Bare.meSyms measEnv -- ms'
                             ++ Bare.meClassSyms measEnv -- cms'
                             ++ varMeasures env
 
-_knownVars :: Bare.Env -> [Ghc.Var]
-_knownVars env = [ v | (_, xThings)   <- M.toList (Bare._reTyThings env)
-                    , (_,Ghc.AnId v) <- xThings
-                ]
-
 varSpecType :: (Monoid r) => Ghc.Var -> Located (RRType r)
 varSpecType = fmap (RT.ofType . Ghc.varType) . GM.locNamedThing
 
