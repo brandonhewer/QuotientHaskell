@@ -324,9 +324,8 @@ mkPipelineData ms tcg0 specs = do
 
     avails          <- LH.availableTyThings tcg (tcg_exports tcg)
     let availTyCons = [ tc | ATyCon tc <- avails ]
-        availVars   = [ var | AnId var <- avails ]
 
-    let tcData = mkTcData availTyCons availVars
+    let tcData = mkTcData availTyCons
     return $ PipelineData unoptimisedGuts tcData specs
   where
     noWarnings dflags = dflags { warningFlags = mempty }
@@ -615,7 +614,6 @@ makeTargetSrc cfg file tcData modGuts hscEnv = do
   debugLog $ "dataCons => " ++ show dataCons
   debugLog $ "coreBinds => " ++ (O.showSDocUnsafe . O.ppr $ coreBinds)
   debugLog $ "impVars => " ++ (O.showSDocUnsafe . O.ppr $ impVars)
-  debugLog $ "defVars  => " ++ show (L.nub $ dataCons ++ letVars coreBinds ++ tcAvailableVars tcData)
   debugLog $ "useVars  => " ++ (O.showSDocUnsafe . O.ppr $ readVars coreBinds)
   debugLog $ "derVars  => " ++ (O.showSDocUnsafe . O.ppr $ HS.fromList (LH.derivedVars cfg mgiModGuts))
   debugLog $ "gsExports => " ++ show (mgi_exports  mgiModGuts)
@@ -629,7 +627,7 @@ makeTargetSrc cfg file tcData modGuts hscEnv = do
     , giTargetMod = ModName Target (moduleName (mg_module modGuts))
     , giCbs       = coreBinds
     , giImpVars   = impVars
-    , giDefVars   = L.nub $ dataCons ++ letVars coreBinds ++ tcAvailableVars tcData
+    , giDefVars   = L.nub $ dataCons ++ letVars coreBinds
     , giUseVars   = readVars coreBinds
     , giDerVars   = HS.fromList (LH.derivedVars cfg mgiModGuts)
     , gsExports   = mgi_exports  mgiModGuts
