@@ -252,7 +252,7 @@ makeGhcSpec0 cfg ghcTyLookupEnv tcg instEnvs lenv localVars src lmap targetSpec 
     , _gsRefl   = refl
     , _gsData   = sData
     , _gsQual   = qual
-    , _gsName   = makeSpecName env tycEnv measEnv dataConIds
+    , _gsName   = makeSpecName tycEnv measEnv dataConIds
     , _gsVars   = spcVars
     , _gsTerm   = spcTerm
 
@@ -1190,11 +1190,10 @@ mkReft _ _ _ _
 
 -- REBARE: formerly, makeGhcSpec3
 -------------------------------------------------------------------------------------------
-makeSpecName :: Bare.Env -> Bare.TycEnv -> Bare.MeasEnv -> [Ghc.Id] -> GhcSpecNames
+makeSpecName :: Bare.TycEnv -> Bare.MeasEnv -> [Ghc.Id] -> GhcSpecNames
 -------------------------------------------------------------------------------------------
-makeSpecName env tycEnv measEnv dataConIds = SpNames
-  { gsFreeSyms = Bare.reSyms env
-  , gsDconsP   = [ F.atLoc dc (dcpCon dc) | dc <- datacons ++ cls ]
+makeSpecName tycEnv measEnv dataConIds = SpNames
+  { gsDconsP   = [ F.atLoc dc (dcpCon dc) | dc <- datacons ++ cls ]
   , gsTconsP   = tycons
   -- , gsLits = mempty                                              -- TODO-REBARE, redundant with gsMeas
   , gsTcEmbeds = Bare.tcEmbs     tycEnv
