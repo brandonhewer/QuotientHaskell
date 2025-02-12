@@ -22,6 +22,7 @@ module Language.Haskell.Liquid.GHC.Plugin.Types
     -- * Acquiring and manipulating data from the typechecking phase
     , TcData
     , tcAvailableTyCons
+    , tcAvailableVars
     , mkTcData
     ) where
 
@@ -104,6 +105,8 @@ data TcData = TcData {
   -- the 'mg_tcs' for the input 'ModGuts' is empty (because the type constructor are not
   -- defined in the /wrapper/ module, but rather in the /wrapped/ module itself). This is
   -- why we look at the 'ModGuts' 's 'AvailInfo' to extract any re-exported 'TyCon' out of that.
+  , tcAvailableVars    :: [Var]
+  -- ^ Ditto as for 'reflectedTyCons', but for identifiers.
   }
 
 instance Outputable TcData where
@@ -113,7 +116,9 @@ instance Outputable TcData where
 
 -- | Constructs a 'TcData' out of a 'TcGblEnv'.
 mkTcData :: [TyCon]
+         -> [Var]
          -> TcData
-mkTcData availTyCons = TcData {
+mkTcData availTyCons availVars = TcData {
     tcAvailableTyCons  = availTyCons
+  , tcAvailableVars    = availVars
   }
