@@ -96,7 +96,7 @@ sigQualifiers :: TargetInfo -> SEnv Sort -> [Qualifier]
 --------------------------------------------------------------------------------
 sigQualifiers info lEnv
   = [ q | (x, t) <- specBinders info
-        , not (x `S.member` (S.fromList $ specAxiomVars info))
+        , not (x `S.member` S.fromList (specAxiomVars info))
         , q <- refTypeQuals lEnv (getSourcePos x) tce (val t)
         -- NOTE: large qualifiers are VERY expensive, so we only mine
         -- qualifiers up to a given size, controlled with --max-params
