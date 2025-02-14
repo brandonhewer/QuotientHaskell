@@ -26,13 +26,13 @@ module Language.Haskell.Liquid.Bare.Resolve
   , lookupGhcIdLHName
   , lookupLocalVar
   , lookupGhcTyConLHName
+  , lookupGhcTyThingFromName
   , lookupGhcId
 
   -- * Checking if names exist
   , knownGhcType
 
   -- * Misc
-  , srcVars
   , coSubRReft
   , unQualifySymbol
 
@@ -91,14 +91,13 @@ type Lookup a = Either [Error] a
 -------------------------------------------------------------------------------
 -- | Creating an environment
 -------------------------------------------------------------------------------
-makeEnv :: Config -> GHCTyLookupEnv -> S.HashSet LHName -> Ghc.TcGblEnv -> Ghc.InstEnvs -> LocalVars -> GhcSrc -> LogicMap -> [(ModName, BareSpec)] -> Env
-makeEnv cfg ghcTyLookupEnv usedDcs tcg instEnv localVars src lmap specs = RE
+makeEnv :: Config -> GHCTyLookupEnv -> [Ghc.Id] -> Ghc.TcGblEnv -> Ghc.InstEnvs -> LocalVars -> GhcSrc -> LogicMap -> [(ModName, BareSpec)] -> Env
+makeEnv cfg ghcTyLookupEnv dataConIds tcg instEnv localVars src lmap specs = RE
   { reTyLookupEnv = ghcTyLookupEnv
   , reTcGblEnv  = tcg
   , reInstEnvs = instEnv
   , reUsedExternals = usedExternals
   , reLMap      = lmap
-  , reSyms      = syms
   , reDataConIds = dataConIds
   , reLocalVars = localVars
   , reSrc       = src
@@ -107,15 +106,7 @@ makeEnv cfg ghcTyLookupEnv usedDcs tcg instEnv localVars src lmap specs = RE
   }
   where
     globalSyms  = concatMap getGlobalSyms specs
-    syms        = [ (F.symbol v, v) | v <- vars ]
-    vars        = srcVars src
     usedExternals = Ghc.exprsOrphNames $ map snd $ Ghc.flattenBinds $ _giCbs src
-    dataConIds =
-      [ Ghc.dataConWorkId dc
-      | lhn <- S.toList usedDcs
-      , Just (Ghc.AConLike (Ghc.RealDataCon dc)) <-
-          [maybeReflectedLHName lhn >>= lookupGhcTyThingFromName ghcTyLookupEnv]
-      ]
 
 getGlobalSyms :: (ModName, BareSpec) -> [F.Symbol]
 getGlobalSyms (_, spec)
@@ -194,25 +185,6 @@ isLocal = isEmptySymbol
 
 isEmptySymbol :: F.Symbol -> Bool
 isEmptySymbol x = F.lengthSym x == 0
-
--- | We prioritize the @Ghc.Var@ in @srcVars@ because @_giDefVars@
---   have _different_ values for the same binder, with different types where the
---   type params are alpha-renamed. However, for absref, we need _the same_
---   type parameters as used by GHC as those are used inside the lambdas and
---   other bindings in the code. See also [NOTE: Plug-Holes-TyVars] and
---      tests-absref-pos-Papp00.hs
-
-srcVars :: GhcSrc -> [Ghc.Var]
-srcVars src = filter Ghc.isId .  fmap Misc.thd3 . Misc.fstByRank $ concat
-  [ key "SRC-VAR-DEF" 0 <$> _giDefVars src
-  , key "SRC-VAR-DER" 1 <$> S.toList (_giDerVars src)
-  , key "SRC-VAR-IMP" 2 <$> _giImpVars src
-  , key "SRC-VAR-USE" 3 <$> _giUseVars src
-  ]
-  where
-    key :: String -> Int -> Ghc.Var -> (Int, F.Symbol, Ghc.Var)
-    key _ i x  = (i, F.symbol x, {- dump s -} x)
-    _dump msg x = fst . myTracepp msg $ (x, RT.ofType (Ghc.expandTypeSynonyms (Ghc.varType x)) :: SpecType)
 
 -- | @lookupLocalVar@ takes as input the list of "global" (top-level) vars
 --   that also match the name @lx@; we then pick the "closest" definition.

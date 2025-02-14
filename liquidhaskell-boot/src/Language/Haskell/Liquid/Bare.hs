@@ -58,6 +58,7 @@ import qualified Language.Haskell.Liquid.Bare.Axiom         as Bare
 import qualified Language.Haskell.Liquid.Bare.ToBare        as Bare
 import qualified Language.Haskell.Liquid.Bare.Class         as Bare
 import qualified Language.Haskell.Liquid.Bare.Check         as Bare
+import qualified Language.Haskell.Liquid.Bare.Resolve       as Resolve
 import qualified Language.Haskell.Liquid.Bare.Typeclass     as Bare
 import qualified Language.Haskell.Liquid.Transforms.CoreToLogic as CoreToLogic
 import           Language.Haskell.Liquid.UX.Config
@@ -178,7 +179,6 @@ ghcSpecEnv sp = F.notracepp "RENV" $ fromListSEnv binds
                  [ [(x,        rSort t) | (x, Loc _ _ t)  <- gsMeas     (_gsData sp)]
                  , [(symbol v, rSort t) | (v, Loc _ _ t)  <- gsCtors    (_gsData sp)]
                  , [(symbol v, vSort v) | v               <- gsReflects (_gsRefl sp)]
-                 , [(x,        vSort v) | (x, v)          <- gsFreeSyms (_gsName sp), Ghc.isConLikeId v ]
                  , [(x, RR s mempty)    | (x, s)          <- wiredSortedSyms       ]
                  , [(x, RR s mempty)    | (x, s)          <- _gsImps sp       ]
                  ]
@@ -252,7 +252,7 @@ makeGhcSpec0 cfg ghcTyLookupEnv tcg instEnvs lenv localVars src lmap targetSpec 
     , _gsRefl   = refl
     , _gsData   = sData
     , _gsQual   = qual
-    , _gsName   = makeSpecName env     tycEnv measEnv
+    , _gsName   = makeSpecName tycEnv measEnv dataConIds
     , _gsVars   = spcVars
     , _gsTerm   = spcTerm
 
@@ -334,12 +334,19 @@ makeGhcSpec0 cfg ghcTyLookupEnv tcg instEnvs lenv localVars src lmap targetSpec 
     embs     = makeEmbeds          src ghcTyLookupEnv (mySpec0 : map snd dependencySpecs)
     dm       = Bare.tcDataConMap tycEnv0
     (dg0, datacons, tycEnv0) = makeTycEnv0   cfg name env embs mySpec2 iSpecs2
-    env      = Bare.makeEnv cfg ghcTyLookupEnv usedDcs tcg instEnvs localVars src lmap ((name, targetSpec) : dependencySpecs)
+    env      = Bare.makeEnv cfg ghcTyLookupEnv dataConIds tcg instEnvs localVars src lmap ((name, targetSpec) : dependencySpecs)
     -- check barespecs
     name     = F.notracepp ("ALL-SPECS" ++ zzz) $ _giTargetMod  src
     zzz      = F.showpp (fst <$> mspecs)
 
     usedDcs  = collectAllDataCons (_giCbs src) $ targetSpec : map snd dependencySpecs
+    dataConIds =
+      [ Ghc.dataConWorkId dc
+      | lhn <- S.toList usedDcs
+      , Just (Ghc.AConLike (Ghc.RealDataCon dc)) <-
+          [maybeReflectedLHName lhn >>= Resolve.lookupGhcTyThingFromName ghcTyLookupEnv]
+      ]
+
 
 collectAllDataCons :: Ghc.CoreProgram -> [BareSpec] -> S.HashSet LHName
 collectAllDataCons cbs =
@@ -1183,16 +1190,16 @@ mkReft _ _ _ _
 
 -- REBARE: formerly, makeGhcSpec3
 -------------------------------------------------------------------------------------------
-makeSpecName :: Bare.Env -> Bare.TycEnv -> Bare.MeasEnv -> GhcSpecNames
+makeSpecName :: Bare.TycEnv -> Bare.MeasEnv -> [Ghc.Id] -> GhcSpecNames
 -------------------------------------------------------------------------------------------
-makeSpecName env tycEnv measEnv = SpNames
-  { gsFreeSyms = Bare.reSyms env
-  , gsDconsP   = [ F.atLoc dc (dcpCon dc) | dc <- datacons ++ cls ]
+makeSpecName tycEnv measEnv dataConIds = SpNames
+  { gsDconsP   = [ F.atLoc dc (dcpCon dc) | dc <- datacons ++ cls ]
   , gsTconsP   = tycons
   -- , gsLits = mempty                                              -- TODO-REBARE, redundant with gsMeas
   , gsTcEmbeds = Bare.tcEmbs     tycEnv
   , gsADTs     = Bare.tcAdts     tycEnv
   , gsTyconEnv = Bare.tcTyConMap tycEnv
+  , gsDataConIds = dataConIds
   }
   where
     datacons, cls :: [DataConP]
@@ -1373,12 +1380,10 @@ makeLiftedSpec name src env refl sData sig qual myRTE lSpec0 = lSpec0
   where
     myDCs         = filter (isLocalName . val . fst) $ mkSigs (gsCtors sData)
     mkSigs xts    = [ toBare (x, t) | (x, t) <- xts
-                    ,  S.member x sigVars && isExportedVar (toTargetSrc src) x
+                    , not (S.member x reflVars) && isExportedVar (toTargetSrc src) x
                     ]
     toBare (x, t) = (makeGHCLHNameLocatedFromId x, Bare.specToBare <$> t)
     xbs           = toBare <$> reflTySigs
-    sigVars       = S.difference defVars reflVars
-    defVars       = S.fromList (_giDefVars src)
     reflTySigs    = [(x, t) | (x,t,_) <- gsHAxioms refl]
     reflVars      = S.fromList (fst <$> reflTySigs)
     -- myAliases fld = M.elems . fld $ myRTE

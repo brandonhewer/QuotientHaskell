@@ -35,7 +35,6 @@ module Language.Haskell.Liquid.GHC.Interface (
   , clearSpec
   , checkFilePragmas
   , lookupTyThing
-  , availableTyThings
   , updLiftedSpec
   ) where
 
@@ -144,12 +143,6 @@ lookupTyThing tyEnv name = do
         [ pure (lookupTypeEnv tyEnv name)
         , lookupName name
         ]
-
-availableTyThings :: (GhcMonad m) => TcGblEnv -> [AvailInfo] -> m [TyThing]
-availableTyThings tcGblEnv avails =
-    fmap catMaybes $
-      mapM (lookupTyThing (Ghc.tcg_type_env tcGblEnv)) $
-      concatMap availNames avails
 
 _dumpTypeEnv :: TypecheckedModule -> IO ()
 _dumpTypeEnv tm = do

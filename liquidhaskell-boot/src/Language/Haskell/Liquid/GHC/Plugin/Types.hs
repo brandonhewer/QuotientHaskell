@@ -1,6 +1,5 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric #-}
 
@@ -20,10 +19,6 @@ module Language.Haskell.Liquid.GHC.Plugin.Types
     , PipelineData(..)
 
     -- * Acquiring and manipulating data from the typechecking phase
-    , TcData
-    , tcAvailableTyCons
-    , tcAvailableVars
-    , mkTcData
     ) where
 
 import           Data.Binary                             as B
@@ -88,37 +83,5 @@ mkSpecComment (m, s) = SpecComment (sourcePos m, s)
 
 data PipelineData = PipelineData {
     pdUnoptimisedCore :: ModGuts
-  , pdTcData :: TcData
   , pdSpecComments :: [BPspec]
-  }
-
--- | Data which can be \"safely\" passed to the \"Core\" stage of the pipeline.
--- The notion of \"safely\" here is a bit vague: things like imports are somewhat
--- guaranteed not to change, but things like identifiers might, so they shouldn't
--- land here.
-data TcData = TcData {
-    tcAvailableTyCons  :: [GHC.TyCon]
-  -- ^ Sometimes we might be in a situation where we have \"wrapper\" modules that
-  -- simply re-exports everything from the original module, and therefore when LH
-  -- tries to resolve the GHC identifier associated to a data constructor in scope
-  -- (from the call to 'lookupTyThings') we might not be able to find a match because
-  -- the 'mg_tcs' for the input 'ModGuts' is empty (because the type constructor are not
-  -- defined in the /wrapper/ module, but rather in the /wrapped/ module itself). This is
-  -- why we look at the 'ModGuts' 's 'AvailInfo' to extract any re-exported 'TyCon' out of that.
-  , tcAvailableVars    :: [Var]
-  -- ^ Ditto as for 'reflectedTyCons', but for identifiers.
-  }
-
-instance Outputable TcData where
-    ppr (TcData{..}) =
-          text "       , availTyCons = " <+> ppr tcAvailableTyCons
-      <+> text " }"
-
--- | Constructs a 'TcData' out of a 'TcGblEnv'.
-mkTcData :: [TyCon]
-         -> [Var]
-         -> TcData
-mkTcData availTyCons availVars = TcData {
-    tcAvailableTyCons  = availTyCons
-  , tcAvailableVars    = availVars
   }

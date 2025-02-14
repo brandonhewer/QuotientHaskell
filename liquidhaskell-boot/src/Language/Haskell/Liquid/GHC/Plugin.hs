@@ -322,12 +322,7 @@ mkPipelineData ms tcg0 specs = do
         let lcl_hsc_env = hscUpdateFlags (noWarnings . desugarerDynFlags) hsc_env in
         liftIO $ hscDesugar lcl_hsc_env ms tcg
 
-    avails          <- LH.availableTyThings tcg (tcg_exports tcg)
-    let availTyCons = [ tc | ATyCon tc <- avails ]
-        availVars   = [ var | AnId var <- avails ]
-
-    let tcData = mkTcData availTyCons availVars
-    return $ PipelineData unoptimisedGuts tcData specs
+    return $ PipelineData unoptimisedGuts specs
   where
     noWarnings dflags = dflags { warningFlags = mempty }
 
@@ -379,7 +374,6 @@ processInputSpec cfg pipelineData modSummary inputSpec = do
         lhGlobalCfg       = cfg
       , lhInputSpec       = inputSpec
       , lhModuleSummary   = modSummary
-      , lhModuleTcData    = pdTcData pipelineData
       , lhModuleGuts      = pdUnoptimisedCore pipelineData
       , lhRelevantModules = directImports tcg
       }
@@ -484,7 +478,6 @@ data LiquidHaskellContext = LiquidHaskellContext {
     lhGlobalCfg        :: Config
   , lhInputSpec        :: BareSpecParsed
   , lhModuleSummary    :: ModSummary
-  , lhModuleTcData     :: TcData
   , lhModuleGuts       :: ModGuts
   , lhRelevantModules  :: [Module]
   }
@@ -528,7 +521,7 @@ processModule LiquidHaskellContext{..} = do
     hscEnv <- getTopEnv
     let preNormalizedCore = preNormalizeCore moduleCfg modGuts0
         modGuts = modGuts0 { mg_binds = preNormalizedCore }
-    targetSrc  <- liftIO $ makeTargetSrc moduleCfg file lhModuleTcData modGuts hscEnv
+    targetSrc  <- liftIO $ makeTargetSrc moduleCfg file modGuts hscEnv
     logger <- getLogger
 
     -- See https://github.com/ucsd-progsys/liquidhaskell/issues/1711
@@ -589,21 +582,16 @@ processModule LiquidHaskellContext{..} = do
 
 makeTargetSrc :: Config
               -> FilePath
-              -> TcData
               -> ModGuts
               -> HscEnv
               -> IO TargetSrc
-makeTargetSrc cfg file tcData modGuts hscEnv = do
+makeTargetSrc cfg file modGuts hscEnv = do
   when (dumpPreNormalizedCore cfg) $ do
     putStrLn "\n*************** Pre-normalized CoreBinds *****************\n"
     putStrLn $ unlines $ L.intersperse "" $ map (GHC.showPpr (GHC.hsc_dflags hscEnv)) (mg_binds modGuts)
   coreBinds <- anormalize cfg hscEnv modGuts
 
-  -- The type constructors for a module are the (nubbed) union of the ones defined and
-  -- the ones exported. This covers the case of \"wrapper modules\" that simply re-exports
-  -- everything from the imported modules.
-  let availTcs    = tcAvailableTyCons tcData
-  let allTcs      = L.nub (mgi_tcs mgiModGuts ++ availTcs)
+  let allTcs      = mgi_tcs mgiModGuts
 
   let dataCons       = concatMap (map dataConWorkId . tyConDataCons) allTcs
   let (fiTcs, fiDcs) = LH.makeFamInstEnv (getFamInstances modGuts)
@@ -615,7 +603,6 @@ makeTargetSrc cfg file tcData modGuts hscEnv = do
   debugLog $ "dataCons => " ++ show dataCons
   debugLog $ "coreBinds => " ++ (O.showSDocUnsafe . O.ppr $ coreBinds)
   debugLog $ "impVars => " ++ (O.showSDocUnsafe . O.ppr $ impVars)
-  debugLog $ "defVars  => " ++ show (L.nub $ dataCons ++ letVars coreBinds ++ tcAvailableVars tcData)
   debugLog $ "useVars  => " ++ (O.showSDocUnsafe . O.ppr $ readVars coreBinds)
   debugLog $ "derVars  => " ++ (O.showSDocUnsafe . O.ppr $ HS.fromList (LH.derivedVars cfg mgiModGuts))
   debugLog $ "gsExports => " ++ show (mgi_exports  mgiModGuts)
@@ -629,7 +616,7 @@ makeTargetSrc cfg file tcData modGuts hscEnv = do
     , giTargetMod = ModName Target (moduleName (mg_module modGuts))
     , giCbs       = coreBinds
     , giImpVars   = impVars
-    , giDefVars   = L.nub $ dataCons ++ letVars coreBinds ++ tcAvailableVars tcData
+    , giDefVars   = L.nub $ dataCons ++ letVars coreBinds
     , giUseVars   = readVars coreBinds
     , giDerVars   = HS.fromList (LH.derivedVars cfg mgiModGuts)
     , gsExports   = mgi_exports  mgiModGuts

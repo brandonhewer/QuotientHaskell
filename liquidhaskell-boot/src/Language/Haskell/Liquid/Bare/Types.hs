@@ -77,7 +77,6 @@ data Env = RE
   , reInstEnvs  :: Ghc.InstEnvs
   , reUsedExternals :: Ghc.NameSet
   , reLMap      :: LogicMap
-  , reSyms      :: [(F.Symbol, Ghc.Var)]    -- ^ see "syms" in old makeGhcSpec'
   , reDataConIds :: [Ghc.Id]                -- ^ Data constructors used in the current module
   , reCfg       :: Config
   , reLocalVars :: LocalVars                -- ^ lines at which local variables are defined.
