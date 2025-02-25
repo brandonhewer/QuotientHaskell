@@ -2374,6 +2374,7 @@ executable basic-pos
                     , SkipDerived00
                     , T2349
                     , T2369
+                    , TestAdmit
 
     if flag(measure-timings)
       ghc-options:    -fforce-recomp -ddump-timings -ddump-to-file
