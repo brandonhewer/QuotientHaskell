@@ -6,7 +6,7 @@ data Test
   |/ test :: 0 == 3
 @-}
 
-{-@ fun :: choose <q :: Int>. Int -> Int @-}
+{-@ fun :: Test -> Test @-}
 fun :: Int -> Int
 fun 2 = 3
 fun n = n

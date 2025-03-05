@@ -87,6 +87,7 @@ import           Language.Haskell.Liquid.Bare.Types (LocalVars(lvNames), LocalVa
 import           Language.Haskell.Liquid.Name.LogicNameEnv
 import qualified Language.Haskell.Liquid.Types.DataDecl as DataDecl
 import           Language.Haskell.Liquid.Types.Errors (TError(ErrDupNames, ErrResolve), panic)
+import           Language.Haskell.Liquid.Types.QuotDecl
 import           Language.Haskell.Liquid.Types.Specs as Specs
 import           Language.Haskell.Liquid.Types.Types
 import           Language.Haskell.Liquid.UX.Config
@@ -123,6 +124,19 @@ collectExprAliases spec deps =
     let bsAliases = HS.fromList $ map (rtName . val) (ealiases spec)
         depAliases =
           [ HS.map (rtName . val) $ liftedEaliases lspec
+          | (_, lspec) <- HM.toList (getDependencies deps)
+          ]
+     in
+        HS.unions $ bsAliases : depAliases
+
+collectQuotientTypeCons
+  :: BareSpecParsed
+  -> TargetDependencies
+  -> HS.HashSet Symbol
+collectQuotientTypeCons spec deps =
+    let bsAliases = HS.fromList $ map (getLHNameSymbol . val . qtycName) (quotDecls spec)
+        depAliases =
+          [ HS.map (getLHNameSymbol . val . qtycName) (liftedQuotDecls lspec)
           | (_, lspec) <- HM.toList (getDependencies deps)
           ]
      in
@@ -190,6 +204,7 @@ resolveLHNames cfg thisModule localVars impMods globalRdrEnv bareSpec0 dependenc
   where
     taliases = collectTypeAliases thisModule bareSpec0 dependencies
     allEaliases = collectExprAliases bareSpec0 dependencies
+    quotientcons = collectQuotientTypeCons bareSpec0 dependencies
 
     -- add defines from dependencies to the logical map
     lmap =
@@ -255,10 +270,12 @@ resolveLHNames cfg thisModule localVars impMods globalRdrEnv bareSpec0 dependenc
           case localNameLookup [] of
             Just n' ->
               pure $ LHNResolved (LHRGHC n') s
-            Nothing -> do
-              addError
-                (errResolve (nameSpaceKind ns) "Cannot resolve name" (s <$ lname))
-              pure $ val lname
+            Nothing
+              | HS.member (getLHNameSymbol $ val lname) quotientcons -> pure $ val lname
+              | otherwise -> do
+                  addError
+                    (errResolve (nameSpaceKind ns) "Cannot resolve name" (s <$ lname))
+                  pure $ val lname
 
     maybeDropImported ns es
       | localNameSpace ns = filter GHC.isLocalGRE es
