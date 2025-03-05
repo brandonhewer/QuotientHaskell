@@ -43,6 +43,13 @@ splitRType f (RAllT v t r) = (RAllT v t1 r1, RAllT v t2 r2)
 splitRType f (RAllP p t) = (RAllP p t1, RAllP p t2)
   where
         (t1, t2) = splitRType f t
+splitRType f (RChooseQ q qs t u) = (RChooseQ q qs t1 u1, RChooseQ q qs t2 u2)
+  where
+        (t1, t2) = splitRType f t
+        (u1, u2) = splitRType f u
+splitRType f (RQuotient t q) = (RQuotient t1 q, RQuotient t2 q)
+  where
+        (t1, t2) = splitRType f t
 splitRType f (RApp c ts rs r) = (RApp c ts1 rs1 r1, RApp c ts2 rs2 r2)
   where
         (ts1, ts2) = unzip (splitRType f <$> ts)

@@ -2614,6 +2614,29 @@ executable ple-neg
 
     default-language: Haskell2010
 
+flag QuotientHaskell-pos
+     default: False
+
+executable QuotientHaskell-pos
+    import:           common-ghc-options
+    main-is:          Main.hs
+    if !flag(QuotientHaskell-pos) && flag(stack)
+      buildable:      False
+
+    other-modules:
+                      Map
+
+    if flag(measure-timings)
+      ghc-options:    -fforce-recomp -ddump-timings -ddump-to-file
+    build-depends:    base
+                    , liquid-prelude
+                    , liquidhaskell
+
+    hs-source-dirs:   app
+                    , QuotientHaskell/pos
+
+    default-language: Haskell2010
+
 flag rankN-pos
      default: False
 

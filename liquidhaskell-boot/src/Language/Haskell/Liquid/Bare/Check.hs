@@ -482,13 +482,14 @@ checkRType :: Bool -> BScope -> F.TCEmb TyCon -> F.SEnv F.SortedReft -> LocSpecT
 checkRType allowHO bsc emb senv lt
   =   checkAppTys st
   <|> checkAbstractRefs st
-  <|> efoldReft farg bsc cb (tyToBind emb) (rTypeSortedReft emb) f insertPEnv senv Nothing st
+  <|> efoldReft farg bsc cb (tyToBind emb) (rTypeSortedReft emb) f fq insertPEnv senv Nothing st
   where
     -- isErasable         = if allowTC then isEmbeddedDict else isClass
     st                 = val lt
     cb c ts            = classBinds emb (rRCls c ts)
     farg _ t           = allowHO || isBase t  -- NOTE: this check should be the same as the one in addCGEnv
     f env me r err     = err <|> checkReft (F.srcSpan lt) env emb me r
+    fq _ _ _           = Nothing
     insertPEnv p γ     = insertsSEnv γ (fmap (rTypeSortedReft emb) <$> pbinds p)
     pbinds p           = (pname p, pvarRType p :: RSort) : [(x, tx) | (tx, x, _) <- pargs p]
 
@@ -501,19 +502,21 @@ tyToBind emb = go . ty_var_info
 checkAppTys :: RType RTyCon t t1 -> Maybe Doc
 checkAppTys = go
   where
-    go (RAllT _ t _)    = go t
-    go (RAllP _ t)      = go t
+    go (RAllT _ t _)       = go t
+    go (RAllP _ t)         = go t
+    go (RChooseQ _ _ t u)  = go t <|> go u
+    go (RQuotient t _)     = go t
     go (RApp rtc ts _ _)
       = checkTcArity rtc (length ts) <|>
         L.foldl' (\merr t -> merr <|> go t) Nothing ts
-    go (RFun _ _ t1 t2 _) = go t1 <|> go t2
-    go (RVar _ _)       = Nothing
-    go (RAllE _ t1 t2)  = go t1 <|> go t2
-    go (REx _ t1 t2)    = go t1 <|> go t2
-    go (RAppTy t1 t2 _) = go t1 <|> go t2
-    go (RRTy _ _ _ t)   = go t
-    go (RExprArg _)     = Just $ text "Logical expressions cannot appear inside a Haskell type"
-    go (RHole _)        = Nothing
+    go (RFun _ _ t1 t2 _)  = go t1 <|> go t2
+    go (RVar _ _)          = Nothing
+    go (RAllE _ t1 t2)     = go t1 <|> go t2
+    go (REx _ t1 t2)       = go t1 <|> go t2
+    go (RAppTy t1 t2 _)    = go t1 <|> go t2
+    go (RRTy _ _ _ t)      = go t
+    go (RExprArg _)        = Just $ text "Logical expressions cannot appear inside a Haskell type"
+    go (RHole _)           = Nothing
 
 checkTcArity :: RTyCon -> Arity -> Maybe Doc
 checkTcArity RTyCon{ rtc_tc = tc } givenArity
@@ -535,17 +538,19 @@ checkAbstractRefs rt = go rt
   where
     penv = mkPEnv rt
 
-    go t@(RAllT _ t1 r)   = check (toRSort t :: RSort) r <|>  go t1
-    go (RAllP _ t)        = go t
-    go t@(RApp c ts rs r) = check (toRSort t :: RSort) r <|>  efold go ts <|> go' c rs
+    go t@(RAllT _ t1 r)     = check (toRSort t :: RSort) r <|>  go t1
+    go (RAllP _ t)          = go t
+    go (RChooseQ _ _ t u)   = go t <|> go u
+    go (RQuotient t _)      = go t
+    go t@(RApp c ts rs r)   = check (toRSort t :: RSort) r <|>  efold go ts <|> go' c rs
     go t@(RFun _ _ t1 t2 r) = check (toRSort t :: RSort) r <|> go t1 <|> go t2
-    go t@(RVar _ r)       = check (toRSort t :: RSort) r
-    go (RAllE _ t1 t2)    = go t1 <|> go t2
-    go (REx _ t1 t2)      = go t1 <|> go t2
-    go t@(RAppTy t1 t2 r) = check (toRSort t :: RSort) r <|> go t1 <|> go t2
-    go (RRTy xts _ _ t)   = efold go (snd <$> xts) <|> go t
-    go (RExprArg _)       = Nothing
-    go (RHole _)          = Nothing
+    go t@(RVar _ r)         = check (toRSort t :: RSort) r
+    go (RAllE _ t1 t2)      = go t1 <|> go t2
+    go (REx _ t1 t2)        = go t1 <|> go t2
+    go t@(RAppTy t1 t2 r)   = check (toRSort t :: RSort) r <|> go t1 <|> go t2
+    go (RRTy xts _ _ t)     = efold go (snd <$> xts) <|> go t
+    go (RExprArg _)         = Nothing
+    go (RHole _)            = Nothing
 
     go' c rs = L.foldl' (\acc (x, y) -> acc <|> checkOne' x y) Nothing (zip rs (rTyConPVs c))
 

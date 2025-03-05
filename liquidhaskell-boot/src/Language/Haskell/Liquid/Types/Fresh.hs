@@ -86,6 +86,12 @@ trueRefType allowTC (RAllT α t r)
 trueRefType allowTC (RAllP π t)
   = RAllP π <$> true allowTC t
 
+trueRefType allowTC (RChooseQ q qs t u)
+  = RChooseQ q qs <$> true allowTC t <*> true allowTC u
+
+trueRefType allowTC (RQuotient t q)
+  = (`RQuotient` q) <$> trueRefType allowTC t
+
 trueRefType allowTC (RFun _ _ t t' _)
   -- YL: attaching rfinfo here is crucial
   = rFun' (classRFInfo allowTC) <$> fresh <*> true allowTC t <*> true allowTC t'

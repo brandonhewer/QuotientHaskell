@@ -72,6 +72,11 @@ errorsTestGroups =
   , "parsing-errors"
   ]
 
+quotientTestGroups :: [Text]
+quotientTestGroups =
+  [ "QuotientHaskell-pos"
+  ]
+
 relationalTestGroups :: [Text]
 relationalTestGroups =
   [ "relational-pos"
@@ -85,5 +90,6 @@ allTestGroupNames =
           , benchmarkTestGroups
           , proverTestGroups
           , errorsTestGroups
+          , quotientTestGroups
           , relationalTestGroups
           ]

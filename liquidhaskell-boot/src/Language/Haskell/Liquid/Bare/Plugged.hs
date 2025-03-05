@@ -270,15 +270,17 @@ goPlug tce tyi err f = go
         addHole t@(RApp c ts ps _) = RApp c ts ps (f t (uReft ("v", hole)))
         addHole t                  = t
 
-    go (RVar _ _)       v@(RVar _ _)       = v
-    go (RFun _ _ i o _) (RFun x ii i' o' r)               = RFun x ii    (go i i')   (go o o') r
-    go (RAllT _ t _)    (RAllT a t' r)     = RAllT a    (go t t') r
-    go (RAllT a t r)    t'                 = RAllT a    (go t t') r
-    go t                (RAllP p t')       = RAllP p    (go t t')
-    go t                (RAllE b a t')     = RAllE b a  (go t t')
-    go t                (REx b x t')       = REx b x    (go t t')
-    go t                (RRTy e r o t')    = RRTy e r o (go t t')
-    go (RAppTy t1 t2 _) (RAppTy t1' t2' r) = RAppTy     (go t1 t1') (go t2 t2') r
+    go (RVar _ _)       v@(RVar _ _)          = v
+    go (RFun _ _ i o _) (RFun x ii i' o' r)   = RFun x ii    (go i i')   (go o o') r
+    go (RAllT _ t _)    (RAllT a t' r)        = RAllT a    (go t t') r
+    go (RAllT a t r)    t'                    = RAllT a    (go t t') r
+    go t                (RAllP p t')          = RAllP p    (go t t')
+    go t                (RAllE b a t')        = RAllE b a  (go t t')
+    go t                (RChooseQ q qs qt t') = RChooseQ  q qs qt (go t t')
+    go t                (RQuotient t' q)      = RQuotient (go t t') q
+    go t                (REx b x t')          = REx b x    (go t t')
+    go t                (RRTy e r o t')       = RRTy e r o (go t t')
+    go (RAppTy t1 t2 _) (RAppTy t1' t2' r)    = RAppTy     (go t1 t1') (go t2 t2') r
     -- zipWithDefM: if ts and ts' have different length then the liquid and haskell types are different.
     -- keep different types for now, as a pretty error message will be created at Bare.Check
     go (RApp _ ts _ _)  (RApp c ts' p r)

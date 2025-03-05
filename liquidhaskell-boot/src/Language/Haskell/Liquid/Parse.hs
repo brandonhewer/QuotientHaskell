@@ -43,6 +43,7 @@ import           Language.Haskell.Liquid.Types.DataDecl
 import           Language.Haskell.Liquid.Types.Errors
 import           Language.Haskell.Liquid.Types.Names
 import           Language.Haskell.Liquid.Types.PredType
+import           Language.Haskell.Liquid.Types.QuotDecl
 import           Language.Haskell.Liquid.Types.RType
 import           Language.Haskell.Liquid.Types.RefType
 import           Language.Haskell.Liquid.Types.RTypeOp
@@ -220,10 +221,17 @@ btP = do
   c@(PC sb _) <- compP
   case sb of
     PcNoSymbol   -> return c
-    PcImplicit b -> parseFun c b
-    PcExplicit b -> parseFun c b
+    PcImplicit b -> parseQuot c b
+    PcExplicit b -> parseQuot c b
   <?> "btP"
   where
+    parseQuot c@(PC sb rt_ty) sy
+      =   try ( do
+            rt_quotient <- reservedOp "/" *> lowerIdP
+            parseFun (PC sb RQuotient {..}) sy
+          )
+      <|> parseFun c sy
+
     parseFun c@(PC sb t1) sy  =
       (do
             reservedOp "->"
@@ -255,6 +263,7 @@ compP = circleP <|> parens btP <?> "compP"
 circleP :: Parser ParamComp
 circleP
   =  nullPC <$> (reserved "forall" >> bareAllP)
+ <|> nullPC <$> (reserved "choose" >> bareChooseP)
  <|> holePC                                 -- starts with '_'
  <|> namedCircleP                           -- starts with lower
  <|> bareTypeBracesP                        -- starts with '{'
@@ -543,6 +552,21 @@ bareAllP = do
   where
     rAllT a t = RAllT a t trueURef
     inAngles  = try  (sepBy  predVarDefP comma)
+
+bareChooseAnglesP :: Parser [(Symbol, [Symbol], BareTypeParsed)]
+bareChooseAnglesP
+  = angles $ sepBy ( do
+      qt  <- lowerIdP
+      qts <- many lowerIdP
+      qty <- reservedOp "::" *> genBareTypeP
+      return (qt, qts, qty)
+    ) comma
+
+bareChooseP :: Parser BareTypeParsed
+bareChooseP = do
+  cs  <- bareChooseAnglesP
+  uty <- dot *> bareTypeP
+  return $ foldr (\(rt_quotient, rt_quotients, rt_qty) rt_ty -> RChooseQ {..}) uty cs
 
 -- See #1907 for why we have to alpha-rename pvar binders
 rAllP :: SourcePos -> PVarV LocSymbol (BSortV LocSymbol) -> BareTypeParsed -> BareTypeParsed
@@ -878,8 +902,9 @@ data BPspec
   | AssmReflect (Located LHName, Located LHName)             -- ^ 'assume reflects' signature (unchecked)
   | Asrt    (Located LHName, LocBareTypeParsed)              -- ^ 'assert' signature (checked)
   | Asrts   ([Located LHName], (LocBareTypeParsed, Maybe [Located (ExprV LocSymbol)])) -- ^ sym0, ..., symn :: ty / [m0,..., mn]
-  | DDecl   DataDeclParsed                                -- ^ refined 'data'    declaration
+  | DDecl   DataDeclParsed                                -- ^ refined 'data'    declaration                       
   | NTDecl  DataDeclParsed                                -- ^ refined 'newtype' declaration
+  | QDecl   QuotDeclParsed                                -- ^ quotiented 'data' declaration
   | Relational (Located LHName, Located LHName, LocBareTypeParsed, LocBareTypeParsed, RelExprV LocSymbol, RelExprV LocSymbol) -- ^ relational signature
   | AssmRel (Located LHName, Located LHName, LocBareTypeParsed, LocBareTypeParsed, RelExprV LocSymbol, RelExprV LocSymbol) -- ^ 'assume' relational signature
   | Class   (RClass LocBareTypeParsed)                    -- ^ refined 'class' definition
@@ -951,6 +976,8 @@ ppPspec k (DDecl d)
   = pprintTidy k (parsedToBareType <$> mapDataDeclV val d)
 ppPspec k (NTDecl d)
   = "newtype" <+> pprintTidy k (parsedToBareType <$> mapDataDeclV val d)
+ppPspec k (QDecl q)
+  = pprintTidy k (parsedToBareType <$> mapQuotDeclV val q)
 ppPspec k (Invt t)
   = "invariant" <+> pprintTidy k (parsedToBareType <$> t)
 ppPspec k (Using (t1, t2))
@@ -1081,6 +1108,7 @@ mkSpec xs = Measure.Spec
   , Measure.invariants = [(Nothing, t) | Invt   t <- xs]
   , Measure.ialiases   = [t | Using t <- xs]
   , Measure.dataDecls  = [d | DDecl  d <- xs] ++ [d | NTDecl d <- xs]
+  , Measure.quotDecls  = [q | QDecl  q <- xs]
   , Measure.newtyDecls = [d | NTDecl d <- xs]
   , Measure.aliases    = [a | Alias  a <- xs]
   , Measure.ealiases   = [e | EAlias e <- xs]
@@ -1151,8 +1179,8 @@ specP
     <|> (reserved "data"
         >> ((reserved "variance"  >> fmap Varia  datavarianceP)
         <|> (reserved "size"      >> fmap DSize  dsizeP)
-        <|> fmap DDecl  dataDeclP ))
-    <|> (reserved "newtype"       >> fmap NTDecl dataDeclP )
+        <|> dataDeclP ))
+    <|> (reserved "newtype"       >> newtypeDeclP )
     <|> (reserved "relational"    >> fmap Relational relationalP )
     <|> fallbackSpecP "invariant"   (fmap Invt   invariantP)
     <|> (reserved "using"          >> fmap Using invaliasP )
@@ -1532,6 +1560,50 @@ dataConP as = do
   xts <- dataConFieldsP
   return $ DataCtor x as [] xts Nothing
 
+makeDataCtor :: [Symbol] -> Located Symbol -> [(Symbol, BareTypeParsed)] -> DataCtorParsed
+makeDataCtor dcTyVars x fs
+  = DataCtor
+      { dcName   = fmap (makeUnresolvedLHName $ LHDataConName LHAnyModuleNameF) x
+      , dcTyVars = dcTyVars
+      , dcTheta  = []
+      , dcFields = map (first $ makeUnresolvedLHName LHLogicNameBinder) fs
+      , dcResult = Nothing
+      }
+
+makeRApp :: Located Symbol -> [(Symbol, BareTypeParsed)] -> BareTypeParsed
+makeRApp tc ts
+  = RApp
+      { rt_tycon = mkBTyCon $ fmap (makeUnresolvedLHName LHTcName) tc
+      , rt_args  = map snd ts
+      , rt_pargs = []
+      , rt_reft  = trueURef
+      }
+
+dataConWithFieldsP
+  :: [Symbol]
+  -> (DataCtorParsed -> Parser a)
+  -> Located Symbol
+  -> Parser a
+dataConWithFieldsP as withDataCtorP x
+  = explicitCommaBlock predTypeDDP >>= withDataCtorP . makeDataCtor as x
+
+dataConOrQuotDeclP
+  :: [Symbol]
+  -> (DataCtorParsed -> Parser a)
+  -> (BareTypeParsed -> Parser a)
+  -> Parser a
+dataConOrQuotDeclP as withDataCtorP withQuotTypeP
+  = ( do
+        x <- try dataConNameP
+        dataConWithFieldsP as withDataCtorP x
+          <|> ( do
+                  xts <- many dataConFieldP
+                  (reservedOp "|/" *> withQuotTypeP (makeRApp x xts))
+                    <|> withDataCtorP (makeDataCtor as x xts)
+              )
+    )
+  <|> (bareTypeP <* reservedOp "|/" >>= withQuotTypeP)
+
 adtDataConP :: [Symbol] -> Parser DataCtorParsed
 adtDataConP as = do
   x     <- dataConLHNameP
@@ -1583,12 +1655,22 @@ relationalP = do
     ex <- relrefaP
     return (x,y,tx,ty,assm,ex)
 
-dataDeclP :: Parser DataDeclParsed
-dataDeclP = do
-  pos <- getSourcePos
-  x   <- locUpperOrInfixIdP
+dataDeclWithP
+  :: (DataDeclParsed -> a)
+  -> (SourcePos -> LocSymbol -> Maybe (SizeFunV LocSymbol) -> Bool -> Parser a)
+  -> Parser a
+dataDeclWithP withEmpty withNonEmpty = do
+  pos   <- getSourcePos
+  x     <- locUpperOrInfixIdP
   fsize <- dataSizeP
-  dataDeclBodyP pos x fsize <|> return (emptyDecl x pos fsize)
+  withVanillaP withNonEmpty pos x fsize <|> return (withEmpty $ emptyDecl x pos fsize)
+
+newtypeDeclP :: Parser BPspec
+newtypeDeclP
+  = dataDeclWithP NTDecl $ \pos fsize x -> fmap NTDecl . dataDeclBodyP pos fsize x
+
+dataDeclP :: Parser BPspec
+dataDeclP = dataDeclWithP DDecl dataOrQuotDeclBodyP
 
 emptyDecl :: LocSymbol -> SourcePos -> Maybe (SizeFunV LocSymbol) -> DataDeclParsed
 emptyDecl x pos fsize@(Just _)
@@ -1598,9 +1680,66 @@ emptyDecl x pos _
   where
     msg = "You should specify either a default [size] or one or more fields in the data declaration"
 
-dataDeclBodyP :: SourcePos -> LocSymbol -> Maybe (SizeFunV LocSymbol) -> Parser DataDeclParsed
-dataDeclBodyP pos x fsize = do
-  vanilla    <- null <$> many locUpperIdP
+withVanillaP
+  :: (SourcePos -> LocSymbol -> Maybe (SizeFunV LocSymbol) -> Bool -> Parser a)
+  -> SourcePos -> LocSymbol -> Maybe (SizeFunV LocSymbol) -> Parser a
+withVanillaP f pos x fsize = do
+  vanilla <- null <$> many locUpperIdP
+  f pos x fsize vanilla
+
+dataOrQuotDeclBodyP :: SourcePos -> LocSymbol -> Maybe (SizeFunV LocSymbol) -> Bool -> Parser BPspec
+dataOrQuotDeclBodyP pos x fsize False = DDecl <$> dataDeclBodyP pos x fsize True
+dataOrQuotDeclBodyP pos x fsize _     = do
+  as         <- many noWhere -- TODO: check this again
+  ps         <- predVarDefsP
+  let dn ns = makeUnresolvedLHName ns <$> x
+  ( reservedOp "="
+      *> dataConOrQuotDeclP as
+          (dataWithCtorP pos (dn LHTcName) fsize as ps)
+          (dataWithQuotP pos (dn LHQcName) fsize as ps))
+    <|> ( reserved "where" *> do
+            dcs <- block (adtDataConP as)
+            return
+              $ DDecl $ DataDecl (DnName $ dn LHTcName) as ps (Just dcs) pos fsize Nothing DataUser
+        )
+
+dataWithCtorP
+  :: SourcePos
+  -> Located LHName
+  -> Maybe (SizeFunV LocSymbol)
+  -> [Symbol]
+  -> [PVarV LocSymbol (BSortV LocSymbol)]
+  -> DataCtorParsed
+  -> Parser BPspec
+dataWithCtorP pos dn fsize as ps ctor = do
+  ctors <- many (reservedOp "|" *> dataConP as)
+  return
+    $ DDecl $ DataDecl (DnName dn) as ps (Just $ ctor : ctors) pos fsize Nothing DataUser
+
+dataWithQuotP
+  :: SourcePos
+  -> Located LHName
+  -> Maybe (SizeFunV LocSymbol)
+  -> [Symbol]
+  -> [PVarV LocSymbol (BSortV LocSymbol)]
+  -> BareTypeParsed
+  -> Parser BPspec
+dataWithQuotP pos dn fsize as ps utype = do
+  ector  <- equalityCtorP as <?> "equalityCtor"
+  ectors <- many (reservedOp "|/" *> equalityCtorP as)
+  return $ QDecl QuotDecl
+    { qtycName       = dn
+    , qtycTyVars     = as
+    , qtycPVars      = ps
+    , qtycType       = utype
+    , qtycFirstEqCon = ector
+    , qtycEqCons     = ectors
+    , qtycSrcPos     = pos
+    , qtycSFun       = fsize
+    }
+
+dataDeclBodyP :: SourcePos -> LocSymbol -> Maybe (SizeFunV LocSymbol) -> Bool -> Parser DataDeclParsed
+dataDeclBodyP pos x fsize vanilla = do
   as         <- many noWhere -- TODO: check this again
   ps         <- predVarDefsP
   (pTy, dcs) <- dataCtorsP as
@@ -1636,6 +1775,38 @@ noWhere =
 
 dataPropTyP :: Parser (Maybe BareTypeParsed)
 dataPropTyP = Just <$> between (reservedOp "::") (reserved "where") bareTypeP
+
+---------------------------------------------------------------------
+-- Equality constructors --------------------------------------------
+---------------------------------------------------------------------
+equalityBindParamP :: Parser EqualityParamParsed
+equalityBindParamP = do
+  lb <- locLowerIdP <* reservedOp ":"
+  let b = val lb
+  EqualityBindParam (val lb) <$> bareArgP b
+
+equalityPreconditionP :: Parser EqualityParamParsed
+equalityPreconditionP = braces $ EqualityPrecondition <$> predP
+
+equalityConstraintsP :: Parser [Located BareTypeParsed]
+equalityConstraintsP
+  =   try ((parens (superP `sepBy1` comma) <|> fmap pure superP) <* reservedOp "=>")
+  <|> return []
+
+equalityCtorParamP :: Parser EqualityParamParsed
+equalityCtorParamP = try equalityBindParamP <|> equalityPreconditionP
+
+equalityCtorParamsP :: Parser [EqualityParamParsed]
+equalityCtorParamsP = many (equalityCtorParamP <* reservedOp "->")
+
+equalityCtorP :: [Symbol] -> Parser EqualityCtorParsed
+equalityCtorP ecTyVars = do
+  ecName       <- locLowerIdP <* reservedOp "::"
+  ecTheta      <- equalityConstraintsP
+  ecParameters <- equalityCtorParamsP
+  ecLeftTerm   <- exprP
+  ecRightTerm  <- reservedOp "==" *> exprP
+  return EqualityCtor {..} 
 
 ---------------------------------------------------------------------
 -- Identifiers ------------------------------------------------------

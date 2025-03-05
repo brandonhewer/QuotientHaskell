@@ -88,6 +88,7 @@ import           Data.HashMap.Strict     (HashMap)
 import           Language.Haskell.Liquid.GHC.Misc (dropModuleNames)
 import           Language.Haskell.Liquid.Types.DataDecl
 import           Language.Haskell.Liquid.Types.Names
+import           Language.Haskell.Liquid.Types.QuotDecl
 import           Language.Haskell.Liquid.Types.RType
 import           Language.Haskell.Liquid.Types.RTypeOp
 import           Language.Haskell.Liquid.Types.Types
@@ -386,6 +387,7 @@ data Spec lname ty = Spec
   , invariants :: ![(Maybe F.LocSymbol, F.Located ty)]                -- ^ Data type invariants; the Maybe is the generating measure
   , ialiases   :: ![(F.Located ty, F.Located ty)]                     -- ^ Data type invariants to be checked
   , dataDecls  :: ![DataDeclP lname ty]                               -- ^ Predicated data definitions
+  , quotDecls  :: ![QuotDeclP lname ty]
   , newtyDecls :: ![DataDeclP lname ty]                               -- ^ Predicated new type definitions
   , aliases    :: ![F.Located (RTAlias F.Symbol (BareTypeV lname))]   -- ^ RefType aliases
   , ealiases   :: ![F.Located (RTAlias F.Symbol (F.ExprV lname))]     -- ^ Expression aliases
@@ -459,6 +461,7 @@ emapSpecM bscp lenv vf f sp = do
     invariants <- mapM (traverse (traverse fnull)) (invariants sp)
     ialiases <- mapM (bimapM (traverse fnull) (traverse fnull)) (ialiases sp)
     dataDecls <- mapM (emapDataDeclM bscp vf f) (dataDecls sp)
+    quotDecls <- mapM (emapQuotDeclM bscp vf f) (quotDecls sp)
     newtyDecls <- mapM (emapDataDeclM bscp vf f) (newtyDecls sp)
     aliases <- mapM (traverse (emapRTAlias (emapBareTypeVM bscp vf))) (aliases sp)
     ealiases <- mapM (traverse (emapRTAlias (\e -> emapExprVM (vf . (++ e))))) $ ealiases sp
@@ -496,6 +499,7 @@ emapSpecM bscp lenv vf f sp = do
       , invariants
       , ialiases
       , dataDecls
+      , quotDecls
       , newtyDecls
       , aliases
       , ealiases
@@ -550,6 +554,7 @@ mapSpecTy f Spec {..} =
       , invariants = map (fmap (fmap f)) invariants
       , ialiases = map (bimap (fmap f) (fmap f)) ialiases
       , dataDecls = map (fmap f) dataDecls
+      , quotDecls = map (fmap f) quotDecls
       , newtyDecls = map (fmap f) newtyDecls
       , cmeasures = map (mapMeasureTy (fmap f)) cmeasures
       , imeasures = map (mapMeasureTy (fmap f)) imeasures
@@ -568,6 +573,7 @@ mapSpecLName f Spec {..} =
       , expSigs = map (first f) expSigs
       , sigs = map (fmap (fmap (mapRTypeV f . mapReft (mapUReftV f (fmap f))))) sigs
       , dataDecls = map (mapDataDeclV f) dataDecls
+      , quotDecls = map (mapQuotDeclV f) quotDecls
       , newtyDecls = map (mapDataDeclV f) newtyDecls
       , aliases = map (fmap (fmap (mapRTypeV f . fmap (mapUReftV f (fmap f))))) aliases
       , ealiases = map (fmap (fmap (fmap f))) ealiases
@@ -600,6 +606,7 @@ instance Semigroup (Spec lname ty) where
            , invariants =           invariants s1 ++ invariants s2
            , ialiases   =           ialiases   s1 ++ ialiases   s2
            , dataDecls  =           dataDecls  s1 ++ dataDecls  s2
+           , quotDecls  =           quotDecls  s1 ++ quotDecls  s2
            , newtyDecls =           newtyDecls s1 ++ newtyDecls s2
            , aliases    =           aliases    s1 ++ aliases    s2
            , ealiases   =           ealiases   s1 ++ ealiases   s2
@@ -646,6 +653,7 @@ instance Monoid (Spec lname ty) where
            , invariants = []
            , ialiases   = []
            , dataDecls  = []
+           , quotDecls  = []
            , newtyDecls = []
            , aliases    = []
            , ealiases   = []
@@ -726,6 +734,8 @@ data LiftedSpec = LiftedSpec
     -- ^ Data type invariants to be checked
   , liftedDataDecls  :: HashSet DataDeclLHName
     -- ^ Predicated data definitions
+  , liftedQuotDecls  :: HashSet QuotDeclLHName
+    -- ^ Predicated quotient type definitions
   , liftedNewtyDecls :: HashSet DataDeclLHName
     -- ^ Predicated new type definitions
   , liftedAliases    :: HashSet (F.Located (RTAlias F.Symbol BareTypeLHName))
@@ -798,6 +808,7 @@ emptyLiftedSpec = LiftedSpec
   , liftedInvariants = mempty
   , liftedIaliases   = mempty
   , liftedDataDecls  = mempty
+  , liftedQuotDecls  = mempty
   , liftedNewtyDecls = mempty
   , liftedAliases    = mempty
   , liftedEaliases   = mempty
@@ -960,6 +971,7 @@ toLiftedSpec a = LiftedSpec
   , liftedInvariants = S.fromList . invariants $ a
   , liftedIaliases   = S.fromList . ialiases $ a
   , liftedDataDecls  = S.fromList . dataDecls $ a
+  , liftedQuotDecls  = S.fromList . quotDecls $ a
   , liftedNewtyDecls = S.fromList . newtyDecls $ a
   , liftedAliases    = S.fromList . aliases $ a
   , liftedEaliases   = S.fromList . ealiases $ a
@@ -1000,6 +1012,7 @@ unsafeFromLiftedSpec a = Spec
   , invariants = S.toList . liftedInvariants $ a
   , ialiases   = S.toList . liftedIaliases $ a
   , dataDecls  = S.toList . liftedDataDecls $ a
+  , quotDecls  = S.toList . liftedQuotDecls $ a
   , newtyDecls = S.toList . liftedNewtyDecls $ a
   , aliases    = S.toList . liftedAliases $ a
   , ealiases   = S.toList . liftedEaliases $ a

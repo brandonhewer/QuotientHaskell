@@ -298,6 +298,10 @@ renameTvs rename t
   = RAllT (RTVar (rename tv) info) (renameTvs rename tres) r
   | RAllP b tres <- t
   = RAllP (renameTvs rename <$> b) (renameTvs rename tres)
+  | RChooseQ q qs qt ut <- t
+  = RChooseQ q qs (renameTvs rename qt) (renameTvs rename ut)
+  | RQuotient ut q <- t
+  = RQuotient (renameTvs rename ut) q
   | RApp tc ts tps r <- t
   -- TODO: handle rtprop properly
   = RApp tc (renameTvs rename <$> ts) tps r

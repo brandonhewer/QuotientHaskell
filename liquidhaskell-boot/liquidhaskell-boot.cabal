@@ -96,6 +96,7 @@ library
                       Language.Haskell.Liquid.Types.Names
                       Language.Haskell.Liquid.Types.PredType
                       Language.Haskell.Liquid.Types.PrettyPrint
+                      Language.Haskell.Liquid.Types.QuotDecl
                       Language.Haskell.Liquid.Types.RefType
                       Language.Haskell.Liquid.Types.RType
                       Language.Haskell.Liquid.Types.RTypeOp

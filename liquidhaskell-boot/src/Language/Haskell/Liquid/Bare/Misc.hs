@@ -134,6 +134,10 @@ mapTyVars allowTC τ (RAllP _ t)
   = mapTyVars allowTC τ t
 mapTyVars allowTC τ (RAllE _ _ t)
   = mapTyVars allowTC τ t
+mapTyVars allowTC τ (RChooseQ _ _ _ t)
+  = mapTyVars allowTC τ t
+mapTyVars allowTC τ (RQuotient t _)
+  = mapTyVars allowTC τ t
 mapTyVars allowTC τ (RRTy _ _ _ t)
   = mapTyVars allowTC τ t
 mapTyVars allowTC τ (REx _ _ t)

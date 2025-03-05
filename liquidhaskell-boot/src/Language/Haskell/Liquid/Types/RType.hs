@@ -730,6 +730,22 @@ data RTypeV v c tv r
     , rt_ty     :: !(RTypeV v c tv r)
     }
 
+  -- | For example "choose q :: []. (a -> b) -> [a] / q -> [b] / q"
+  -- |                          ^^ rt_qty
+  | RChooseQ {
+      rt_quotient  :: !Symbol
+    , rt_quotients :: [Symbol]
+    , rt_qty       :: !(RTypeV v c tv r)
+    , rt_ty        :: !(RTypeV v c tv r)
+    }
+
+  -- | For example "[a] / q"
+  --                      ^ rt_quotient
+  | RQuotient {
+      rt_ty       :: !(RTypeV v c tv r)
+    , rt_quotient :: !Symbol
+    }
+
   -- | For example, in [a]<{\h -> v > h}>, we apply (via `RApp`)
   --   * the `RProp`  denoted by `{\h -> v > h}` to
   --   * the `RTyCon` denoted by `[]`.

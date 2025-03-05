@@ -115,6 +115,7 @@ instance Hashable LHName where
 
 data LHNameSpace
     = LHTcName
+    | LHQcName
     | LHDataConName LHThisModuleNameFlag
     | LHVarName LHThisModuleNameFlag
     | LHLogicNameBinder

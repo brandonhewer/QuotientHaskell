@@ -220,20 +220,22 @@ buildTypeEdges :: AliasTable x t -> BareType -> [F.Symbol]
 buildTypeEdges table = ordNub . go
   where
     -- go :: t -> [Symbol]
-    go (RApp c ts rs _) = go_alias (getLHNameSymbol $ val $ btc_tc c) ++ concatMap go ts ++ concatMap go (mapMaybe go_ref rs)
-    go (RFun _ _ t1 t2 _) = go t1 ++ go t2
-    go (RAppTy t1 t2 _) = go t1 ++ go t2
-    go (RAllE _ t1 t2)  = go t1 ++ go t2
-    go (REx _ t1 t2)    = go t1 ++ go t2
-    go (RAllT _ t _)    = go t
-    go (RAllP _ t)      = go t
-    go (RVar _ _)       = []
-    go (RExprArg _)     = []
-    go (RHole _)        = []
-    go (RRTy env _ _ t) = concatMap (go . snd) env ++ go t
-    go_alias c          = [c | M.member c table]
+    go (RApp c ts rs _)     = go_alias (getLHNameSymbol $ val $ btc_tc c) ++ concatMap go ts ++ concatMap go (mapMaybe go_ref rs)
+    go (RFun _ _ t1 t2 _)   = go t1 ++ go t2
+    go (RAppTy t1 t2 _)     = go t1 ++ go t2
+    go (RAllE _ t1 t2)      = go t1 ++ go t2
+    go (REx _ t1 t2)        = go t1 ++ go t2
+    go (RAllT _ t _)        = go t
+    go (RAllP _ t)          = go t
+    go (RChooseQ _ _ t1 t2) = go t1 ++ go t2
+    go (RQuotient t _)      = go t
+    go (RVar _ _)           = []
+    go (RExprArg _)         = []
+    go (RHole _)            = []
+    go (RRTy env _ _ t)     = concatMap (go . snd) env ++ go t
+    go_alias c              = [c | M.member c table]
     go_ref (RProp _ (RHole _)) = Nothing
-    go_ref (RProp  _ t) = Just t
+    go_ref (RProp  _ t)     = Just t
 
 buildExprEdges :: M.HashMap F.Symbol a -> F.Expr -> [F.Symbol]
 buildExprEdges table  = ordNub . go
@@ -386,17 +388,19 @@ expandBareType rtEnv l = go
     go (RApp c ts rs r)  = case lookupRTEnv c rtEnv of
                              Just rta -> expandRTAliasApp (GM.fSourcePos c) rta (go <$> ts) r
                              Nothing  -> RApp c (go <$> ts) (goRef <$> rs) r
-    go (RAppTy t1 t2 r)  = RAppTy (go t1) (go t2) r
+    go (RAppTy t1 t2 r)    = RAppTy (go t1) (go t2) r
     go (RFun  x i t1 t2 r) = RFun  x i (go t1) (go t2) r
-    go (RAllT a t r)     = RAllT a (go t) r
-    go (RAllP a t)       = RAllP a (go t)
-    go (RAllE x t1 t2)   = RAllE x (go t1) (go t2)
-    go (REx x t1 t2)     = REx   x (go t1) (go t2)
-    go (RRTy e r o t)    = RRTy  e r o     (go t)
-    go t@RHole{}         = t
-    go t@RVar{}          = t
-    go t@RExprArg{}      = t
-    goRef (RProp ss t)   = RProp (map (expand rtEnv l <$>) ss) (go t)
+    go (RAllT a t r)       = RAllT a (go t) r
+    go (RAllP a t)         = RAllP a (go t)
+    go (RAllE x t1 t2)     = RAllE x (go t1) (go t2)
+    go (RChooseQ q qs t u) = RChooseQ q qs (go t) (go u)
+    go (RQuotient t q)     = RQuotient (go t) q
+    go (REx x t1 t2)       = REx   x (go t1) (go t2)
+    go (RRTy e r o t)      = RRTy  e r o     (go t)
+    go t@RHole{}           = t
+    go t@RVar{}            = t
+    go t@RExprArg{}        = t
+    goRef (RProp ss t)     = RProp (map (expand rtEnv l <$>) ss) (go t)
 
 lookupRTEnv :: BTyCon -> BareRTEnv -> Maybe (Located BareRTAlias)
 lookupRTEnv c rtEnv = M.lookup (getLHNameSymbol $ val $ btc_tc c) (typeAliases rtEnv)

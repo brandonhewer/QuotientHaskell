@@ -140,6 +140,22 @@ data RTypeF c tv r f
     , _rtf_ty     :: !f
     }
 
+  -- | For example "choose q :: []. (a -> b) -> [a] / q -> [b] / q"
+  -- |                          ^^ rt_qty
+  | RChooseQF {
+      _rtf_quotient  :: !F.Symbol
+    , _rtf_quotients :: [F.Symbol]
+    , _rtf_qty       :: !f
+    , _rtf_ty        :: !f
+    }
+
+  -- | For example "[a] / q"
+  --                      ^ rt_quotient
+  | RQuotientF {
+      _rtf_ty       :: !f
+    , _rtf_quotient :: !F.Symbol
+    }
+
   -- | For example, in [a]<{\h -> v > h}>, we apply (via `RApp`)
   --   * the `RProp`  denoted by `{\h -> v > h}` to
   --   * the `RTyCon` denoted by `[]`.
@@ -197,6 +213,8 @@ project (RVar var reft            ) = RVarF var reft
 project (RFun bind i tin tout reft) = RFunF  bind i tin tout reft
 project (RAllT tvbind ty ref      ) = RAllTF tvbind ty ref
 project (RAllP pvbind ty          ) = RAllPF pvbind ty
+project (RChooseQ q qs t u        ) = RChooseQF q qs t u
+project (RQuotient t q            ) = RQuotientF t q
 project (RApp c args pargs reft   ) = RAppF c args pargs reft
 project (RAllE bind allarg ty     ) = RAllEF bind allarg ty
 project (REx   bind exarg  ty     ) = RExF bind exarg ty
@@ -210,6 +228,8 @@ embed (RVarF var reft            ) = RVar var reft
 embed (RFunF bind i tin tout reft) = RFun bind  i tin tout reft
 embed (RAllTF tvbind ty ref      ) = RAllT tvbind ty ref
 embed (RAllPF pvbind ty          ) = RAllP pvbind ty
+embed (RChooseQF q qs t u        ) = RChooseQ q qs t u
+embed (RQuotientF t q            ) = RQuotient t q
 embed (RAppF c args pargs reft   ) = RApp c args pargs reft
 embed (RAllEF bind allarg ty     ) = RAllE bind allarg ty
 embed (RExF   bind exarg  ty     ) = REx bind exarg ty
@@ -405,6 +425,17 @@ elaborateSpecType' partialTp coreToLogic simplify t =
       pure (RAllP pvbind eTout, bts')
     -- pargs not handled for now
     -- RApp tycon args pargs reft
+
+    RChooseQ q qs qt ut -> do
+      (qt', bs)  <- elaborateSpecType' partialTp coreToLogic simplify qt
+      (ut', bs') <- elaborateSpecType' partialTp coreToLogic simplify ut
+      let (ut'', bs'') = canonicalizeDictBinder bs (ut', bs')
+      pure (RChooseQ q qs qt' ut'', bs'')
+
+    RQuotient ut q -> do
+      (ut', s) <- elaborateSpecType' partialTp coreToLogic simplify ut
+      pure (RQuotient ut' q, s)
+
     RApp tycon args pargs ureft@(MkUReft reft@(F.Reft (vv, _)) p)
       | isClass tycon -> pure (t, [])
       | otherwise -> do
@@ -693,6 +724,8 @@ specTypeToLHsType = \case
       (mkHsForAllInvisTele noAnn [noLocA $ UserTyVar noAnn SpecifiedSpec (noLocA $ symbolToRdrNameNs tvName (F.symbol tv))])
       (specTypeToLHsType t)
     RAllP _ ty -> specTypeToLHsType ty
+    RChooseQ _ _ _ u -> specTypeToLHsType u
+    RQuotient t _ -> specTypeToLHsType t
     RApp RTyCon { rtc_tc = tc } ts _ _ -> mkHsTyConApp
       (getRdrName tc)
       [ specTypeToLHsType t | t <- ts, notExprArg t ]

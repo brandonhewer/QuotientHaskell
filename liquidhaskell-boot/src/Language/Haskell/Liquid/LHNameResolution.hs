@@ -228,6 +228,7 @@ resolveLHNames cfg thisModule localVars impMods globalRdrEnv bareSpec0 dependenc
         n@(LHNUnresolved LHLogicName _) ->
           -- This one will be resolved by resolveLogicNames
           pure n
+        n@(LHNUnresolved LHQcName _) -> pure n
         LHNUnresolved ns s -> lookupGRELHName ns lname s listToMaybe
         n -> pure n
 
@@ -267,12 +268,14 @@ resolveLHNames cfg thisModule localVars impMods globalRdrEnv bareSpec0 dependenc
       LHDataConName lcl -> lcl == LHThisModuleNameF
       LHVarName lcl -> lcl == LHThisModuleNameF
       LHTcName -> False
+      LHQcName -> False
       LHLogicNameBinder -> False
       LHLogicName -> False
 
     nameSpaceKind :: LHNameSpace -> PJ.Doc
     nameSpaceKind = \case
       LHTcName -> "type constructor"
+      LHQcName -> "quotient type constructor"
       LHDataConName LHAnyModuleNameF -> "data constructor"
       LHDataConName LHThisModuleNameF -> "locally-defined data constructor"
       LHVarName LHAnyModuleNameF -> "variable"
@@ -352,6 +355,7 @@ mkLookupGRE ns s =
     mkWhichGREs :: LHNameSpace -> GHC.WhichGREs GHC.GREInfo
     mkWhichGREs = \case
       LHTcName -> GHC.SameNameSpace
+      LHQcName -> GHC.SameNameSpace
       LHDataConName _ -> GHC.SameNameSpace
       LHVarName _ -> GHC.RelevantGREs
         { GHC.includeFieldSelectors = GHC.WantNormal
@@ -363,6 +367,7 @@ mkLookupGRE ns s =
 
     mkGHCNameSpace = \case
       LHTcName -> GHC.tcName
+      LHQcName -> GHC.tcName
       LHDataConName _ -> GHC.dataName
       LHVarName _ -> GHC.Types.Name.Occurrence.varName
       LHLogicNameBinder -> panic Nothing "mkGHCNameSpace: unexpected namespace LHLogicNameBinder"
@@ -412,19 +417,20 @@ fixExpressionArgsOfTypeAliases taliases =
     go (RApp c@(BTyCon { btc_tc = Loc _ _ (LHNUnresolved LHTcName s) }) ts rs r)
       | Just (_, rta) <- HM.lookup s taliases =
         RApp c (fixExprArgs (btc_tc c) rta (map go ts)) (map goRef rs) r
-    go (RApp c ts rs r) =
-        RApp c (map go ts) (map goRef rs) r
-    go (RAppTy t1 t2 r)  = RAppTy (go t1) (go t2) r
+    go (RApp c ts rs r)    = RApp c (map go ts) (map goRef rs) r
+    go (RAppTy t1 t2 r)    = RAppTy (go t1) (go t2) r
     go (RFun  x i t1 t2 r) = RFun  x i (go t1) (go t2) r
-    go (RAllT a t r)     = RAllT a (go t) r
-    go (RAllP a t)       = RAllP a (go t)
-    go (RAllE x t1 t2)   = RAllE x (go t1) (go t2)
-    go (REx x t1 t2)     = REx   x (go t1) (go t2)
-    go (RRTy e r o t)    = RRTy  e r o     (go t)
-    go t@RHole{}         = t
-    go t@RVar{}          = t
-    go t@RExprArg{}      = t
-    goRef (RProp ss t)   = RProp ss (go t)
+    go (RAllT a t r)       = RAllT a (go t) r
+    go (RAllP a t)         = RAllP a (go t)
+    go (RAllE x t1 t2)     = RAllE x (go t1) (go t2)
+    go (RChooseQ q qs t u) = RChooseQ q qs (go t) (go u)
+    go (RQuotient t q)     = RQuotient t q
+    go (REx x t1 t2)       = REx   x (go t1) (go t2)
+    go (RRTy e r o t)      = RRTy  e r o     (go t)
+    go t@RHole{}           = t
+    go t@RVar{}            = t
+    go t@RExprArg{}        = t
+    goRef (RProp ss t)     = RProp ss (go t)
 
     fixExprArgs lname rta ts =
       let n = length (rtTArgs rta)

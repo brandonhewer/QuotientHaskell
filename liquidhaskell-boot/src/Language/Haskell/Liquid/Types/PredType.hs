@@ -294,19 +294,21 @@ substPVar :: PVarV v (BSortV v) -> PVarV v (BSortV v) -> BareTypeParsed -> BareT
 substPVar src dst = go
   where
     go :: BareTypeParsed -> BareTypeParsed
-    go (RVar a r)         = RVar a (goRR r)
-    go (RApp c ts rs r)   = RApp c (go <$> ts) (goR <$> rs) (goRR r)
+    go (RVar a r)           = RVar a (goRR r)
+    go (RApp c ts rs r)     = RApp c (go <$> ts) (goR <$> rs) (goRR r)
     go (RAllP q t)
      | pname q == pname src = RAllP q t
      | otherwise            = RAllP q (go t)
-    go (RAllT a t r)      = RAllT a   (go t)  (goRR r)
-    go (RFun x i t t' r)  = RFun x i  (go t)  (go t') (goRR r)
-    go (RAllE x t t')     = RAllE x   (go t)  (go t')
-    go (REx x t t')       = REx x     (go t)  (go t')
-    go (RRTy e r o rt)    = RRTy e'   (goRR r) o (go rt) where e' = [(x, go t) | (x, t) <- e]
-    go (RAppTy t1 t2 r)   = RAppTy    (go t1) (go t2) (goRR r)
-    go (RHole r)          = RHole     (goRR r)
-    go t@(RExprArg  _)    = t
+    go (RAllT a t r)        = RAllT a   (go t)  (goRR r)
+    go (RChooseQ q qs t u)  = RChooseQ q qs (go t) (go u)
+    go (RQuotient t q)      = RQuotient (go t) q
+    go (RFun x i t t' r)    = RFun x i  (go t)  (go t') (goRR r)
+    go (RAllE x t t')       = RAllE x   (go t)  (go t')
+    go (REx x t t')         = REx x     (go t)  (go t')
+    go (RRTy e r o rt)      = RRTy e'   (goRR r) o (go rt) where e' = [(x, go t) | (x, t) <- e]
+    go (RAppTy t1 t2 r)     = RAppTy    (go t1) (go t2) (goRR r)
+    go (RHole r)            = RHole     (goRR r)
+    go t@(RExprArg  _)      = t
     goR :: BRPropV LocSymbol (RReftV LocSymbol) -> BRPropV LocSymbol (RReftV LocSymbol)
     goR rp = rp {rf_body = go (rf_body rp) }
     goRR :: RReftV LocSymbol -> RReftV LocSymbol
@@ -433,6 +435,9 @@ freeArgsPs p (RAllT _ t r)
 freeArgsPs p (RAllP p' t)
   | p == p'   = []
   | otherwise = freeArgsPs p t
+freeArgsPs p (RChooseQ _ _ t u)
+  = L.nub $ freeArgsPs p t ++ freeArgsPs p u
+freeArgsPs p (RQuotient t _) = freeArgsPs p t
 freeArgsPs p (RApp _ ts _ r)
   = L.nub $ freeArgsPsRef p r ++ concatMap (freeArgsPs p) ts
 freeArgsPs p (RAllE _ t1 t2)
