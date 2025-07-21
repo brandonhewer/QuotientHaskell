@@ -2,6 +2,7 @@
 {-# LANGUAGE OverloadedStrings         #-}
 {-# LANGUAGE MultiParamTypeClasses     #-}
 {-# LANGUAGE ScopedTypeVariables       #-}
+{-# LANGUAGE NamedFieldPuns            #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
 {-# LANGUAGE FlexibleContexts          #-}
 {-# LANGUAGE FlexibleInstances         #-}
@@ -385,7 +386,8 @@ class FreeVar a v where
 
 -- MOVE TO TYPES
 instance FreeVar RTyCon RTyVar where
-  freeVars = (RTV <$>) . GM.tyConTyVarsDef . rtc_tc
+  freeVars RTyCon {rtc_tc = GHCTyCon c} = (RTV <$>) $ GM.tyConTyVarsDef c
+  freeVars _ = []
 
 -- MOVE TO TYPES
 instance FreeVar BTyCon BTyVar where
@@ -454,6 +456,10 @@ instance Hashable RTyVar where
 -- TyCon isn't comparable
 --instance Ord RTyCon where
 --  compare x y = compare (rtc_tc x) (rtc_tc y)
+
+instance Hashable UTyCon where
+  hashWithSalt i (GHCTyCon c) = hashWithSalt i c
+  hashWithSalt i (QuotientTyCon m s _ _) = hashWithSalt i (Ghc.moduleName m) `hashWithSalt` s
 
 instance Hashable RTyCon where
   hashWithSalt i = hashWithSalt i . rtc_tc
@@ -548,7 +554,7 @@ pdVarReft :: PVar t -> UReft Reft
 pdVarReft = (\p -> MkUReft mempty p) . pdVar
 
 tyConRTyCon :: TyCon -> RTyCon
-tyConRTyCon c = RTyCon c [] (mkTyConInfo c [] [] Nothing)
+tyConRTyCon c = RTyCon (GHCTyCon c) [] (mkTyConInfo c [] [] Nothing)
 
 -- bApp :: (Monoid r) => TyCon -> [BRType r] -> BRType r
 bApp :: TyCon -> [BRType r] -> [BRProp r] -> r -> BRType r
@@ -784,7 +790,7 @@ expandRApp tce tyi t@RApp{} = RApp rc' ts rs' r
     rs'                        = applyNonNull rs0 (rtPropPV rc pvs) rs
     rs0                        = rtPropTop <$> pvs
     n                          = length fVs
-    fVs                        = GM.tyConTyVarsDef $ rtc_tc rc
+    fVs                        = mapGHCTyCon [] GM.tyConTyVarsDef rc
     as                         = choosen n ts (rVar <$> fVs)
 expandRApp _ _ t               = t
 
@@ -854,28 +860,29 @@ pvArgs pv = [(s, t) | (t, s, _) <- pargs pv]
      individual occurrences of the TyCon applied to various arguments.
 
  -}
-
 appRTyCon :: (ToTypeable r) => TCEmb TyCon -> TyConMap -> RTyCon -> [RRType r] -> (RTyCon, [RPVar])
-appRTyCon tce tyi rc ts = F.notracepp _msg (resTc, ps'')
+appRTyCon _ _ rc@RTyCon {rtc_tc = QuotientTyCon _ _ _ _} _ = (rc, [])
+appRTyCon tce tyi rc@RTyCon {rtc_tc = tc@(GHCTyCon c)} ts = F.notracepp _msg (resTc, ps'')
   where
     _msg  = "appRTyCon-family: " ++ showpp (Ghc.isFamilyTyCon c, Ghc.tyConRealArity c, toType False <$> ts)
-    resTc = RTyCon c ps'' (rtc_info rc'')
-    c     = rtc_tc rc
+    resTc = RTyCon tc ps'' (rtc_info rc'')
 
-    (rc', ps') = rTyConWithPVars tyi rc (rTypeSort tce <$> ts)
+    (rc', ps') = rTyConWithPVars tyi rc {rtc_tc = c} (rTypeSort tce <$> ts)
     -- TODO:faminst-preds rc'   = M.lookupDefault rc c (tcmTyRTy tyi)
     -- TODO:faminst-preds ps'   = rTyConPVs rc'
 
-    -- TODO:faminst-preds: these substitutions may be WRONG if we are using FAMINST.
-    ps''  = subts (zip (RTV <$> αs) ts') <$> ps'
+    subs = zip (RTV <$> αs) ts'
       where
         ts' = if null ts then rVar <$> βs else toRSort <$> ts
         αs  = GM.tyConTyVarsDef (rtc_tc rc')
         βs  = GM.tyConTyVarsDef c
 
+    -- TODO:faminst-preds: these substitutions may be WRONG if we are using FAMINST.
+    ps''  = subts subs <$> ps'
+
     rc''  = if isNumeric tce rc' then addNumSizeFun rc' else rc'
 
-rTyConWithPVars :: TyConMap -> RTyCon -> [F.Sort] -> (RTyCon, [RPVar])
+rTyConWithPVars :: TyConMap -> LHTyCon TyCon -> [F.Sort] -> (LHTyCon TyCon, [RPVar])
 rTyConWithPVars tyi rc ts = case famInstTyConMb tyi rc ts of
   Just fiRc    -> (rc', rTyConPVs fiRc)       -- use the PVars from the family-instance TyCon
   Nothing      -> (rc', ps')                  -- use the PVars from the origin          TyCon
@@ -887,7 +894,7 @@ rTyConWithPVars tyi rc ts = case famInstTyConMb tyi rc ts of
 --   see [NOTE:FamInstPredVars]
 --   eg: 'famInstTyConMb tyi Field [Blob, a]' should give 'Just R:FieldBlob'
 
-famInstTyConMb :: TyConMap -> RTyCon -> [F.Sort] -> Maybe RTyCon
+famInstTyConMb :: TyConMap -> LHTyCon TyCon -> [F.Sort] -> Maybe (LHTyCon TyCon)
 famInstTyConMb tyi rc ts = do
   let c = rtc_tc rc
   n    <- M.lookup c      (tcmFtcArity tyi)
@@ -922,7 +929,7 @@ famInstArgs c = case Ghc.tyConFamInst_maybe c of
 --   "refined" @RTyCon@ and @RPVars@ from the refined
 --   'data' definition for the @TyCon@, e.g. will use
 --   'List Int' to return 'List<p> Int' (if List has an abs-ref).
-plainRTyConPVars :: TyConMap -> RTyCon -> (RTyCon, [RPVar])
+plainRTyConPVars :: TyConMap -> LHTyCon TyCon -> (LHTyCon TyCon, [RPVar])
 plainRTyConPVars tyi rc = (rc', rTyConPVs rc')
   where
     rc'                   = M.lookupDefault rc (rtc_tc rc) (tcmTyRTy tyi)
@@ -931,7 +938,7 @@ plainRTyConPVars tyi rc = (rc', rTyConPVs rc')
 
 -- RJ: The code of `isNumeric` is incomprehensible.
 -- Please fix it to use intSort instead of intFTyCon
-isNumeric :: TCEmb TyCon -> RTyCon -> Bool
+isNumeric :: TCEmb TyCon -> LHTyCon TyCon -> Bool
 isNumeric tce c = F.isNumeric mySort
   where
     -- mySort      = M.lookupDefault def rc tce
@@ -939,7 +946,7 @@ isNumeric tce c = F.isNumeric mySort
     def         = FTC . symbolFTycon . dummyLoc . tyConName $ rc
     rc          = rtc_tc c
 
-addNumSizeFun :: RTyCon -> RTyCon
+addNumSizeFun :: LHTyCon TyCon -> LHTyCon TyCon
 addNumSizeFun c
   = c {rtc_info = (rtc_info c) {sizeFunction = Just IdSizeFun } }
 
@@ -972,7 +979,6 @@ freeTyVars (RAppTy t t' _)    = freeTyVars t `L.union` freeTyVars t'
 freeTyVars (RHole _)          = []
 freeTyVars (RRTy e _ _ t)     = L.nub $ concatMap freeTyVars (t:(snd <$> e))
 
-
 tyClasses :: (OkRT RTyCon tv r) => RType RTyCon tv r -> [(Class, [RType RTyCon tv r])]
 tyClasses (RAllP _ t)         = tyClasses t
 tyClasses (RAllT _ t _)       = tyClasses t
@@ -981,8 +987,8 @@ tyClasses (RChooseQ _ _ t t') = tyClasses t ++ tyClasses t'
 tyClasses (REx _ _ t)         = tyClasses t
 tyClasses (RFun _ _ t t' _)   = tyClasses t ++ tyClasses t'
 tyClasses (RAppTy t t' _)     = tyClasses t ++ tyClasses t'
-tyClasses (RApp c ts _ _)
-  | Just cl <- tyConClass_maybe $ rtc_tc c
+tyClasses (RApp RTyCon {rtc_tc} ts _ _)
+  | GHCTyCon c <- rtc_tc, Just cl <- tyConClass_maybe c
   = [(cl, ts)]
   | otherwise
   = []
@@ -990,7 +996,6 @@ tyClasses (RVar _ _)      = []
 tyClasses (RRTy _ _ _ t)  = tyClasses t
 tyClasses (RHole _)       = []
 tyClasses t               = panic Nothing ("RefType.tyClasses cannot handle" ++ show t)
-
 
 --------------------------------------------------------------------------------
 -- TODO: Rewrite subsTyvars with Traversable
@@ -1338,11 +1343,9 @@ instance (SubsTy tv ty ty) => SubsTy tv ty (PVar ty) where
   subt su (PV n pvk v xts) = PV n (subt su pvk) v [(subt su t, x, y) | (t,x,y) <- xts]
 
 instance SubsTy RTyVar RSort RTyCon where
-   subt z c = RTyCon tc ps' i
-     where
-       tc   = rtc_tc c
-       ps'  = subt z <$> rTyConPVs c
-       i    = rtc_info c
+  subt z c@RTyCon {..} = RTyCon rtc_tc ps' rtc_info
+    where
+      ps' = subt z <$> rTyConPVs c
 
 instance SubsTy RTyVar RSort SpecType where
   subt (α, τ) = subsTyVarMeet (α, τ, ofRSort τ)
@@ -1500,6 +1503,47 @@ dataConMsReft ty ys  = subst su (rTypeReft (ignoreOblig $ ty_res trep))
 
 type ToTypeable r = (Reftable r, PPrint r, SubsTy RTyVar (RRType ()) r, Reftable (RTProp RTyCon RTyVar r))
 
+toTypeSubst :: (ToTypeable r) => M.HashMap Symbol Type -> Bool -> RRType r -> Type
+toTypeSubst σ useRFInfo (RFun _ RFInfo{permitTC = permitTC} t@(RApp c _ _ _) t' _)
+  | useRFInfo && isErasable c = toTypeSubst σ useRFInfo t'
+  | otherwise
+  = FunTy FTF_T_T ManyTy (toTypeSubst σ useRFInfo t) (toTypeSubst σ useRFInfo t')
+  where isErasable = if permitTC == Just True then isEmbeddedDict else isClass
+toTypeSubst σ useRFInfo (RFun _ _ t t' _)
+  = FunTy FTF_T_T ManyTy (toTypeSubst σ useRFInfo t) (toTypeSubst σ useRFInfo t')
+toTypeSubst σ useRFInfo (RAllT a t _) | RTV α <- ty_var_value a
+  = ForAllTy (Bndr α Required) (toTypeSubst σ useRFInfo t)
+toTypeSubst σ useRFInfo (RAllP _ t)
+  = toTypeSubst σ useRFInfo t
+toTypeSubst σ useRFInfo (RChooseQ _ _ _ u)
+  = toTypeSubst σ useRFInfo u
+toTypeSubst σ useRFInfo (RQuotient t _)
+  = toTypeSubst σ useRFInfo t
+toTypeSubst σ _ (RVar (RTV α) _)
+  | Just t <- M.lookup (F.symbol α) σ = t
+  | otherwise                         = TyVarTy α
+toTypeSubst σ useRFInfo (RApp RTyCon{rtc_tc = QuotientTyCon {..}} ts _ _)
+  = toTypeSubst (M.fromList $ zip qtc_tvs $ map (toTypeSubst σ useRFInfo) ts) useRFInfo qtc_base
+toTypeSubst σ useRFInfo (RApp RTyCon{rtc_tc = GHCTyCon c} ts _ _)
+  = TyConApp c (toTypeSubst σ useRFInfo <$> filter notExprArg ts)
+  where
+    notExprArg (RExprArg _) = False
+    notExprArg _            = True
+toTypeSubst σ useRFInfo (RAllE _ _ t)
+  = toTypeSubst σ useRFInfo t
+toTypeSubst σ useRFInfo (REx _ _ t)
+  = toTypeSubst σ useRFInfo t
+toTypeSubst σ useRFInfo (RAppTy t (RExprArg _) _)
+  = toTypeSubst σ useRFInfo t
+toTypeSubst σ useRFInfo (RAppTy t t' _)
+  = AppTy (toTypeSubst σ useRFInfo t) (toTypeSubst σ useRFInfo t')
+toTypeSubst _ _ t@(RExprArg _)
+  = impossible Nothing $ "CANNOT HAPPEN: RefType.toType called with: " ++ show t
+toTypeSubst σ useRFInfo (RRTy _ _ _ t)
+  = toTypeSubst σ useRFInfo t
+toTypeSubst _ _ (RHole _)
+  = LitTy holeLit
+
 -- TODO: remove toType, generalize typeSort
 -- YL: really should take a type-level Bool
 toType  :: (ToTypeable r) => Bool -> RRType r -> Type
@@ -1520,7 +1564,9 @@ toType useRFInfo (RQuotient t _)
   = toType useRFInfo t
 toType _ (RVar (RTV α) _)
   = TyVarTy α
-toType useRFInfo (RApp RTyCon{rtc_tc = c} ts _ _)
+toType useRFInfo (RApp RTyCon{rtc_tc = QuotientTyCon {..}} ts _ _)
+  = toTypeSubst (M.fromList $ zip qtc_tvs $ map (toType useRFInfo) ts) useRFInfo qtc_base
+toType useRFInfo (RApp RTyCon{rtc_tc = GHCTyCon c} ts _ _)
   = TyConApp c (toType useRFInfo <$> filter notExprArg ts)
   where
     notExprArg (RExprArg _) = False
@@ -1803,7 +1849,7 @@ makeNumEnv = concatMap go
 isDecreasing :: S.HashSet TyCon -> [RTyVar] -> SpecType -> Bool
 isDecreasing autoenv  _ (RApp c _ _ _)
   =  isJust (sizeFunction (rtc_info c)) -- user specified size or
-  || isSizeable autoenv tc
+  || isGHCTyCon (isSizeable autoenv) tc
   where tc = rtc_tc c
 isDecreasing _ cenv (RVar v _)
   = v `elem` cenv
@@ -1833,7 +1879,7 @@ mkDecrFun :: S.HashSet TyCon -> RType RTyCon t t1 -> Symbol -> Expr
 mkDecrFun autoenv (RApp c _ _ _)
   | Just f <- szFun <$> sizeFunction (rtc_info c)
   = f
-  | isSizeable autoenv $ rtc_tc c
+  | isGHCTyCon (isSizeable autoenv) $ rtc_tc c
   = \v -> F.mkEApp lenLocSymbol [F.EVar v]
 mkDecrFun _ (RVar _ _)
   = EVar

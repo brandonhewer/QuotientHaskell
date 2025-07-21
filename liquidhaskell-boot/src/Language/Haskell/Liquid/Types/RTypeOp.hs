@@ -44,7 +44,7 @@ module Language.Haskell.Liquid.Types.RTypeOp (
   , parsedToBareType
 
   -- * Converting To and From Sort
-  , ofRSort, toRSort
+  , ofRSort, toRSort, toRSort'
   , rTypeValueVar
   , rTypeReft
   , stripRTypeBase
@@ -223,7 +223,7 @@ rFunDebug :: Monoid r => Symbol -> RType c tv r -> RType c tv r -> RType c tv r
 rFunDebug b t t' = RFun b (classRFInfo True) t t' mempty
 
 rCls :: Monoid r => Ghc.TyCon -> [RType RTyCon tv r] -> RType RTyCon tv r
-rCls c ts   = RApp (RTyCon c [] defaultTyConInfo) ts [] mempty
+rCls c ts   = RApp (RTyCon (GHCTyCon c) [] defaultTyConInfo) ts [] mempty
 
 rRCls :: Monoid r => c -> [RType c tv r] -> RType c tv r
 rRCls rc ts = RApp rc ts [] mempty
@@ -771,20 +771,51 @@ ofRSort = fmap mempty
 toRSort :: RTypeV v c tv r -> RTypeV v c tv ()
 toRSort = stripAnnotations . mapBind (const F.dummySymbol) . void
 
+toRSort' :: RTypeV v RTyCon tv r -> RTypeV v RTyCon tv ()
+toRSort' = stripAnnotations' . mapBind (const F.dummySymbol) . void
+
 stripAnnotations :: RTypeV v c tv r -> RTypeV v c tv r
-stripAnnotations (RAllT α t r)     = RAllT α (stripAnnotations t) r
-stripAnnotations (RAllP _ t)       = stripAnnotations t
-stripAnnotations (RAllE _ _ t)     = stripAnnotations t
-stripAnnotations (REx _ _ t)       = stripAnnotations t
-stripAnnotations (RFun x i t t' r) = RFun x i (stripAnnotations t) (stripAnnotations t') r
-stripAnnotations (RAppTy t t' r)   = RAppTy (stripAnnotations t) (stripAnnotations t') r
-stripAnnotations (RApp c ts rs r)  = RApp c (stripAnnotations <$> ts) (stripAnnotationsRef <$> rs) r
-stripAnnotations (RRTy _ _ _ t)    = stripAnnotations t
-stripAnnotations t                 = t
+stripAnnotations (RAllT α t r)      = RAllT α (stripAnnotations t) r
+stripAnnotations (RAllP _ t)        = stripAnnotations t
+stripAnnotations (RAllE _ _ t)      = stripAnnotations t
+stripAnnotations (REx _ _ t)        = stripAnnotations t
+stripAnnotations (RFun x i t t' r)  = RFun x i (stripAnnotations t) (stripAnnotations t') r
+stripAnnotations (RAppTy t t' r)    = RAppTy (stripAnnotations t) (stripAnnotations t') r
+stripAnnotations (RApp c ts rs r)   = RApp c (stripAnnotations <$> ts) (stripAnnotationsRef <$> rs) r
+stripAnnotations (RRTy _ _ _ t)     = stripAnnotations t
+stripAnnotations (RChooseQ _ _ _ t) = stripAnnotations t
+stripAnnotations (RQuotient t _)    = stripAnnotations t
+stripAnnotations t                  = t
 
 stripAnnotationsRef :: Ref τ (RTypeV v c tv r) -> Ref τ (RTypeV v c tv r)
 stripAnnotationsRef (RProp s (RHole r)) = RProp s (RHole r)
 stripAnnotationsRef (RProp s t)         = RProp s $ stripAnnotations t
+
+stripAnnotations'
+  :: (Reftable r, F.Symbolic v)
+  => RTypeV v RTyCon RTyVar r
+  -> RTypeV v RTyCon RTyVar r
+stripAnnotations' (RAllT α t r)      = RAllT α (stripAnnotations' t) r
+stripAnnotations' (RAllP _ t)        = stripAnnotations' t
+stripAnnotations' (RAllE _ _ t)      = stripAnnotations' t
+stripAnnotations' (REx _ _ t)        = stripAnnotations' t
+stripAnnotations' (RFun x i t t' r)  = RFun x i (stripAnnotations' t) (stripAnnotations' t') r
+stripAnnotations' (RAppTy t t' r)    = RAppTy (stripAnnotations' t) (stripAnnotations' t') r
+stripAnnotations' (RApp c@RTyCon {rtc_tc} ts rs r)
+  = case rtc_tc of
+      GHCTyCon      _    -> RApp c (stripAnnotations' <$> ts) (stripAnnotationsRef' <$> rs) r
+      QuotientTyCon {..} -> x
+stripAnnotations' (RRTy _ _ _ t)     = stripAnnotations' t
+stripAnnotations' (RChooseQ _ _ _ t) = stripAnnotations' t
+stripAnnotations' (RQuotient t _)    = stripAnnotations' t
+stripAnnotations' t                  = t
+
+stripAnnotationsRef'
+  :: (Reftable r, F.Symbolic v)
+  => Ref τ (RTypeV v RTyCon RTyVar r)
+  -> Ref τ (RTypeV v RTyCon RTyVar r)
+stripAnnotationsRef' (RProp s (RHole r)) = RProp s (RHole r)
+stripAnnotationsRef' (RProp s t)         = RProp s $ stripAnnotations' t
 
 insertSEnv :: F.Symbol -> a -> F.SEnv a -> F.SEnv a
 insertSEnv = F.insertSEnv

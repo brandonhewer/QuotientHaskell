@@ -73,7 +73,7 @@ makeTyConInfo tce fiTcs tcps = TyConMap
     tcInstM     = mkFInstRTyCon tce fiTcs tcM
     arities     = safeFromList "makeTyConInfo" [ (c, length ts) | (c, ts) <- M.keys tcInstM ]
 
-mkFInstRTyCon :: F.TCEmb Ghc.TyCon -> [Ghc.TyCon] -> M.HashMap Ghc.TyCon RTyCon -> M.HashMap (Ghc.TyCon, [F.Sort]) RTyCon
+mkFInstRTyCon :: F.TCEmb Ghc.TyCon -> [Ghc.TyCon] -> M.HashMap Ghc.TyCon (LHTyCon TyCon) -> M.HashMap (Ghc.TyCon, [F.Sort]) (LHTyCon TyCon)
 mkFInstRTyCon tce fiTcs tcm = M.fromList
   [ ((c, typeSort tce <$> ts), rtc)
     | fiTc    <- fiTcs
@@ -81,7 +81,7 @@ mkFInstRTyCon tce fiTcs tcm = M.fromList
     , (c, ts) <- Mb.maybeToList (famInstArgs fiTc)
   ]
 
-mkRTyCon ::  TyConP -> RTyCon
+mkRTyCon ::  TyConP -> LHTyCon TyCon
 mkRTyCon (TyConP _ tc αs' ps tyvariance predvariance size)
   = RTyCon tc pvs' (mkTyConInfo tc tyvariance predvariance size)
   where
@@ -259,7 +259,7 @@ predRTyCon   :: RTyCon
 predRTyCon   = symbolRTyCon predName
 
 symbolRTyCon   :: F.Symbol -> RTyCon
-symbolRTyCon n = RTyCon (stringTyCon 'x' 42 $ F.symbolString n) [] defaultTyConInfo
+symbolRTyCon n = RTyCon (GHCTyCon $ stringTyCon 'x' 42 $ F.symbolString n) [] defaultTyConInfo
 
 -------------------------------------------------------------------------------------
 -- | Instantiate `PVar` with `RTProp` -----------------------------------------------

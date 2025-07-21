@@ -1,5 +1,6 @@
 {-# LANGUAGE FlexibleContexts          #-}
 {-# LANGUAGE LambdaCase                #-}
+{-# LANGUAGE NamedFieldPuns            #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
 {-# LANGUAGE ScopedTypeVariables       #-}
 {-# LANGUAGE TupleSections             #-}
@@ -39,6 +40,8 @@ import           Language.Haskell.Liquid.Types.Errors
 import           Language.Haskell.Liquid.Types.DataDecl
 import           Language.Haskell.Liquid.Types.Names
 import           Language.Haskell.Liquid.Types.PredType
+
+import           Language.Haskell.Liquid.Types.QuotDecl
 import           Language.Haskell.Liquid.Types.RefType
 import           Language.Haskell.Liquid.Types.RType
 import           Language.Haskell.Liquid.Types.RTypeOp
@@ -334,7 +337,7 @@ makeGhcSpec0 cfg ghcTyLookupEnv tcg instEnvs lenv localVars src lmap targetSpec 
     embs     = makeEmbeds          src ghcTyLookupEnv (mySpec0 : map snd dependencySpecs)
     dm       = Bare.tcDataConMap tycEnv0
     (dg0, datacons, tycEnv0) = makeTycEnv0   cfg name env embs mySpec2 iSpecs2
-    env      = Bare.makeEnv cfg ghcTyLookupEnv dataConIds tcg instEnvs localVars src lmap ((name, targetSpec) : dependencySpecs)
+    env      = Bare.makeEnv cfg ghcTyLookupEnv dataConIds tcg instEnvs localVars src lmap quotenv ((name, targetSpec) : dependencySpecs)
     -- check barespecs
     name     = F.notracepp ("ALL-SPECS" ++ zzz) $ _giTargetMod  src
     zzz      = F.showpp (fst <$> mspecs)
@@ -347,6 +350,15 @@ makeGhcSpec0 cfg ghcTyLookupEnv tcg instEnvs lenv localVars src lmap targetSpec 
           [maybeReflectedLHName lhn >>= Resolve.lookupGhcTyThingFromName ghcTyLookupEnv]
       ]
 
+    quotenv
+      = M.fromList
+          $   [ ((Ghc.moduleName thisModule, val qtycName), q)
+              | q@QuotDecl {qtycName} <- quotDecls targetSpec
+              ]
+          ++  [ ((m, val qtycName), q)
+              | (ModName _ m, spec) <- dependencySpecs
+              , q@QuotDecl {qtycName} <- quotDecls spec
+              ]
 
 collectAllDataCons :: Ghc.CoreProgram -> [BareSpec] -> S.HashSet LHName
 collectAllDataCons cbs =
@@ -495,8 +507,8 @@ varTyCons = specTypeCons . ofType . Ghc.varType
 specTypeCons           :: SpecType -> [Ghc.TyCon]
 specTypeCons         = foldRType tc []
   where
-    tc acc t@RApp {} = rtc_tc (rt_tycon t) : acc
-    tc acc _         = acc
+    tc acc RApp {rt_tycon = RTyCon {rtc_tc = GHCTyCon c}} = c : acc
+    tc acc _                                              = acc
 
 reflectedVars :: Ms.BareSpec -> [Ghc.CoreBind] -> [Ghc.Var]
 reflectedVars spec cbs =
@@ -1175,7 +1187,6 @@ mkInvariant x z t tr = strengthen (top <$> t) (MkUReft reft' mempty)
       where
         reft' = Mb.maybe mempty Reft mreft
         mreft = mkReft x z t tr
-
 
 mkReft :: Located LHName -> Symbol -> SpecType -> SpecType -> Maybe (Symbol, Expr)
 mkReft x z _t tr

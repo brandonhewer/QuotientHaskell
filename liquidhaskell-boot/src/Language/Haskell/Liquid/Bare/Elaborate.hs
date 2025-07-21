@@ -27,7 +27,7 @@ import           Language.Haskell.Liquid.Types.Errors
 import           Language.Haskell.Liquid.Types.RType
 import           Language.Haskell.Liquid.Types.RTypeOp
 import           Language.Haskell.Liquid.Types.RefType
-                                                ( ofType )
+                                                ( ofType, subsTyVarMeet', symbolRTyVar )
 import qualified Data.List                     as L
 import qualified Data.HashMap.Strict           as M
 import qualified Data.HashSet                  as S
@@ -481,7 +481,7 @@ elaborateSpecType' partialTp coreToLogic simplify t =
     RHole    _ -> impossible Nothing "RHole should not appear here"
     RRTy{}     -> todo Nothing ("Not sure how to elaborate RRTy" ++ F.showpp t)
  where
-  boolType = RApp (RTyCon boolTyCon [] defaultTyConInfo) [] [] mempty :: SpecType
+  boolType = RApp (RTyCon (GHCTyCon boolTyCon) [] defaultTyConInfo) [] [] mempty :: SpecType
   elaborateReft
     :: (F.PPrint a)
     => (F.Reft, SpecType)
@@ -726,12 +726,15 @@ specTypeToLHsType = \case
     RAllP _ ty -> specTypeToLHsType ty
     RChooseQ _ _ _ u -> specTypeToLHsType u
     RQuotient t _ -> specTypeToLHsType t
-    RApp RTyCon { rtc_tc = tc } ts _ _ -> mkHsTyConApp
+    RApp RTyCon { rtc_tc = GHCTyCon tc } ts _ _ -> mkHsTyConApp
       (getRdrName tc)
       [ specTypeToLHsType t | t <- ts, notExprArg t ]
      where
       notExprArg (RExprArg _) = False
       notExprArg _            = True
+    RApp RTyCon { rtc_tc = QuotientTyCon {..} } ts _ _ ->
+      specTypeToLHsType (foldl' (flip $ subsTyVarMeet') qtc_base $ zip (map symbolRTyVar qtc_tvs) ts)
+    -- subsTyVarMeet'
     RAllE _ tin tout -> nlHsFunTy (specTypeToLHsType tin) (specTypeToLHsType tout)
     REx _ tin tout -> nlHsFunTy (specTypeToLHsType tin) (specTypeToLHsType tout)
     RAppTy _ (RExprArg _) _ ->

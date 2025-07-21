@@ -727,9 +727,9 @@ dataConResultTy c _ t _
     (_,_,_,_,_,ct)             = Ghc.dataConFullSig c
 
 eqSubst :: SpecType -> Maybe (RTyVar, SpecType)
-eqSubst (RApp c [_, _, RVar a _, t] _ _)
-  | rtc_tc c == Ghc.eqPrimTyCon = Just (a, t)
-eqSubst _                       = Nothing
+eqSubst (RApp RTyCon {rtc_tc = GHCTyCon c} [_, _, RVar a _, t] _ _)
+  | c == Ghc.eqPrimTyCon = Just (a, t)
+eqSubst _                = Nothing
 
 normalizeField :: Ghc.DataCon -> Int -> (LHName, a) -> (LHName, a)
 normalizeField c i (x, t)

@@ -316,7 +316,7 @@ bkDataCon permitTC dcn nFlds  = (as, ts, (F.dummySymbol, classRFInfo permitTC, t
 data DataConSel = Check | Proj Int
 
 bareBool :: SpecType
-bareBool = RApp (RTyCon Ghc.boolTyCon [] defaultTyConInfo) [] [] mempty
+bareBool = RApp (RTyCon (GHCTyCon Ghc.boolTyCon) [] defaultTyConInfo) [] [] mempty
 
 
 {- | NOTE:Use DataconWorkId

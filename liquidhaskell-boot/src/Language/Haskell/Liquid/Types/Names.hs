@@ -25,6 +25,7 @@ module Language.Haskell.Liquid.Types.Names
   , makeLogicLHName
   , makeGeneratedLogicLHName
   , makeUnresolvedLHName
+  , makeQuotientLHName
   , mapLHNames
   , mapMLocLHNames
   , maybeReflectedLHName
@@ -75,6 +76,7 @@ data LogicName =
 -- | A name whose procedence is known.
 data LHResolvedName
     = LHRLogic !LogicName
+    | LHRQuotient !(Located Symbol) !GHC.Module -- ^ A name for a declared quotient type
     | LHRGHC !GHC.Name    -- ^ A name for an entity that exists in Haskell
     | LHRLocal !Symbol    -- ^ A name for a local variable, e.g. one that is
                           --   bound by a type alias.
@@ -115,7 +117,6 @@ instance Hashable LHName where
 
 data LHNameSpace
     = LHTcName
-    | LHQcName
     | LHDataConName LHThisModuleNameFlag
     | LHVarName LHThisModuleNameFlag
     | LHLogicNameBinder
@@ -163,6 +164,10 @@ instance Show LHResolvedName where
   showsPrec d n0 = showParen (d > app_prec) $ case n0 of
       LHRGHC n1 -> showString "LHRGHC " . showString (GHC.showPprDebug n1)
       LHRLogic n1 -> showString "LHRLogic " . showsPrec (app_prec + 1) n1
+      LHRQuotient s m ->
+          showString "LHRQuotient "
+        . showsPrec (app_prec + 1) s
+        . showString (GHC.showPprDebug m)
       LHRLocal n1 -> showString "LHRLocal " . showsPrec (app_prec + 1) n1
       LHRIndex i -> showString "LHRIndex " . showsPrec (app_prec + 1) i
     where
@@ -197,6 +202,8 @@ instance Hashable LHResolvedName where
     s `hashWithSalt` (1::Int) `hashWithSalt` GHC.getKey (GHC.nameUnique n)
   hashWithSalt s (LHRLocal n) = s `hashWithSalt` (2::Int) `hashWithSalt` n
   hashWithSalt s (LHRIndex w) = s `hashWithSalt` (3::Int) `hashWithSalt` w
+  hashWithSalt s (LHRQuotient n m)
+    = s `hashWithSalt` (4::Int) `hashWithSalt` n `hashWithSalt` GHC.moduleStableString m
 
 instance Hashable LogicName where
   hashWithSalt s (LogicName sym m _) =
@@ -214,6 +221,7 @@ instance B.Binary LHResolvedName where
       1 -> LHRIndex <$> B.get
       _ -> error "B.Binary: invalid tag for LHResolvedName"
   put (LHRLogic _n) = error "cannot serialize LHRLogic"
+  put LHRQuotient {} = error "cannot serialize LHRQuotient"
   put (LHRGHC _n) = error "cannot serialize LHRGHC"
   put (LHRLocal s) = B.putWord8 0 >> B.put (symbolString s)
   put (LHRIndex n) = B.putWord8 1 >> B.put n
@@ -230,6 +238,7 @@ instance GHC.Binary LHResolvedName where
   put_ bh (LHRGHC n) = GHC.putByte bh 1 >> GHC.put_ bh n
   put_ bh (LHRLocal n) = GHC.putByte bh 2 >> GHC.put_ bh (symbolString n)
   put_ _bh (LHRIndex _n) = error "GHC.Binary: cannot serialize LHRIndex"
+  put_ bh (LHRQuotient n m) = GHC.putByte bh 4 >> GHC.put_ bh (symbolString $ val n) >> GHC.put_ bh m
 
 instance GHC.Binary LogicName where
   get bh = do
@@ -270,6 +279,9 @@ makeLogicLHName s m r = LHNResolved (LHRLogic (LogicName s m r)) s
 
 makeGeneratedLogicLHName :: Symbol -> LHName
 makeGeneratedLogicLHName s = LHNResolved (LHRLogic (GeneratedLogicName s)) s
+
+makeQuotientLHName :: Located Symbol -> GHC.Module -> LHName
+makeQuotientLHName s m = LHNResolved (LHRQuotient s m) (val s)
 
 makeGHCLHNameLocated :: (GHC.NamedThing a, Symbolic a) => a -> Located LHName
 makeGHCLHNameLocated x =
@@ -344,6 +356,9 @@ lhNameToResolvedSymbol (LHNResolved (LHRLogic (LogicName s om mReflectionOf)) _)
           -}
 lhNameToResolvedSymbol (LHNResolved (LHRLogic (GeneratedLogicName s)) _) = s
 lhNameToResolvedSymbol (LHNResolved (LHRLocal s) _) = s
+lhNameToResolvedSymbol (LHNResolved (LHRQuotient s m) _) =
+  let msymbol = Text.pack $ GHC.moduleNameString $ GHC.moduleName m
+   in symbol $ mconcat [msymbol, ".", symbolText $ val s]
 lhNameToResolvedSymbol (LHNResolved (LHRGHC n) _) = symbol n
 lhNameToResolvedSymbol n = error $ "lhNameToResolvedSymbol: unexpected name: " ++ show n
 
@@ -352,6 +367,7 @@ lhNameToUnqualifiedSymbol (LHNResolved (LHRLogic (LogicName s _ _)) _) = s
 lhNameToUnqualifiedSymbol (LHNResolved (LHRLogic (GeneratedLogicName s)) _) = s
 lhNameToUnqualifiedSymbol (LHNResolved (LHRLocal s) _) = s
 lhNameToUnqualifiedSymbol (LHNResolved (LHRGHC n) _) = symbol $ GHC.getOccString n
+lhNameToUnqualifiedSymbol (LHNResolved (LHRQuotient s _) _) = val s
 lhNameToUnqualifiedSymbol n = error $ "lhNameToUnqualifiedSymbol: unexpected name: " ++ show n
 
 -- | Creates a name in the logic namespace for the given Haskell name.

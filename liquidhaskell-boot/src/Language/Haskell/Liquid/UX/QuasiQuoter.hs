@@ -118,6 +118,8 @@ lhNameToName lname = case val lname of
             (GHC.getOccString n)
       LHRLocal s -> symbolName s
       LHRIndex i -> panic (Just $ fSrcSpan lname) $ "Cannot produce a TH Name for a LHRIndex " ++ show i
+      LHRQuotient _ _ ->
+        panic (Just $ fSrcSpan lname) $ "Cannot produce a TH Name for a QuotientName: " ++ show (lhNameToResolvedSymbol $ val lname) 
       LHRLogic _ ->
         panic (Just $ fSrcSpan lname) $ "Cannot produce a TH Name for a LogicName: " ++ show (lhNameToResolvedSymbol $ val lname)
 

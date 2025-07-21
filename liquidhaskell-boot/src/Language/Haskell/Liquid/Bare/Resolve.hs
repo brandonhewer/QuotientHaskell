@@ -5,6 +5,7 @@
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE FlexibleInstances     #-}
+{-# LANGUAGE NamedFieldPuns        #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE ConstraintKinds       #-}
@@ -66,12 +67,14 @@ import qualified Language.Fixpoint.Types               as F
 import qualified Language.Fixpoint.Types.Visitor       as F
 import qualified Language.Fixpoint.Misc                as Misc
 import qualified Liquid.GHC.API       as Ghc
+import           Language.Haskell.Liquid.Bare.Quotient
 import qualified Language.Haskell.Liquid.GHC.Interface as Interface
 import qualified Language.Haskell.Liquid.GHC.Misc      as GM
 import qualified Language.Haskell.Liquid.Misc          as Misc
 import           Language.Haskell.Liquid.Types.DataDecl
 import           Language.Haskell.Liquid.Types.Errors
 import           Language.Haskell.Liquid.Types.Names
+
 import           Language.Haskell.Liquid.Types.RType
 import           Language.Haskell.Liquid.Types.RTypeOp
 import qualified Language.Haskell.Liquid.Types.RefType as RT
@@ -91,18 +94,19 @@ type Lookup a = Either [Error] a
 -------------------------------------------------------------------------------
 -- | Creating an environment
 -------------------------------------------------------------------------------
-makeEnv :: Config -> GHCTyLookupEnv -> [Ghc.Id] -> Ghc.TcGblEnv -> Ghc.InstEnvs -> LocalVars -> GhcSrc -> LogicMap -> [(ModName, BareSpec)] -> Env
-makeEnv cfg ghcTyLookupEnv dataConIds tcg instEnv localVars src lmap specs = RE
-  { reTyLookupEnv = ghcTyLookupEnv
-  , reTcGblEnv  = tcg
-  , reInstEnvs = instEnv
+makeEnv :: Config -> GHCTyLookupEnv -> [Ghc.Id] -> Ghc.TcGblEnv -> Ghc.InstEnvs -> LocalVars -> GhcSrc -> LogicMap -> QuotEnv -> [(ModName, BareSpec)] -> Env
+makeEnv cfg ghcTyLookupEnv dataConIds tcg instEnv localVars src lmap qenv specs = RE
+  { reTyLookupEnv   = ghcTyLookupEnv
+  , reTcGblEnv      = tcg
+  , reInstEnvs      = instEnv
   , reUsedExternals = usedExternals
-  , reLMap      = lmap
-  , reDataConIds = dataConIds
-  , reLocalVars = localVars
-  , reSrc       = src
-  , reGlobSyms  = S.fromList     globalSyms
-  , reCfg       = cfg
+  , reLMap          = lmap
+  , reDataConIds    = dataConIds
+  , reLocalVars     = localVars
+  , reSrc           = src
+  , reGlobSyms      = S.fromList     globalSyms
+  , reQuotientTypes = qenv
+  , reCfg           = cfg
   }
   where
     globalSyms  = concatMap getGlobalSyms specs
@@ -394,10 +398,19 @@ ofBRType env f l = go []
     goRef bs (RProp ss (RHole r)) = rPropP <$> mapM goSyms ss <*> goReft bs r
     goRef bs (RProp ss t)         = RProp  <$> mapM goSyms ss <*> go bs t
     goSyms (x, t)                 = (x,) <$> ofBSortE env l t
-    goRApp bs tc ts rs r          = bareTCApp <$> goReft bs r <*> lc' <*> mapM (goRef bs) rs <*> mapM (go bs) ts
-      where
-        lc'                    = F.atLoc lc <$> lookupGhcTyConLHName (reTyLookupEnv env) lc
-        lc                     = btc_tc tc
+    goRApp bs BTyCon {btc_tc} ts rs r
+      = case val btc_tc of
+          LHNResolved (LHRQuotient s m) _ ->
+            case M.lookup (Ghc.moduleName m, val s) $ reQuotientTypes env of
+              Just qd -> do
+                r'  <- goReft bs r
+                rs' <- traverse (goRef bs) rs
+                ts' <- traverse (go bs) ts
+                quotTCAppWith (go bs) qd m s r' rs' ts'
+              Nothing -> panic (Just $ GM.fSrcSpan s) $ " is not a valid quotient type constructor: this should be unreachable"
+          _ -> bareTCApp <$> goReft bs r <*> lc' <*> mapM (goRef bs) rs <*> mapM (go bs) ts
+            where
+              lc' = F.atLoc btc_tc <$> lookupGhcTyConLHName (reTyLookupEnv env) btc_tc
 
 lookupGhcTyConLHName :: HasCallStack => GHCTyLookupEnv -> Located LHName -> Lookup Ghc.TyCon
 lookupGhcTyConLHName env lc = do
@@ -421,6 +434,7 @@ lookupTyThingMaybe env lc@(Loc _ _ c0) = unsafePerformIO $ do
         LHRLocal _ -> panic (Just $ GM.fSrcSpan lc) $ "cannot resolve a local name: " ++ show c0
         LHRIndex i -> panic (Just $ GM.fSrcSpan lc) $ "cannot resolve a LHRIndex " ++ show i
         LHRLogic _ -> panic (Just $ GM.fSrcSpan lc) $ "lookupTyThing: cannot resolve a LHRLogic name " ++ show (lhNameToResolvedSymbol c0)
+        LHRQuotient _ _ -> panic (Just $ GM.fSrcSpan lc) $ "lookupTyThing: cannot resolve a LHRQuotient name " ++ show (lhNameToResolvedSymbol c0)
         LHRGHC n ->
           Ghc.reflectGhc (Interface.lookupTyThing (gtleTypeEnv env) n) (gtleSession env)
 

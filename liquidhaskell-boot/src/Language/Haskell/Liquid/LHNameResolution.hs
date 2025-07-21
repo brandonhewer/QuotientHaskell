@@ -130,17 +130,18 @@ collectExprAliases spec deps =
         HS.unions $ bsAliases : depAliases
 
 collectQuotientTypeCons
-  :: BareSpecParsed
+  :: GHC.Module
+  -> BareSpecParsed
   -> TargetDependencies
-  -> HS.HashSet Symbol
-collectQuotientTypeCons spec deps =
-    let bsAliases = HS.fromList $ map (getLHNameSymbol . val . qtycName) (quotDecls spec)
-        depAliases =
-          [ HS.map (getLHNameSymbol . val . qtycName) (liftedQuotDecls lspec)
-          | (_, lspec) <- HM.toList (getDependencies deps)
+  -> HM.HashMap Symbol GHC.Module
+collectQuotientTypeCons m spec deps =
+  let bsQuotTypes = [ (val qtycName, m) | QuotDecl {qtycName} <- quotDecls spec ]
+      depQuotTypes
+        = [ (val qtycName, GHC.unStableModule sm)
+          | (sm, lspec) <- HM.toList (getDependencies deps)
+          , QuotDecl {qtycName} <- HS.toList $ liftedQuotDecls lspec
           ]
-     in
-        HS.unions $ bsAliases : depAliases
+   in HM.fromList $ bsQuotTypes ++ depQuotTypes
 
 -- | Converts occurrences of LHNUnresolved to LHNResolved using the provided
 -- type aliases and GlobalRdrEnv.
@@ -157,13 +158,18 @@ resolveLHNames cfg thisModule localVars impMods globalRdrEnv bareSpec0 dependenc
     let ((bs, logicNameEnv, lmap2), ro) =
           flip runState RenameOutput {roErrors = [], roUsedNames = [], roUsedDataCons = mempty} $ do
             -- A generic traversal that resolves names of Haskell entities
-            sp1 <- mapMLocLHNames (\l -> (<$ l) <$> resolveLHName l) $
-                     fixExpressionArgsOfTypeAliases taliases bareSpec0
+            sp1 <- resolveNamesM $ fixExpressionArgsOfTypeAliases taliases bareSpec0
             -- Data decls contain fieldnames that introduce measures with the
             -- same names. We resolved them before constructing the logic
             -- environment.
             dataDecls <- mapM (mapDataDeclFieldNamesM resolveFieldLogicName) (dataDecls sp1)
-            let sp2 = sp1 {dataDecls}
+            quotDecls <-
+              resolveNamesM
+                  [ resolveBoundVars qtycTyVars c
+                  | c@QuotDecl {qtycTyVars} <- quotDecls bareSpec0
+                  ]
+
+            let sp2 = sp1 {dataDecls, quotDecls}
 
             es0 <- gets roErrors
             if null es0 then do
@@ -204,7 +210,7 @@ resolveLHNames cfg thisModule localVars impMods globalRdrEnv bareSpec0 dependenc
   where
     taliases = collectTypeAliases thisModule bareSpec0 dependencies
     allEaliases = collectExprAliases bareSpec0 dependencies
-    quotientcons = collectQuotientTypeCons bareSpec0 dependencies
+    qtycons = collectQuotientTypeCons thisModule bareSpec0 dependencies
 
     -- add defines from dependencies to the logical map
     lmap =
@@ -213,6 +219,9 @@ resolveLHNames cfg thisModule localVars impMods globalRdrEnv bareSpec0 dependenc
         map (mkLogicMap . HM.map (fmap lhNameToResolvedSymbol) . liftedDefines) $
         HM.elems $
         getDependencies dependencies
+
+    resolveNamesM :: Data a => a -> StateT RenameOutput Identity a
+    resolveNamesM = mapMLocLHNames $ \l -> (<$ l) <$> resolveLHName l
 
     resolveFieldLogicName n =
       case n of
@@ -229,9 +238,12 @@ resolveLHNames cfg thisModule localVars impMods globalRdrEnv bareSpec0 dependenc
           | s == "*" ->
             pure $ LHNResolved (LHRGHC GHC.liftedTypeKindTyConName) s
           | otherwise ->
-            case HM.lookup s taliases of
-              Just (m, _) -> pure $ LHNResolved (LHRLogic $ LogicName s m Nothing) s
-              Nothing -> lookupGRELHName LHTcName lname s listToMaybe
+              case HM.lookup s taliases of
+                Just (m, _) -> pure $ LHNResolved (LHRLogic $ LogicName s m Nothing) s
+                Nothing ->
+                  case HM.lookup s qtycons of
+                   Just m -> pure $ LHNResolved (LHRQuotient (F.Loc (loc lname) (locE lname) s) m) s
+                   _      -> lookupGRELHName LHTcName lname s listToMaybe
         LHNUnresolved ns@(LHVarName lcl) s
           | isDataCon s ->
               lookupGRELHName (LHDataConName lcl) lname s listToMaybe
@@ -243,7 +255,6 @@ resolveLHNames cfg thisModule localVars impMods globalRdrEnv bareSpec0 dependenc
         n@(LHNUnresolved LHLogicName _) ->
           -- This one will be resolved by resolveLogicNames
           pure n
-        n@(LHNUnresolved LHQcName _) -> pure n
         LHNUnresolved ns s -> lookupGRELHName ns lname s listToMaybe
         n -> pure n
 
@@ -270,12 +281,10 @@ resolveLHNames cfg thisModule localVars impMods globalRdrEnv bareSpec0 dependenc
           case localNameLookup [] of
             Just n' ->
               pure $ LHNResolved (LHRGHC n') s
-            Nothing
-              | HS.member (getLHNameSymbol $ val lname) quotientcons -> pure $ val lname
-              | otherwise -> do
-                  addError
-                    (errResolve (nameSpaceKind ns) "Cannot resolve name" (s <$ lname))
-                  pure $ val lname
+            Nothing -> do
+              addError
+                (errResolve (nameSpaceKind ns) "Cannot resolve name" (s <$ lname))
+              pure $ val lname
 
     maybeDropImported ns es
       | localNameSpace ns = filter GHC.isLocalGRE es
@@ -285,14 +294,12 @@ resolveLHNames cfg thisModule localVars impMods globalRdrEnv bareSpec0 dependenc
       LHDataConName lcl -> lcl == LHThisModuleNameF
       LHVarName lcl -> lcl == LHThisModuleNameF
       LHTcName -> False
-      LHQcName -> False
       LHLogicNameBinder -> False
       LHLogicName -> False
 
     nameSpaceKind :: LHNameSpace -> PJ.Doc
     nameSpaceKind = \case
       LHTcName -> "type constructor"
-      LHQcName -> "quotient type constructor"
       LHDataConName LHAnyModuleNameF -> "data constructor"
       LHDataConName LHThisModuleNameF -> "locally-defined data constructor"
       LHVarName LHAnyModuleNameF -> "variable"
@@ -372,7 +379,6 @@ mkLookupGRE ns s =
     mkWhichGREs :: LHNameSpace -> GHC.WhichGREs GHC.GREInfo
     mkWhichGREs = \case
       LHTcName -> GHC.SameNameSpace
-      LHQcName -> GHC.SameNameSpace
       LHDataConName _ -> GHC.SameNameSpace
       LHVarName _ -> GHC.RelevantGREs
         { GHC.includeFieldSelectors = GHC.WantNormal
@@ -384,35 +390,29 @@ mkLookupGRE ns s =
 
     mkGHCNameSpace = \case
       LHTcName -> GHC.tcName
-      LHQcName -> GHC.tcName
       LHDataConName _ -> GHC.dataName
       LHVarName _ -> GHC.Types.Name.Occurrence.varName
       LHLogicNameBinder -> panic Nothing "mkGHCNameSpace: unexpected namespace LHLogicNameBinder"
       LHLogicName -> panic Nothing "mkGHCNameSpace: unexpected namespace LHLogicName"
 
+resolveWithBoundVars :: Foldable t => t Symbol -> LHName -> LHName
+resolveWithBoundVars boundVars (LHNUnresolved LHTcName s)
+  | elem s boundVars = LHNResolved (LHRLocal s) s
+  | otherwise        = LHNUnresolved LHTcName s
+resolveWithBoundVars _ n = error $ "resolveLHNames: Unexpected resolved name: " ++ show n
+
+resolveBoundVars :: (Data a, Foldable t) => t Symbol -> a -> a
+resolveBoundVars = mapLHNames . resolveWithBoundVars
+
 -- | Changes unresolved names to local resolved names in the body of type
 -- aliases.
 resolveBoundVarsInTypeAliases :: BareSpecParsed -> BareSpecParsed
-resolveBoundVarsInTypeAliases = updateAliases resolveBoundVars
-  where
-    resolveBoundVars boundVars = \case
-      LHNUnresolved LHTcName s ->
-        if elem s boundVars then
-          LHNResolved (LHRLocal s) s
-        else
-          LHNUnresolved LHTcName s
-      n ->
-        error $ "resolveLHNames: Unexpected resolved name: " ++ show n
-
-    -- Applies a function to the body of type aliases, passes to every call the
-    -- arguments of the alias.
-    updateAliases f spec =
-       spec
-            { aliases = [ Loc sp0 sp1 (a { rtBody = mapLHNames (f args) (rtBody a) })
-                        | Loc sp0 sp1 a <- aliases spec
-                        , let args = rtTArgs a ++ rtVArgs a
-                        ]
-            }
+resolveBoundVarsInTypeAliases spec
+  = spec  { aliases = [ Loc sp0 sp1 (a { rtBody = resolveBoundVars args $ rtBody a })
+                      | Loc sp0 sp1 a <- aliases spec
+                      , let args = rtTArgs a ++ rtVArgs a
+                      ]
+          }
 
 -- | The expression arguments of type aliases are initially parsed as
 -- types. This function converts them to expressions.

@@ -14,13 +14,17 @@ module Language.Haskell.Liquid.Types.QuotDecl
   , EqualityParamParsed
   , QuotDeclP (..)
   , QuotDecl
-  , QuotDeclParsed
   , QuotDeclLHName
+  , QuotDeclMap
+  , QuotDeclParsed
+  , QuotDeclR
+  , QuotSpecDecl
   ) where
 
 import           Data.Binary                         (Binary)
 import           Data.Generics                       (Data)
 import           Data.Hashable                       (Hashable)
+import           Data.HashMap.Strict                 (HashMap)
 import           Data.Typeable                       (Typeable)
 
 import           GHC.Generics                        (Generic, Generically (..))  
@@ -34,9 +38,13 @@ import           Language.Haskell.Liquid.Types.RType
   , BareTypeParsed
   , BSortV
   , PVarV
+  , RRType
   , SizeFunV
+  , SpecType
   )
 import qualified Language.Haskell.Liquid.GHC.Misc    as Position
+
+import           Liquid.GHC.API                      (ModuleName)
 
 import           Text.PrettyPrint.HughesPJ           (Doc, (<+>), ($+$))
 import qualified Text.PrettyPrint.HughesPJ           as PPrint
@@ -103,9 +111,11 @@ instance (Ord v, F.Fixpoint v, F.PPrint v, F.PPrint ty) => F.PPrint (EqualityCto
 type QuotDecl       = QuotDeclP F.Symbol BareType
 type QuotDeclParsed = QuotDeclP F.LocSymbol BareTypeParsed
 type QuotDeclLHName = QuotDeclP LHName BareTypeLHName
+type QuotDeclR r    = QuotDeclP F.Symbol (RRType r)
+type QuotSpecDecl   = QuotDeclP F.Symbol SpecType
 data QuotDeclP v ty
   = QuotDecl
-      { qtycName       :: !(F.Located LHName)   -- ^ Quotient type constructor name
+      { qtycName       :: !(F.Located F.Symbol) -- ^ Quotient type constructor name
       , qtycTyVars     :: [F.Symbol]            -- ^ Type variable parameters
       , qtycPVars      :: [PVarV v (BSortV v)]  -- ^ Predicate variable parameters
       , qtycType       :: ty                    -- ^ Underlying type
@@ -116,6 +126,8 @@ data QuotDeclP v ty
       }
     deriving (Data, Typeable, Generic, Functor, Foldable, Traversable)
     deriving (Binary, Hashable) via Generically (QuotDeclP v ty)
+
+type QuotDeclMap v ty = HashMap (ModuleName, F.Symbol) (QuotDeclP v ty)
 
 instance Eq (QuotDeclP v ty) where
   d1 == d2 = qtycName d1 == qtycName d2

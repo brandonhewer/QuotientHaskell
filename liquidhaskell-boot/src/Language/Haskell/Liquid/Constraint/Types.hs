@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings    #-}
 {-# LANGUAGE FlexibleContexts     #-}
+{-# LANGUAGE NamedFieldPuns       #-}
 {-# LANGUAGE TupleSections        #-}
 {-# LANGUAGE FlexibleInstances    #-}
 
@@ -299,14 +300,15 @@ type RTyConIAl = M.HashMap RTyCon [RInv]
 --------------------------------------------------------------------------------
 mkRTyConInv    :: [(Maybe Var, F.Located SpecType)] -> RTyConInv
 --------------------------------------------------------------------------------
-mkRTyConInv tss = group [ (c, RInv (go ts) t v) | (v, t@(RApp c ts _ _)) <- strip <$> tss]
-  where
-    strip = fmap (thrd3 . bkUniv . val)
-    go ts | generic (toRSort <$> ts) = []
-          | otherwise                = toRSort <$> ts
+mkRTyConInv tss
+  = group [ (c, RInv (go ts) t v) | (v, t@(RApp c ts _ _)) <- strip <$> tss ]
+    where
+      strip = fmap (thrd3 . bkUniv . val)
+      go ts | generic (toRSort <$> ts) = []
+            | otherwise                = toRSort <$> ts
 
-    generic ts = let ts' = L.nub ts in
-                 all isRVar ts' && length ts' == length ts
+      generic ts = let ts' = L.nub ts in
+                  all isRVar ts' && length ts' == length ts
 
 mkRTyConIAl :: [(a, F.Located SpecType)] -> RTyConInv
 mkRTyConIAl    = mkRTyConInv . fmap ((Nothing,) . snd)
@@ -346,9 +348,28 @@ addRInv m (x, t)
   = (x, t)
    where
      ids = [id' | tc <- M.keys m
-               , dc <- Ghc.tyConDataCons $ rtc_tc tc
-               , AnId id' <- Ghc.dataConImplicitTyThings dc]
+                , dc <- uTyConDataCons $ rtc_tc tc
+                , AnId id' <- Ghc.dataConImplicitTyThings dc]
      res = ty_res . toRTypeRep
+
+uTyConDataCons :: UTyCon -> [DataCon]
+uTyConDataCons (GHCTyCon c)            = Ghc.tyConDataCons c
+uTyConDataCons (QuotientTyCon _ _ _ t) = typeDataCons t
+
+typeDataCons :: SpecType -> [DataCon]
+typeDataCons RVar      {}         = []
+typeDataCons RFun      {}         = []
+typeDataCons RAllT     {}         = []
+typeDataCons RAllP     {}         = []
+typeDataCons RChooseQ  {rt_ty}    = typeDataCons rt_ty
+typeDataCons RQuotient {rt_ty}    = typeDataCons rt_ty
+typeDataCons RApp      {rt_tycon} = uTyConDataCons $ rtc_tc rt_tycon
+typeDataCons RAllE     {}         = []
+typeDataCons REx       {}         = []
+typeDataCons RExprArg  {}         = []
+typeDataCons RAppTy    {}         = []
+typeDataCons RRTy      {}         = []
+typeDataCons RHole     {}         = []
 
 conjoinInvariantShift :: SpecType -> SpecType -> SpecType
 conjoinInvariantShift t1 t2

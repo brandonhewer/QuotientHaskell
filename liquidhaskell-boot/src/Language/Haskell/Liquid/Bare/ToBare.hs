@@ -1,3 +1,5 @@
+{-# LANGUAGE NamedFieldPuns #-}
+
 -- | This module contains functions that convert things
 --   to their `Bare` versions, e.g. SpecType -> BareType etc.
 
@@ -40,7 +42,21 @@ dataConToBare :: DataCon -> F.Located LHName
 dataConToBare d = makeGHCLHNameFromId . dataConWorkId <$> locNamedThing d
 
 specToBareTC :: RTyCon -> BTyCon
-specToBareTC = tyConBTyCon . rtc_tc
+specToBareTC = uTyConToBTyCon . rtc_tc
+
+uTyConToBTyCon :: UTyCon -> BTyCon
+uTyConToBTyCon (GHCTyCon c)             = tyConBTyCon c
+uTyConToBTyCon QuotientTyCon {qtc_name, qtc_module}
+  = BTyCon
+      { btc_tc    = makeResolvedLHName (LHRQuotient qtc_name qtc_module) <$> qtc_name
+      , btc_class = False
+      , btc_prom  = False
+      }
+
+{-
+mkBTyCon $
+      makeResolvedLHName (LHRGHC (getName tc)) . tyConName <$> GM.locNamedThing tc
+-}
 
 specToBareTV :: RTyVar -> BTyVar
 specToBareTV (RTV α) = BTV (F.symbol <$> locNamedThing α)

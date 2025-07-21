@@ -28,11 +28,15 @@ module Language.Haskell.Liquid.Types.RType (
   , BTyVar(..)
 
   -- * Refined Type Constructors
-  , RTyCon (RTyCon, rtc_tc, rtc_info)
+  , UTyCon (..)
+  , LHTyCon (RTyCon, rtc_tc, rtc_info)
+  , RTyCon
   , TyConInfo(..), defaultTyConInfo
   , rTyConPVs
   -- , isClassRTyCon
   , isClassType, isEqType, isRVar, isBool, isEmbeddedClass
+  , isGHCTyCon
+  , mapGHCTyCon
 
   -- * Refinement Types
   , RType, RTypeV (..), Ref(..), RTProp, RTPropV, rPropP
@@ -454,30 +458,46 @@ data BTyCon = BTyCon
   deriving (Generic, Data, Typeable)
   deriving (B.Binary, Hashable) via Generically BTyCon
 
-data RTyCon = RTyCon
-  { rtc_tc    :: TyCon         -- ^ GHC Type Constructor
-  , rtc_pvars :: ![RPVar]      -- ^ Predicate Parameters
-  , rtc_info  :: !TyConInfo    -- ^ TyConInfo
-  }
+data UTyCon
+  = GHCTyCon TyCon   -- | A GHC Type constructor
+  | QuotientTyCon    -- | A quotient type constructor
+      { qtc_module :: !Ghc.Module
+      , qtc_name   :: !(F.Located Symbol)
+      , qtc_tvs    :: [Symbol]
+      , qtc_base   :: SpecType
+      }
   deriving (Generic, Data, Typeable)
 
-instance F.Symbolic RTyCon where
+data LHTyCon c = RTyCon
+  { rtc_tc    :: c            -- ^ GHC Type Constructor
+  , rtc_pvars :: ![RPVar]     -- ^ Predicate Parameters
+  , rtc_info  :: !TyConInfo   -- ^ TyConInfo
+  }
+  deriving (Generic, Data, Functor, Foldable, Traversable, Typeable)
+
+type RTyCon = LHTyCon UTyCon
+
+instance F.Symbolic UTyCon where
+  symbol (GHCTyCon c) = F.symbol c
+  symbol QuotientTyCon {qtc_name} = F.val qtc_name
+
+instance F.Symbolic c => F.Symbolic (LHTyCon c) where
   symbol = F.symbol . rtc_tc
 
 instance NFData BTyCon
 
-instance NFData RTyCon
+instance NFData UTyCon
 
+instance NFData c => NFData (LHTyCon c)
 
 mkBTyCon :: F.Located LHName -> BTyCon
 mkBTyCon x = BTyCon x False False
 
-
 -- | Accessors for @RTyCon@
 
 isBool :: RType RTyCon t t1 -> Bool
-isBool (RApp RTyCon{rtc_tc = c} _ _ _) = c == boolTyCon
-isBool _                                 = False
+isBool (RApp RTyCon{rtc_tc = GHCTyCon c} _ _ _) = c == boolTyCon
+isBool _                                        = False
 
 isRVar :: RType c tv r -> Bool
 isRVar (RVar _ _) = True
@@ -486,10 +506,18 @@ isRVar _          = False
 isClassBTyCon :: BTyCon -> Bool
 isClassBTyCon = btc_class
 
+isGHCTyCon :: (TyCon -> Bool) -> UTyCon -> Bool
+isGHCTyCon p (GHCTyCon c) = p c
+isGHCTyCon _ _            = False
+
+mapGHCTyCon :: a -> (TyCon -> a) -> RTyCon -> a
+mapGHCTyCon _ f RTyCon{rtc_tc = GHCTyCon c} = f c
+mapGHCTyCon z _ _                           = z
+
 -- isClassRTyCon :: RTyCon -> Bool
 -- isClassRTyCon x = (isClassTyCon $ rtc_tc x) || (rtc_tc x == eqPrimTyCon)
 
-rTyConPVs :: RTyCon -> [RPVar]
+rTyConPVs :: LHTyCon c -> [RPVar]
 rTyConPVs     = rtc_pvars
 
 isEqType :: TyConable c => RTypeV v c t t1 -> Bool
@@ -533,20 +561,34 @@ class (Eq c) => TyConable c where
 -- | TyConable Instances -------------------------------------------------------
 -------------------------------------------------------------------------------
 
-instance TyConable RTyCon where
-  isFun      = isArrowTyCon . rtc_tc
-  isList     = (listTyCon ==) . rtc_tc
-  isTuple    = Ghc.isTupleTyCon   . rtc_tc
+instance TyConable UTyCon where
+  isFun = isGHCTyCon isArrowTyCon
+  isList = isGHCTyCon (listTyCon ==)
+  isTuple = isGHCTyCon Ghc.isTupleTyCon
+  isClass = isGHCTyCon isClass
+  isEqual = isGHCTyCon isEqual
+
+  ppTycon = F.toFix
+
+  isNumCls = isGHCTyCon $ maybe False (isClassOrSubClass isNumericClass) . tyConClass_maybe
+
+  isFracCls = isGHCTyCon $ maybe False isOrdClass . tyConClass_maybe
+
+  isEqCls = isGHCTyCon isEqCls
+
+
+instance (F.Fixpoint c, TyConable c) => TyConable (LHTyCon c) where
+  isFun      = isFun . rtc_tc
+  isList     = isList . rtc_tc
+  isTuple    = isTuple . rtc_tc
   isClass    = isClass . rtc_tc -- isClassRTyCon
   isEqual    = isEqual . rtc_tc
   ppTycon    = F.toFix
 
-  isNumCls c  = maybe False (isClassOrSubClass isNumericClass)
-                (tyConClass_maybe $ rtc_tc c)
-  isFracCls c = maybe False (isClassOrSubClass isFractionalClass)
-                (tyConClass_maybe $ rtc_tc c)
-  isOrdCls  c = maybe False isOrdClass (tyConClass_maybe $ rtc_tc c)
-  isEqCls   c = isEqCls (rtc_tc c)
+  isNumCls = isNumCls . rtc_tc
+  isFracCls = isFracCls . rtc_tc
+  isOrdCls = isOrdCls . rtc_tc
+  isEqCls = isEqCls . rtc_tc
 
 
 instance TyConable TyCon where
@@ -608,8 +650,14 @@ instance TyConable BTyCon where
       LHRLocal s -> ppTycon s
       LHRIndex i -> text $ "(Unknown LHRIndex " ++ show i ++ ")"
       LHRLogic _ -> ppTycon $ lhNameToResolvedSymbol $ F.val $ btc_tc b
+      LHRQuotient s _ -> ppTycon s
 
-instance Eq RTyCon where
+instance Eq UTyCon where
+  GHCTyCon c1             == GHCTyCon c2             = c1 == c2
+  QuotientTyCon m1 c1 _ _ == QuotientTyCon m2 c2 _ _ = m1 == m2 && c1 == c2
+  _                       == _                       = False
+
+instance Eq c => Eq (LHTyCon c) where
   x == y = rtc_tc x == rtc_tc y
 
 instance Eq BTyCon where
@@ -618,8 +666,12 @@ instance Eq BTyCon where
 instance Ord BTyCon where
   compare x y = compare (btc_tc x) (btc_tc y)
 
-instance F.Fixpoint RTyCon where
-  toFix (RTyCon c _ _) = text $ showPpr c
+instance F.Fixpoint UTyCon where
+  toFix (GHCTyCon c) = text $ showPpr c
+  toFix QuotientTyCon {qtc_name} = text $ F.symbolString $ F.val qtc_name
+
+instance F.Fixpoint c => F.Fixpoint (LHTyCon c) where
+  toFix = F.toFix . rtc_tc
 
 instance F.Fixpoint BTyCon where
   toFix b = case F.val (btc_tc b) of
@@ -629,11 +681,16 @@ instance F.Fixpoint BTyCon where
       LHRLocal s -> text $ F.symbolString s
       LHRIndex i -> panic (Just $ fSrcSpan b) $ "toFix BTyCon: Unknown LHRIndex " ++ show i
       LHRLogic _ -> text $ F.symbolString $ lhNameToResolvedSymbol $ F.val $ btc_tc b
+      LHRQuotient s _ -> text $ F.symbolString $ F.val s
 
-instance F.PPrint RTyCon where
+instance F.PPrint UTyCon where
+  pprintTidy k (GHCTyCon c)            = F.pprintTidy k $ F.symbol c
+  pprintTidy k (QuotientTyCon _ s _ _) = F.pprintTidy k s
+
+instance (F.PPrint c, F.Symbolic c) => F.PPrint (LHTyCon c) where
   pprintTidy k c
     | ppDebug ppEnv = F.pprintTidy k tc  <-> angleBrackets (F.pprintTidy k pvs)
-    | otherwise     = text . showPpr . rtc_tc $ c
+    | otherwise     = F.pprintTidy k . rtc_tc $ c
     where
       tc            = F.symbol (rtc_tc c)
       pvs           = rtc_pvars c
@@ -646,11 +703,12 @@ instance F.PPrint BTyCon where
       LHRLocal s -> text $ F.symbolString s
       LHRIndex i -> text $ "(Unknown LHRIndex " ++ show i ++ ")"
       LHRLogic _ -> text $ F.symbolString $ lhNameToResolvedSymbol $ F.val $ btc_tc b
+      LHRQuotient s _ -> text $ F.symbolString $ F.val s
 
 instance F.PPrint v => F.PPrint (RTVar v s) where
   pprintTidy k (RTVar x _) = F.pprintTidy k x
 
-instance Show RTyCon where
+instance (F.PPrint c, F.Symbolic c) => Show (LHTyCon c) where
   show = F.showpp
 
 instance Show BTyCon where

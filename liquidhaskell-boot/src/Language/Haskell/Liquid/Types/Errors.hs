@@ -409,6 +409,12 @@ data TError t =
                 , msg   :: !Doc
                 }
 
+  | ErrQuotientApp  { pos   :: !SrcSpan
+                    , dname :: !Doc
+                    , dpos  :: !SrcSpan
+                    , msg   :: !Doc
+                    }
+
   | ErrTermin   { pos  :: !SrcSpan
                 , bind :: ![Doc]
                 , msg  :: !Doc
@@ -990,6 +996,12 @@ ppError' _ dCtx (ErrAliasApp _ name dl s)
   = text "Malformed application of type alias" <+> ppTicks name
         $+$ dCtx
         $+$ nest 4 (vcat [ text "The alias" <+> ppTicks name <+> "defined at:" <+> pprint dl
+                           , s ])
+
+ppError' _ dCtx (ErrQuotientApp _ name dl s)
+  = text "Malformed application of quotient type constructor" <+> ppTicks name
+        $+$ dCtx
+        $+$ nest 4 (vcat [ text "The quotient type" <+> ppTicks name <+> "defined at:" <+> pprint dl
                            , s ])
 
 ppError' _ dCtx (ErrSaved _ name s)

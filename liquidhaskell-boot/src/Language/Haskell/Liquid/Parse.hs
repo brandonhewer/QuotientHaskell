@@ -1692,15 +1692,15 @@ dataOrQuotDeclBodyP pos x fsize False = DDecl <$> dataDeclBodyP pos x fsize True
 dataOrQuotDeclBodyP pos x fsize _     = do
   as         <- many noWhere -- TODO: check this again
   ps         <- predVarDefsP
-  let dn ns = makeUnresolvedLHName ns <$> x
   ( reservedOp "="
       *> dataConOrQuotDeclP as
-          (dataWithCtorP pos (dn LHTcName) fsize as ps)
-          (dataWithQuotP pos (dn LHQcName) fsize as ps))
+          (dataWithCtorP pos (makeUnresolvedLHName LHTcName <$> x) fsize as ps)
+          (dataWithQuotP pos x fsize as ps))
     <|> ( reserved "where" *> do
             dcs <- block (adtDataConP as)
             return
-              $ DDecl $ DataDecl (DnName $ dn LHTcName) as ps (Just dcs) pos fsize Nothing DataUser
+              $ DDecl
+              $ DataDecl (DnName $ makeUnresolvedLHName LHTcName <$> x) as ps (Just dcs) pos fsize Nothing DataUser
         )
 
 dataWithCtorP
@@ -1718,7 +1718,7 @@ dataWithCtorP pos dn fsize as ps ctor = do
 
 dataWithQuotP
   :: SourcePos
-  -> Located LHName
+  -> Located Symbol
   -> Maybe (SizeFunV LocSymbol)
   -> [Symbol]
   -> [PVarV LocSymbol (BSortV LocSymbol)]

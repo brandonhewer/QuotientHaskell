@@ -19,6 +19,9 @@ module Language.Haskell.Liquid.Bare.Types
     -- * Signature processing environment 
   , SigEnv (..)
 
+    -- * Quotient related environment
+  , QuotEnv
+
     -- * Measure related environment 
   , MeasEnv (..)
 
@@ -30,13 +33,16 @@ module Language.Haskell.Liquid.Bare.Types
   , failMaybe
   ) where 
 
-import qualified Text.PrettyPrint.HughesPJ             as PJ 
+import qualified Text.PrettyPrint.HughesPJ             as PJ
 import qualified Data.HashSet                          as S
 import qualified Data.HashMap.Strict                   as M
 import qualified Language.Fixpoint.Types               as F 
 import qualified Language.Haskell.Liquid.Measure       as Ms
 import           Language.Haskell.Liquid.Types.DataDecl
 import           Language.Haskell.Liquid.Types.Names
+
+import           Language.Haskell.Liquid.Types.QuotDecl (QuotDeclMap)
+
 import qualified Language.Haskell.Liquid.Types.RefType as RT 
 import           Language.Haskell.Liquid.Types.RType
 import           Language.Haskell.Liquid.Types.Types
@@ -72,16 +78,17 @@ plugSrc _        = Nothing
 -- | Name resolution environment 
 -------------------------------------------------------------------------------
 data Env = RE 
-  { reTyLookupEnv :: GHCTyLookupEnv
-  , reTcGblEnv  :: Ghc.TcGblEnv
-  , reInstEnvs  :: Ghc.InstEnvs
+  { reTyLookupEnv   :: GHCTyLookupEnv
+  , reTcGblEnv      :: Ghc.TcGblEnv
+  , reInstEnvs      :: Ghc.InstEnvs
   , reUsedExternals :: Ghc.NameSet
-  , reLMap      :: LogicMap
-  , reDataConIds :: [Ghc.Id]                -- ^ Data constructors used in the current module
-  , reCfg       :: Config
-  , reLocalVars :: LocalVars                -- ^ lines at which local variables are defined.
-  , reGlobSyms  :: S.HashSet F.Symbol       -- ^ global symbols, typically unlifted measures like 'len', 'fromJust'
-  , reSrc       :: GhcSrc                   -- ^ all source info
+  , reLMap          :: LogicMap
+  , reDataConIds    :: [Ghc.Id]            -- ^ Data constructors used in the current module
+  , reCfg           :: Config
+  , reLocalVars     :: LocalVars           -- ^ lines at which local variables are defined.
+  , reGlobSyms      :: S.HashSet F.Symbol  -- ^ global symbols, typically unlifted measures like 'len', 'fromJust'
+  , reQuotientTypes :: QuotEnv             -- ^ quotient type environment
+  , reSrc           :: GhcSrc              -- ^ all source info
   }
 
 data GHCTyLookupEnv = GHCTyLookupEnv
@@ -139,6 +146,12 @@ data TycEnv = TycEnv
   }
 
 type DataConMap = M.HashMap (F.Symbol, Int) F.Symbol
+
+-------------------------------------------------------------------------------
+-- | Quotient declaration information stored in the environment
+-------------------------------------------------------------------------------
+
+type QuotEnv = QuotDeclMap F.Symbol BareType
 
 -------------------------------------------------------------------------------
 -- | Intermediate representation for Measure information 
