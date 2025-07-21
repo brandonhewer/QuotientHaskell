@@ -2,6 +2,13 @@
 
 ## Next
 
+## 0.9.12.2 (2025-03-22)
+
+- Simplify kvar solutions in fqout files [liquid-fixpoint#741](https://github.com/ucsd-progsys/liquid-fixpoint/pull/741).
+- Upgrade ghc to 9.12.2 [#2474](https://github.com/ucsd-progsys/liquidhaskell/pull/2474).
+
+## 0.9.10.1.2 (2025-03-06)
+
 - Implement opaque reflection, a feature to allow reflecting functions which
   call to non-reflected functions [#2323](https://github.com/ucsd-progsys/liquidhaskell/pull/2323).
 - Implement reflection from interface files, which can reflect functions from
@@ -28,6 +35,7 @@
   side effect of this change is that LH can now pick up names in scope using import aliases
   in most places (but see [#2481](https://github.com/ucsd-progsys/liquidhaskell/issues/2481)).
 - Allow to link Haskell definitions with logical primitives via `define` declarations [#2463](https://github.com/ucsd-progsys/liquidhaskell/pull/2463).
+- CVC5 solver is now supported for all logical theories, including Sets/Bags [#2483](https://github.com/ucsd-progsys/liquidhaskell/pull/2483)
 
 ## 0.9.10.1 (2024-08-21)
 

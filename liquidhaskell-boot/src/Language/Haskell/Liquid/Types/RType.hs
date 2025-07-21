@@ -143,7 +143,6 @@ import           Prelude                          hiding  (error)
 
 import           Control.DeepSeq
 import           Data.Traversable                       (forAccumM)
-import           Data.Typeable                          (Typeable)
 import           Data.Generics                          (Data)
 import qualified Data.Binary                            as B
 import           Data.Hashable
@@ -166,7 +165,7 @@ import           Language.Haskell.Liquid.UX.Config
 
 
 newtype RFInfo = RFInfo {permitTC :: Maybe Bool }
-  deriving (Generic, Data, Typeable, Show, Eq)
+  deriving (Generic, Data, Show, Eq)
 
 defRFInfo :: RFInfo
 defRFInfo = RFInfo Nothing
@@ -218,7 +217,7 @@ data TyConP = TyConP
   , tcpVarianceTs   :: !VarianceInfo
   , tcpVariancePs   :: !VarianceInfo
   , tcpSizeFun      :: !(Maybe SizeFun)
-  } deriving (Generic, Data, Typeable)
+  } deriving (Generic, Data)
 
 instance F.Loc TyConP where
   srcSpan tc = F.SS (tcpLoc tc) (tcpLoc tc)
@@ -245,7 +244,7 @@ type SizeFun = SizeFunV F.Symbol
 data SizeFunV v
   = IdSizeFun              -- ^ \x -> F.EVar x
   | SymSizeFun (F.Located v) -- ^ \x -> f x
-  deriving (Data, Typeable, Generic, Eq, Functor, Foldable, Traversable)
+  deriving (Data, Generic, Eq, Functor, Foldable, Traversable)
   deriving (B.Binary, Hashable) via Generically (SizeFunV v)
 
 instance NFData v => NFData (SizeFunV v)
@@ -273,7 +272,7 @@ data PVarV v t = PV
   , ptype :: !t
   , parg  :: !Symbol
   , pargs :: ![(t, Symbol, F.ExprV v)]
-  } deriving (Generic, Data, Typeable, Show, Functor)
+  } deriving (Generic, Data, Show, Functor)
   deriving B.Binary via Generically (PVarV v t)
 
 mapPVarV :: (v -> v') -> (t -> t') -> PVarV v t -> PVarV v' t'
@@ -344,6 +343,7 @@ emapExprVM f = go []
       PGrad k su gi e ->
         PGrad k <$> emapSubstVM (f . (acc ++)) su <*> pure gi <*> go (domain su ++ acc) e
       ECoerc srt0 srt1 e -> ECoerc srt0 srt1 <$> go acc e
+      ELet x e1 e2 -> ELet x <$> go acc e1 <*> go (x:acc) e2
 
     domain (Su m) = M.keys m
 
@@ -359,7 +359,7 @@ type UsedPVarV v = PVarV v ()
 
 type Predicate = PredicateV Symbol
 newtype PredicateV v = Pr [UsedPVarV v]
-  deriving (Generic, Data, Typeable)
+  deriving (Generic, Data)
   deriving (B.Binary, Hashable) via Generically (PredicateV v)
 
 mapPredicateV :: (v -> v') -> PredicateV v -> PredicateV v'
@@ -423,10 +423,10 @@ instance F.Subable Predicate where
 instance NFData r => NFData (UReft r)
 
 newtype BTyVar = BTV F.LocSymbol
-  deriving (Show, Generic, Data, Typeable)
+  deriving (Show, Generic, Data)
   deriving (B.Binary, Hashable) via Generically BTyVar
 
-newtype RTyVar = RTV TyVar deriving (Generic, Data, Typeable)
+newtype RTyVar = RTV TyVar deriving (Generic, Data)
 
 instance Eq BTyVar where
   (BTV x) == (BTV y) = x == y
@@ -455,9 +455,10 @@ data BTyCon = BTyCon
   , btc_class :: !Bool           -- ^ Is this a class type constructor?
   , btc_prom  :: !Bool           -- ^ Is Promoted Data Con?
   }
-  deriving (Generic, Data, Typeable)
+  deriving (Generic, Data)
   deriving (B.Binary, Hashable) via Generically BTyCon
 
+<<<<<<< HEAD
 data UTyCon
   = GHCTyCon TyCon   -- | A GHC Type constructor
   | QuotientTyCon    -- | A quotient type constructor
@@ -467,6 +468,14 @@ data UTyCon
       , qtc_base   :: SpecType
       }
   deriving (Generic, Data, Typeable)
+=======
+data RTyCon = RTyCon
+  { rtc_tc    :: TyCon         -- ^ GHC Type Constructor
+  , rtc_pvars :: ![RPVar]      -- ^ Predicate Parameters
+  , rtc_info  :: !TyConInfo    -- ^ TyConInfo
+  }
+  deriving (Generic, Data)
+>>>>>>> c505c91cae0de5d6c7058625233e3f76b68dbfc5
 
 data LHTyCon c = RTyCon
   { rtc_tc    :: c            -- ^ GHC Type Constructor
@@ -741,7 +750,7 @@ data TyConInfo = TyConInfo
   { varianceTyArgs  :: !VarianceInfo      -- ^ variance info for type variables
   , variancePsArgs  :: !VarianceInfo      -- ^ variance info for predicate variables
   , sizeFunction    :: !(Maybe SizeFun)   -- ^ logical UNARY function that computes the size of the structure
-  } deriving (Generic, Data, Typeable)
+  } deriving (Generic, Data)
 
 instance NFData TyConInfo
 
@@ -843,7 +852,7 @@ data RTypeV v c tv r
 
   | RHole r -- ^ let LH match against the Haskell type and add k-vars, e.g. `x:_`
             --   see tests/pos/Holes.hs
-  deriving (Eq, Generic, Data, Typeable, Functor, Foldable, Traversable)
+  deriving (Eq, Generic, Data, Functor, Foldable, Traversable)
   deriving (B.Binary, Hashable) via Generically (RTypeV v c tv r)
 
 instance (NFData c, NFData tv, NFData r)       => NFData (RType c tv r)
@@ -857,7 +866,7 @@ instance (Eq tv) => Eq (RTVar tv s) where
 data RTVar tv s = RTVar
   { ty_var_value :: tv
   , ty_var_info  :: RTVInfo s
-  } deriving (Generic, Data, Typeable, Functor, Foldable, Traversable)
+  } deriving (Generic, Data, Functor, Foldable, Traversable)
     deriving (B.Binary, Hashable) via Generically (RTVar tv s)
 
 mapTyVarValue :: (tv1 -> tv2) -> RTVar tv1 s -> RTVar tv2 s
@@ -874,7 +883,7 @@ data RTVInfo s
             , rtv_is_pol :: Bool -- true iff the type variable gets instantiated with
                                  -- any refinement (ie is polymorphic on refinements),
                                  -- false iff instantiation is with true refinement
-            } deriving (Generic, Data, Typeable, Functor, Eq, Foldable, Traversable)
+            } deriving (Generic, Data, Functor, Eq, Foldable, Traversable)
               deriving (B.Binary, Hashable) via Generically (RTVInfo s)
 
 
@@ -902,7 +911,7 @@ instance (NFData s)                => NFData   (RTVInfo s)
 data Ref τ t = RProp
   { rf_args :: [(Symbol, τ)] -- ^ arguments. e.g. @h@ in the above example
   , rf_body :: t -- ^ Abstract refinement associated with `RTyCon`. e.g. @v > h@ in the above example
-  } deriving (Eq, Generic, Data, Typeable, Functor, Foldable, Traversable)
+  } deriving (Eq, Generic, Data, Functor, Foldable, Traversable)
     deriving (B.Binary, Hashable) via Generically (Ref τ t)
 
 instance (NFData τ,   NFData t)   => NFData   (Ref τ t)
@@ -920,7 +929,7 @@ data UReftV v r = MkUReft
   { ur_reft   :: !r
   , ur_pred   :: !(PredicateV v)
   }
-  deriving (Eq, Generic, Data, Typeable, Functor, Foldable, Traversable)
+  deriving (Eq, Generic, Data, Functor, Foldable, Traversable)
   deriving (B.Binary, Hashable) via Generically (UReftV v r)
 
 mapUReftV :: (v -> v') -> (r -> r') -> UReftV v r -> UReftV v' r'

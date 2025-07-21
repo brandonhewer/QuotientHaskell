@@ -1,11 +1,46 @@
 ![LiquidHaskell](/resources/logo.png)
 
 
-[![Hackage](https://img.shields.io/hackage/v/liquidhaskell.svg)](https://hackage.haskell.org/package/liquidhaskell) [![Hackage-Deps](https://img.shields.io/hackage-deps/v/liquidhaskell.svg)](http://packdeps.haskellers.com/feed?needle=liquidhaskell) [![Build Status](https://img.shields.io/circleci/project/ucsd-progsys/liquidhaskell/master.svg)](https://circleci.com/gh/ucsd-progsys/liquidhaskell)
+[![Hackage](https://img.shields.io/hackage/v/liquidhaskell.svg)](https://hackage.haskell.org/package/liquidhaskell) [![Build Status](https://img.shields.io/circleci/project/ucsd-progsys/liquidhaskell/develop.svg)]([https://circleci.com/gh/ucsd-progsys/liquidhaskell](https://app.circleci.com/pipelines/github/ucsd-progsys/liquidhaskell?branch=develop))
 
 This is the **development** site of the LiquidHaskell formal verification tool.
 
 If you're a LiquidHaskell **user** (or just curious), you probably want to go to [the documentation website](https://ucsd-progsys.github.io/liquidhaskell/) instead.
+
+## Trying it from Hackage
+
+Assuming the [Z3](https://github.com/Z3Prover/z3) SMT solver is installed and
+available in your `PATH`, you can run
+
+```
+cabal install --lib liquidhaskell liquid-prelude liquid-vector --package-env . --force-reinstalls
+ghc -fplugin=LiquidHaskell FILE.hs
+```
+
+`--package-env .` creates a `.ghc.environment*` file in the current folder that makes
+`ghc` find the `LiquidHaskell` plugin only when invoking it from there.
+Otherwise, global user configuration would be affected.
+
+Note that the installation step is influenced by the dependencies that are
+already installed in your system, so different results may be obtained by
+different users.
+
+## Trying it from GitHub
+
+The github repo only builds with GHC 9.12.2, which must be in your `PATH`.
+
+```
+git clone https://github.com/ucsd-progsys/liquidhaskell.git
+cd liquidhaskell
+git submodule update --init
+cabal build liquidhaskell liquid-prelude liquid-vector
+
+cabal exec -- ghc -fplugin=LiquidHaskell FILE.hs
+```
+
+## Asking for Help
+
+If you have questions or you just need help, you can always reach out on our [slack channel](https://join.slack.com/t/liquidhaskell/shared_invite/enQtMjY4MTk3NDkwODE3LTFmZGFkNGEzYWRkNDJmZDQ0ZGU1MzBiZWZiZDhhNmY3YTJiMjUzYTRlNjMyZDk1NDU3ZGIxYzhlOTIzN2UxNWE), [google groups mailing list](https://groups.google.com/forum/#!forum/liquidhaskell), [GitHub issue tracker](https://github.com/ucsd-progsys/liquidhaskell/issues), or by emailing [Ranjit Jhala](https://github.com/ranjitjhala), [Niki Vazou](https://github.com/nikivazou).
 
 # Contributing
 
@@ -36,30 +71,11 @@ having your PR accepted:
 
 Pull requests don't just have to be about code: documentation can often be improved too!
 
-## Ask for Help
-
-If you have further questions or you just need help, you can always reach out on our [slack channel](https://join.slack.com/t/liquidhaskell/shared_invite/enQtMjY4MTk3NDkwODE3LTFmZGFkNGEzYWRkNDJmZDQ0ZGU1MzBiZWZiZDhhNmY3YTJiMjUzYTRlNjMyZDk1NDU3ZGIxYzhlOTIzN2UxNWE), [google groups mailing list](https://groups.google.com/forum/#!forum/liquidhaskell), [GitHub issue tracker](https://github.com/ucsd-progsys/liquidhaskell/issues), or by emailing [Ranjit Jhala](https://github.com/ranjitjhala), [Niki Vazou](https://github.com/nikivazou).
-
 # General Development Guide
 
 For those diving into the implementation of LiquidHaskell, here are a few tips:
 
-## Running the pluging on individual files
-
-```
-cabal build liquidhaskell
-cabal exec ghc -- -fplugin=LiquidHaskell FILE.hs
-```
-
-## Building
-
-### Cabal
-
-```
-cabal build
-```
-
-### Faster recompilation
+## Faster recompilation
 
 When changing the `liquidhaskell-boot` library, sometimes we don't want
 to rebuild `liquidhaskell` or `liquid-vector` when testing the changes.
@@ -98,7 +114,11 @@ For example:
 
     $ cabal build tests:unit-neg --ghc-options=-fplugin-opt=LiquidHaskell:--no-termination
 
-Or your favorite number of threads, depending on cores etc.
+Another useful option is to change the underlying solver:
+
+    $ cabal build tests:unit-pos --ghc-options=-fplugin-opt=LiquidHaskell:--smtsolver=cvc5
+
+You can also modify the number of used threads, depending on cores etc.
 
 You can directly extend and run the tests by modifying the files in
 
@@ -311,3 +331,51 @@ that can be tested with `./scripts/test/test_plugin.sh`.
 [processTargetModule]: liquidhaskell-boot/src/Language/Haskell/Liquid/GHC/Interface.hs#L483
 [processModule]:       liquidhaskell-boot/src/Language/Haskell/Liquid/GHC/Plugin.hs#L509
 
+# Module Verification Process
+
+The following graph summarizes the verification process of a module by showing
+its specification life cycle.
+See [Specs.hs](./liquidhaskell-boot/src/Language/Haskell/Liquid/Types/Specs.hs)
+for detailed documentation on the specification stages.
+There are many moving parts hidden within each graph link,
+but some places worth noticing here are
+[Liquid.hs](./liquidhaskell-boot/src/Language/Haskell/Liquid/Liquid.hs)
+—which implements constraint generation— and
+[SpecFinder.hs](./liquidhaskell-boot/src/Language/Haskell/Liquid/Liquid.hs)
+—that deals with the gathering of dependencies and `LHAssumptions`—.
+
+```mermaid
+flowchart LR
+  subgraph Liquid Haskell
+
+    subgraph Inputs
+      direction TB
+      LiftedDeps[
+        Dependencies of A
+        LifttedSpecs
+        ]
+      CoreBinds[CoreBinds]
+      Bare[BarseSpec]
+    end
+
+    subgraph Outputs
+      direction TB
+      T[TargetSpec] --> Constraints[Verification
+                                    Constraints]
+      L[LiftedSpec]
+    end
+
+    Inputs --> Outputs
+
+  end
+
+  A>DepsOfA_LHAssumptions] --> LiftedDeps
+  Deps>DepsOfA.hi] --> LiftedDeps
+  Mod(A.hs) --> CoreBinds & Bare
+  Constraints -->|checked by| fixpoint([liquid-fixpoint])
+  L ---> |if verified:
+           serialize| File>A.hi]
+```
+
+Reference:
+[Implementing a GHC Plugin for Liquid Haskell](https://well-typed.com/blog/2020/08/implementing-a-ghc-plugin-for-liquid-haskell/).

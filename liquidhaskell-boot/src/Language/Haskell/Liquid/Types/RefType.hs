@@ -1476,12 +1476,12 @@ dataConReft c xs
       = mkEApp (dummyLoc $ symbol c) (eVar <$> xs)
 
 isBaseDataCon :: DataCon -> Bool
-isBaseDataCon c = and $ isBaseTy <$> map irrelevantMult (dataConOrigArgTys c ++ dataConRepArgTys c)
+isBaseDataCon c = all (isBaseTy . irrelevantMult) (dataConOrigArgTys c ++ dataConRepArgTys c)
 
 isBaseTy :: Type -> Bool
 isBaseTy (TyVarTy _)      = True
 isBaseTy (AppTy _ _)      = False
-isBaseTy (TyConApp _ ts)  = and $ isBaseTy <$> ts
+isBaseTy (TyConApp _ ts)  = all isBaseTy ts
 isBaseTy FunTy{}          = False
 isBaseTy (ForAllTy _ _)   = False
 isBaseTy (LitTy _)        = True
@@ -1703,6 +1703,8 @@ typeSort tce = go
     go τ                = FObj (typeUniqueSymbol τ)
 
 tyConFTyCon :: TCEmb TyCon -> TyCon -> [Sort] -> Sort
+-- ignore the nat arguments of the Any types, see test/pos/T2535A.hs
+-- tyConFTyCon _ c _ | Ghc.zonkAnyTyCon  == c = FObj (symbol c)
 tyConFTyCon tce c ts = case tceLookup c tce of
                          Just (t, WithArgs) -> t
                          Just (t, NoArgs)   -> fApp t ts
@@ -1834,7 +1836,7 @@ classBinds _ t
   = notracepp ("CLASSBINDS-1: " ++ showpp (toType False t, isEqualityConstr t)) []
 
 isEqualityConstr :: SpecType -> Bool
-isEqualityConstr (toType False -> ty) = Ghc.isEqPred ty || Ghc.isEqPrimPred ty
+isEqualityConstr (toType False -> ty) = Ghc.isNomEqPred ty || Ghc.isEqPred ty
 
 --------------------------------------------------------------------------------
 -- | Termination Predicates ----------------------------------------------------

@@ -1,4 +1,4 @@
-with-compiler: ghc-9.10.1
+with-compiler: ghc-9.12.2
 
 packages: .
           ./liquid-fixpoint
@@ -19,23 +19,21 @@ source-repository-package
 
 allow-newer:
   ghc-timings:base
-  ,blaze-svg:base
-  ,blaze-svg:mtl
-  ,colonnade:text
-  ,rest-rewrite:containers
-  ,Chart:lens
-  ,Chart-diagrams:lens
-  ,SVGFonts:containers
 
-package liquid-fixpoint
-  flags: +devel
+  ,active:base
+  ,Chart-diagrams:time
+  ,diagrams-core:base
+  ,diagrams-lib:base
+  ,diagrams-postscript:base
+  ,diagrams-svg:base
+  ,dual-tree:base
+  ,fsnotify:text
+  ,monoid-extras:base
+  ,statestack:base
+  ,svg-builder:base
 
-package liquidhaskell
-  ghc-options: -j
-
-package liquidhaskell-boot
-  ghc-options: -j
-  flags: +devel
+ghc-options: -j
+flags: +devel
 
 constraints:
   -- vector-0.13.2.0 breaks store-0.7.18

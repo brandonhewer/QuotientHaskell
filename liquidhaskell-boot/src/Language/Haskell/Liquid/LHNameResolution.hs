@@ -23,10 +23,7 @@
 -- * Next the names of Haskell entities are resolved by 'resolveLHNames'.
 --   For now, this pass doesn't change the type of the names.
 -- * Next the names of logic entities are resolved. This pass produces
---   a 'BareSpecLHName', where 'Symbol's are replaced with 'LHName'. At
---   the moment most LHNames are just wrappers over the symbols. As name
---   resolution is implemented for logic names, the wrappers will be
---   replaced with the actual result of name resolution.
+--   a 'BareSpecLHName', where 'Symbol's are replaced with 'LHName'.
 --
 -- 'BareSpecLHName' has a bijection to 'BareSpec' via a 'LogicNameEnv'
 -- which allows to convert 'LHName' to an unambiguous form of 'Symbol'
@@ -77,6 +74,7 @@ import qualified Data.HashSet                            as HS
 import qualified Data.HashMap.Strict                     as HM
 import           Data.List (find, isSuffixOf, nubBy)
 import           Data.List.Extra (dropEnd)
+import qualified Data.Map as Map
 import           Data.Maybe (fromMaybe, listToMaybe, mapMaybe, maybeToList)
 import qualified Data.Text                               as Text
 import qualified GHC.Types.Name.Occurrence
@@ -590,7 +588,7 @@ makeLogicEnvs impAvails thisModule spec dependencies =
       coerce @_ @[HM.HashMap Symbol [(GHC.ModuleName, (GHC.Module, LHName))]]
 
     moduleAliases m =
-      case GHC.lookupModuleEnv impAvails m of
+      case Map.lookup m impAvails of
         Just impBys -> concatMap imvAliases $ GHC.importedByUser impBys
         Nothing
           | thisModule == m ->
@@ -602,7 +600,7 @@ makeLogicEnvs impAvails thisModule spec dependencies =
               concat $ maybeToList $ do
                 pString <- dropLHAssumptionsSuffix m
                 pMod <- findDependency pString
-                GHC.lookupModuleEnv impAvails pMod
+                Map.lookup pMod impAvails
 
     dropLHAssumptionsSuffix m =
       let mString = GHC.moduleNameString (GHC.moduleName m)
@@ -614,7 +612,7 @@ makeLogicEnvs impAvails thisModule spec dependencies =
 
     findDependency ms =
       find ((ms ==) . GHC.moduleNameString . GHC.moduleName) $
-      GHC.moduleEnvKeys impAvails
+      Map.keys impAvails
 
     imvAliases imv
       | GHC.imv_qualified imv = [GHC.imv_name imv]
@@ -636,6 +634,7 @@ collectLiftedSpecLogicNames sp = concat
     [ map fst (HS.toList $ liftedExpSigs sp)
     , map (val . msName) (HM.elems $ liftedMeasures sp)
     , map (val . msName) (HM.elems $ liftedCmeasures sp)
+    , map (val . msName) (HS.toList $ liftedOmeasures sp)
     , map fst $ concatMap DataDecl.dcFields $ concat $
         mapMaybe DataDecl.tycDCons $
         HS.toList $ liftedDataDecls sp

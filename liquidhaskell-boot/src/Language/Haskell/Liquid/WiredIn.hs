@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskellQuotes #-}
 
 {-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 
@@ -94,18 +95,11 @@ wiredTheorySortedSyms =
     | s <- wiredTheorySyms
     , let srt = F.tsSort $
                   fromMaybe (panic Nothing ("unknown symbol: " ++ show s)) $
-                    F.lookupSEnv s (F.theorySymbols F.Z3 [])
+                    F.lookupSEnv s (F.theorySymbols F.Z3)
     ]
   where
     wiredTheorySyms =
-      [ "Bag_count"
-      , "Bag_empty"
-      , "Bag_inter_min"
-      , "Bag_sng"
-      , "Bag_sub"
-      , "Bag_union"
-      , "Bag_union_max"
-
+      [ "Map_default"
       , "Map_select"
       , "Map_store"
 
@@ -117,6 +111,16 @@ wiredTheorySortedSyms =
       , "Set_empty"
       , "Set_mem"
       , "Set_sub"
+      , "Set_add"
+      , "Set_com"
+
+      , "Bag_count"
+      , "Bag_empty"
+      , "Bag_inter_min"
+      , "Bag_sng"
+      , "Bag_sub"
+      , "Bag_union"
+      , "Bag_union_max"
 
       , "strLen"
       ]
@@ -253,17 +257,17 @@ derivingClassesSet = S.fromList $ map F.symbol derivingClasses
 
 derivingClasses :: [String]
 derivingClasses =
-  [ "GHC.Classes.Eq"
-  , "GHC.Classes.Ord"
-  , "GHC.Internal.Enum.Enum"
-  , "GHC.Internal.Show.Show"
-  , "GHC.Internal.Read.Read"
-  , "GHC.Internal.Base.Monad"
-  , "GHC.Internal.Base.Applicative"
-  , "GHC.Internal.Base.Functor"
-  , "GHC.Internal.Data.Foldable.Foldable"
-  , "GHC.Internal.Data.Traversable.Traversable"
-  , "GHC.Internal.Real.Fractional"
+  [ show ''Eq
+  , show ''Ord
+  , show ''Enum
+  , show ''Show
+  , show ''Read
+  , show ''Monad
+  , show ''Applicative
+  , show ''Functor
+  , show ''Foldable
+  , show ''Traversable
+  , show ''Fractional
   -- , "GHC.Enum.Bounded"
   -- , "GHC.Base.Monoid"
   ]

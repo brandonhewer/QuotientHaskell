@@ -256,6 +256,7 @@ buildExprEdges table  = ordNub . go
     go (PIff p q)      = go p ++ go q
     go (PAll _ p)      = go p
     go (ELam _ e)      = go e
+    go (ELet _ e1 e2)  = go e1 ++ go e2
     go (ECoerc _ _ e)  = go e
     go (PAtom _ e1 e2) = go e1 ++ go e2
     go (ETApp e _)     = go e
@@ -514,7 +515,7 @@ generalizeWith  Bare.RawTV   t = t
 generalizeWith _             t = RT.generalize t
 
 generalizeVar :: Ghc.Var -> SpecType -> SpecType
-generalizeVar v t = mkUnivs (zip as (repeat mempty)) [] t
+generalizeVar v t = mkUnivs [(a, mempty) | a <- as] [] t
   where
     as            = filter isGen (RT.freeTyVars t)
     (vas,_)       = Ghc.splitForAllTyCoVars (GM.expandVarType v)
@@ -614,6 +615,7 @@ expandExpr rtEnv l      = go
     go (PAll xs p)      = PAll xs    (go p)
     go (PExist xs p)    = PExist xs  (go p)
     go (ELam xt e)      = ELam xt    (go e)
+    go (ELet x e1 e2)   = ELet x     (go e1) (go e2)
     go (ECoerc a t e)   = ECoerc a t (go e)
     go (ETApp e s)      = ETApp      (go e) s
     go (ETAbs e s)      = ETAbs      (go e) s

@@ -6,6 +6,7 @@
 {-# LANGUAGE OverloadedStrings         #-}
 {-# LANGUAGE DeriveDataTypeable        #-}
 {-# LANGUAGE ScopedTypeVariables       #-}
+{-# LANGUAGE TemplateHaskellQuotes     #-}
 {-# OPTIONS_GHC -Wno-orphans           #-}
 
 module Language.Haskell.Liquid.Parse
@@ -98,8 +99,8 @@ instance ParseableV LocSymbol where
 initPStateWithList :: LHPState
 initPStateWithList
   = (initPState composeFun)
-               { empList    = Just $ \lx -> EVar ("GHC.Types.[]" <$ lx)
-               , singList   = Just (\lx e -> EApp (EApp (EVar ("GHC.Types.:" <$ lx)) e) (EVar ("GHC.Types.[]" <$ lx)))
+               { empList    = Just $ \lx -> EVar (symbol (show '[]) <$ lx)
+               , singList   = Just (\lx e -> EApp (EApp (EVar (symbol (show '(:)) <$ lx)) e) (EVar (symbol (show '[]) <$ lx)))
                }
   where composeFun = Nothing
 
@@ -804,7 +805,7 @@ bTup [(_,t)] _ r
   | isTauto (fmap val r)  = t
   | otherwise  = t `strengthenUReft` reftUReft r
 bTup ts rs r
-  | all Mb.isNothing (fst <$> ts) || length ts < 2
+  | all (Mb.isNothing . fst) ts || length ts < 2
   = RApp
       (mkBTyCon $ dummyLoc $ makeUnresolvedLHName LHTcName $ fromString $ "Tuple" ++ show (length ts))
       (snd <$> ts) rs (reftUReft r)
@@ -936,7 +937,7 @@ data BPspec
   | DSize   ([LocBareTypeParsed], LocSymbol)              -- ^ 'data size' annotations, generating fancy termination metric
   | BFix    ()                                            -- ^ fixity annotation
   | Define  (Located LHName, ([Symbol], ExprV LocSymbol)) -- ^ 'define' annotation for specifying logic aliases
-  deriving (Data, Typeable)
+  deriving (Data)
 
 instance PPrint BPspec where
   pprintTidy = ppPspec

@@ -4,6 +4,7 @@
 {-# LANGUAGE DeriveFunctor             #-}
 {-# LANGUAGE LambdaCase                #-}
 {-# LANGUAGE OverloadedStrings         #-}
+{-# LANGUAGE TemplateHaskellQuotes     #-}
 
 {-# OPTIONS_GHC -Wno-orphans #-}
 
@@ -36,7 +37,6 @@ import           Control.Monad.Free
 import           Data.Char                      ( isUpper )
 import           GHC.Types.Name.Occurrence
 import qualified Liquid.GHC.API as Ghc
-                                                (noExtField)
 import qualified Data.Maybe                    as Mb
 
 -- TODO: make elaboration monadic so typeclass names are unified to something
@@ -291,7 +291,7 @@ buildHsExpr result = go
     go = \case
       RFun bind _ tin tout _
         | isClassType tin -> go tout
-        | otherwise       -> mkHsLam [nlVarPat (varSymbolToRdrName bind)] (go tout)
+        | otherwise       -> mkHsLam (noLocA [nlVarPat (varSymbolToRdrName bind)]) (go tout)
       RAllE _ _ t -> go t
       RAllT _ t _ -> go t
       REx _ _ t -> go t
@@ -602,8 +602,8 @@ renameBinderSort f = rename
 fixExprToHsExpr :: S.HashSet F.Symbol -> F.Expr -> LHsExpr GhcPs
 fixExprToHsExpr _ (F.ECon c) = constantToHsExpr c
 fixExprToHsExpr env (F.EVar x)
-  | x == "GHC.Types.[]" =  GM.notracePpr "Empty" $ nlHsVar (mkVarUnqual (mkFastString "[]"))
-  | x == "GHC.Types.:" = GM.notracePpr "Cons" $ nlHsVar (mkVarUnqual (mkFastString ":"))
+  | x == F.symbol (show '[]) =  GM.notracePpr "Empty" $ nlHsVar (mkVarUnqual (mkFastString "[]"))
+  | x == F.symbol (show '(:)) = GM.notracePpr "Cons" $ nlHsVar (mkVarUnqual (mkFastString ":"))
   | otherwise = GM.notracePpr "Var" $ nlHsVar (symbolToRdrName env x)
 fixExprToHsExpr env (F.EApp e0 e1) =
   mkHsApp (fixExprToHsExpr env e0) (fixExprToHsExpr env e1)
@@ -721,7 +721,15 @@ specTypeToLHsType = \case
       | otherwise       -> nlHsFunTy (specTypeToLHsType tin) (specTypeToLHsType tout)
     RAllT (ty_var_value -> (RTV tv)) t _ -> noLocA $ HsForAllTy
       Ghc.noExtField
-      (mkHsForAllInvisTele noAnn [noLocA $ UserTyVar noAnn SpecifiedSpec (noLocA $ symbolToRdrNameNs tvName (F.symbol tv))])
+      (mkHsForAllInvisTele noAnn
+        [ noLocA $
+            Ghc.HsTvb
+              noAnn
+              Ghc.SpecifiedSpec
+              (Ghc.HsBndrVar Ghc.noExtField (noLocA $ symbolToRdrNameNs tvName (F.symbol tv)))
+              (Ghc.HsBndrNoKind Ghc.noExtField)
+        ]
+      )
       (specTypeToLHsType t)
     RAllP _ ty -> specTypeToLHsType ty
     RChooseQ _ _ _ u -> specTypeToLHsType u
@@ -741,6 +749,6 @@ specTypeToLHsType = \case
       impossible Nothing "RExprArg should not appear here"
     RAppTy t t' _ -> nlHsFunTy (specTypeToLHsType t) (specTypeToLHsType t')
     RRTy _ _ _ t -> specTypeToLHsType t
-    RHole _ -> noLocA $ HsWildCardTy Ghc.noExtField
+    RHole _ -> noLocA $ HsWildCardTy Ghc.noAnn
     RExprArg _ ->
       todo Nothing "Oops, specTypeToLHsType doesn't know how to handle RExprArg"
