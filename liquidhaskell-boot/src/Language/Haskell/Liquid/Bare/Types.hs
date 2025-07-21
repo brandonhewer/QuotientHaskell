@@ -20,6 +20,7 @@ module Language.Haskell.Liquid.Bare.Types
   , SigEnv (..)
 
     -- * Quotient related environment
+  , QuotBareEnv
   , QuotEnv
 
     -- * Measure related environment 
@@ -40,8 +41,7 @@ import qualified Language.Fixpoint.Types               as F
 import qualified Language.Haskell.Liquid.Measure       as Ms
 import           Language.Haskell.Liquid.Types.DataDecl
 import           Language.Haskell.Liquid.Types.Names
-
-import           Language.Haskell.Liquid.Types.QuotDecl (QuotDeclMap)
+import           Language.Haskell.Liquid.Types.QuotDecl (QuotDeclP)
 
 import qualified Language.Haskell.Liquid.Types.RefType as RT 
 import           Language.Haskell.Liquid.Types.RType
@@ -151,7 +151,8 @@ type DataConMap = M.HashMap (F.Symbol, Int) F.Symbol
 -- | Quotient declaration information stored in the environment
 -------------------------------------------------------------------------------
 
-type QuotEnv = QuotDeclMap F.Symbol BareType
+type QuotBareEnv = M.HashMap (ModuleName, F.Symbol) (QuotDeclP F.Symbol BareType)
+type QuotEnv     = M.HashMap (ModuleName, F.Symbol) (QuotDeclP F.Symbol SpecType)
 
 -------------------------------------------------------------------------------
 -- | Intermediate representation for Measure information 

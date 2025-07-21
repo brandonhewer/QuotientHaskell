@@ -1,3 +1,4 @@
+{-# LANGUAGE BlockArguments            #-}
 {-# LANGUAGE FlexibleContexts          #-}
 {-# LANGUAGE LambdaCase                #-}
 {-# LANGUAGE NamedFieldPuns            #-}
@@ -20,6 +21,10 @@ module Language.Haskell.Liquid.Bare (
   ) where
 
 import           Control.Monad                              (forM, mplus, when)
+import           Control.Monad.Except                       (ExceptT)
+import qualified Control.Monad.Except                       as Except
+import           Control.Monad.State.Strict                 (State)
+import qualified Control.Monad.State.Strict                 as State
 import qualified Control.Exception                          as Ex
 import qualified Data.Maybe                                 as Mb
 import qualified Data.List                                  as L
@@ -233,9 +238,10 @@ makeGhcSpec0 cfg ghcTyLookupEnv tcg instEnvs lenv localVars src lmap targetSpec 
   let qual = makeSpecQual cfg env globalRdrEnv tycEnv measEnv rtEnv mySpec iSpecs2
   let (dg5, spcVars) = withDiagnostics $ makeSpecVars cfg src mySpec env measEnv
   let (dg6, spcTerm) = withDiagnostics $ makeSpecTerm cfg     mySpec lenv env
+  let dg7            = mkDiagnostics [] qerrors
   let sData    = makeSpecData  src env sigEnv measEnv elaboratedSig specs
   let finalLiftedSpec = makeLiftedSpec name src env refl sData elaboratedSig qual myRTE (lSpec0 <> lSpec1)
-  let diags    = mconcat [dg0, dg1, dg2, dg3, dg4, dg5, dg6]
+  let diags    = mconcat [dg0, dg1, dg2, dg3, dg4, dg5, dg6, dg7]
 
   -- Dump reflections, if requested
   when (dumpOpaqueReflections cfg) . Ghc.liftIO $ do
@@ -337,7 +343,10 @@ makeGhcSpec0 cfg ghcTyLookupEnv tcg instEnvs lenv localVars src lmap targetSpec 
     embs     = makeEmbeds          src ghcTyLookupEnv (mySpec0 : map snd dependencySpecs)
     dm       = Bare.tcDataConMap tycEnv0
     (dg0, datacons, tycEnv0) = makeTycEnv0   cfg name env embs mySpec2 iSpecs2
-    env      = Bare.makeEnv cfg ghcTyLookupEnv dataConIds tcg instEnvs localVars src lmap quotenv ((name, targetSpec) : dependencySpecs)
+    env0     = Bare.makeEnv cfg ghcTyLookupEnv dataConIds tcg instEnvs localVars src lmap M.empty ((name, targetSpec) : dependencySpecs)
+    (qerrors, env) = foldl' (addQuotientTypeToEnv quotenv) ([], env0) quottypes
+
+    -- env      = Bare.makeEnv cfg ghcTyLookupEnv dataConIds tcg instEnvs localVars src lmap quotenv ((name, targetSpec) : dependencySpecs)
     -- check barespecs
     name     = F.notracepp ("ALL-SPECS" ++ zzz) $ _giTargetMod  src
     zzz      = F.showpp (fst <$> mspecs)
@@ -350,15 +359,37 @@ makeGhcSpec0 cfg ghcTyLookupEnv tcg instEnvs lenv localVars src lmap targetSpec 
           [maybeReflectedLHName lhn >>= Resolve.lookupGhcTyThingFromName ghcTyLookupEnv]
       ]
 
-    quotenv
-      = M.fromList
-          $   [ ((Ghc.moduleName thisModule, val qtycName), q)
-              | q@QuotDecl {qtycName} <- quotDecls targetSpec
-              ]
-          ++  [ ((m, val qtycName), q)
-              | (ModName _ m, spec) <- dependencySpecs
-              , q@QuotDecl {qtycName} <- quotDecls spec
-              ]
+    quotenv = M.fromList quottypes
+
+    quottypes
+      =   [ ((Ghc.moduleName thisModule, val qtycName), q)
+          | q@QuotDecl {qtycName} <- quotDecls targetSpec
+          ]
+      ++  [ ((m, val qtycName), q)
+          | (ModName _ m, spec) <- dependencySpecs
+          , q@QuotDecl {qtycName} <- quotDecls spec
+          ]
+
+addQuotientTypeToEnv
+  :: Bare.QuotBareEnv
+  -> ([Error], Bare.Env)
+  -> ((Ghc.ModuleName, Symbol), QuotDecl)
+  -> ([Error], Bare.Env)
+addQuotientTypeToEnv bareQuotEnv (is, se) ((mname, name), qdecl)
+  = case State.runState (Except.runExceptT (traverseWithLoc addType qdecl)) se of
+      (Left  es, env) -> (is ++ es, env)
+      (Right sq, env) ->
+        ( is
+        , env { Bare.reQuotientTypes = M.insert (mname, name) sq $ Bare.reQuotientTypes env }
+        )
+    where
+      doLookup :: Bare.Env -> LocBareType -> (Bare.Lookup LocSpecType, Bare.QuotEnv)
+      doLookup = Bare.bareQuotDeclSpecType bareQuotEnv
+
+      addType :: LocBareType -> ExceptT [Error] (State Bare.Env) LocSpecType
+      addType t = do
+        (mst, qenv) <- State.gets (`doLookup` t)
+        State.modify (\env -> env { Bare.reQuotientTypes = qenv }) *> Except.liftEither mst
 
 collectAllDataCons :: Ghc.CoreProgram -> [BareSpec] -> S.HashSet LHName
 collectAllDataCons cbs =

@@ -79,6 +79,7 @@ import           Language.Haskell.Liquid.Types.DataDecl
 import           Language.Haskell.Liquid.Types.Errors
 import           Language.Haskell.Liquid.Types.Names
 import           Language.Haskell.Liquid.Types.QuotDecl
+import           Language.Haskell.Liquid.Types.QuotSubst
 import           Language.Haskell.Liquid.Types.RType
 import           Language.Haskell.Liquid.Misc
 
@@ -441,7 +442,7 @@ emapQuotDeclM
   -> m (QuotDeclP v' ty')
 emapQuotDeclM bscp vf f q = do
   qtycPVars      <- mapM (emapPVarVM vf (emapReftM bscp vf (const pure))) $ qtycPVars q
-  qtycType       <- f [] $ qtycType q
+  qtycType       <- traverse (f []) $ qtycType q
   qtycFirstEqCon <- emapEqualityCtorM vf f $ qtycFirstEqCon q
   qtycEqCons     <- traverse (emapEqualityCtorM vf f) (qtycEqCons q)
   qtycSFun       <- traverse (traverse (vf [])) (qtycSFun q)
@@ -467,7 +468,7 @@ emapEqualityParamM
   -> EqualityParamP v ty
   -> m (EqualityParamP v' ty')
 emapEqualityParamM _ f EqualityBindParam {..}
-  = EqualityBindParam epBinder <$> f [] epType
+  = EqualityBindParam epBinder <$> traverse (f []) epType
 emapEqualityParamM vf _ (EqualityPrecondition e)
   = EqualityPrecondition <$> emapExprVM vf e
 
@@ -677,7 +678,7 @@ efoldReft logicBind bsc cb dty g f fq fp = go
        | otherwise                      = f γ (Just me) r (go γ z t)
     go γ z (RAllP p t)                  = go (fp p γ) z t
     go γ z (RChooseQ q qs t u)
-      = let γ' = insertsSEnv γ (map (\s -> (s, g t)) (q : qs))
+      = let γ' = insertsSEnv γ (map (, g t) (q : qs))
          in go γ' z u
     go γ z (RQuotient t q)              = go γ (fq γ q z) t
     go γ z me@(RFun _ RFInfo{permitTC = permitTC} (RApp c ts _ _) t' r)
@@ -771,7 +772,7 @@ ofRSort = fmap mempty
 toRSort :: RTypeV v c tv r -> RTypeV v c tv ()
 toRSort = stripAnnotations . mapBind (const F.dummySymbol) . void
 
-toRSort' :: RTypeV v RTyCon tv r -> RTypeV v RTyCon tv ()
+toRSort' :: RRType r -> RRType ()
 toRSort' = stripAnnotations' . mapBind (const F.dummySymbol) . void
 
 stripAnnotations :: RTypeV v c tv r -> RTypeV v c tv r
@@ -791,10 +792,7 @@ stripAnnotationsRef :: Ref τ (RTypeV v c tv r) -> Ref τ (RTypeV v c tv r)
 stripAnnotationsRef (RProp s (RHole r)) = RProp s (RHole r)
 stripAnnotationsRef (RProp s t)         = RProp s $ stripAnnotations t
 
-stripAnnotations'
-  :: (Reftable r, F.Symbolic v)
-  => RTypeV v RTyCon RTyVar r
-  -> RTypeV v RTyCon RTyVar r
+stripAnnotations' :: UReftable r => RRType r -> RRType r
 stripAnnotations' (RAllT α t r)      = RAllT α (stripAnnotations' t) r
 stripAnnotations' (RAllP _ t)        = stripAnnotations' t
 stripAnnotations' (RAllE _ _ t)      = stripAnnotations' t
@@ -804,16 +802,13 @@ stripAnnotations' (RAppTy t t' r)    = RAppTy (stripAnnotations' t) (stripAnnota
 stripAnnotations' (RApp c@RTyCon {rtc_tc} ts rs r)
   = case rtc_tc of
       GHCTyCon      _    -> RApp c (stripAnnotations' <$> ts) (stripAnnotationsRef' <$> rs) r
-      QuotientTyCon {..} -> x
+      QuotientTyCon {..} -> unfoldQuotientType qtc_tvs ts $ fmap ofUReft qtc_base
 stripAnnotations' (RRTy _ _ _ t)     = stripAnnotations' t
 stripAnnotations' (RChooseQ _ _ _ t) = stripAnnotations' t
 stripAnnotations' (RQuotient t _)    = stripAnnotations' t
 stripAnnotations' t                  = t
 
-stripAnnotationsRef'
-  :: (Reftable r, F.Symbolic v)
-  => Ref τ (RTypeV v RTyCon RTyVar r)
-  -> Ref τ (RTypeV v RTyCon RTyVar r)
+stripAnnotationsRef' :: UReftable r => Ref τ (RRType r) -> Ref τ (RRType r)
 stripAnnotationsRef' (RProp s (RHole r)) = RProp s (RHole r)
 stripAnnotationsRef' (RProp s t)         = RProp s $ stripAnnotations' t
 

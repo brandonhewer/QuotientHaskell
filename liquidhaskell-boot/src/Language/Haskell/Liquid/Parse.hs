@@ -1571,13 +1571,18 @@ makeDataCtor dcTyVars x fs
       , dcResult = Nothing
       }
 
-makeRApp :: Located Symbol -> [(Symbol, BareTypeParsed)] -> BareTypeParsed
-makeRApp tc ts
-  = RApp
-      { rt_tycon = mkBTyCon $ fmap (makeUnresolvedLHName LHTcName) tc
-      , rt_args  = map snd ts
-      , rt_pargs = []
-      , rt_reft  = trueURef
+makeLocRApp :: Located Symbol -> [(Symbol, BareTypeParsed)] -> SourcePos -> Located BareTypeParsed
+makeLocRApp tc ts locE
+  = Loc
+      { loc  = loc tc
+      , locE = locE
+      , val
+          = RApp
+              { rt_tycon = mkBTyCon $ fmap (makeUnresolvedLHName LHTcName) tc
+              , rt_args  = map snd ts
+              , rt_pargs = []
+              , rt_reft  = trueURef
+              }
       }
 
 dataConWithFieldsP
@@ -1591,7 +1596,7 @@ dataConWithFieldsP as withDataCtorP x
 dataConOrQuotDeclP
   :: [Symbol]
   -> (DataCtorParsed -> Parser a)
-  -> (BareTypeParsed -> Parser a)
+  -> (Located BareTypeParsed -> Parser a)
   -> Parser a
 dataConOrQuotDeclP as withDataCtorP withQuotTypeP
   = ( do
@@ -1599,11 +1604,12 @@ dataConOrQuotDeclP as withDataCtorP withQuotTypeP
         dataConWithFieldsP as withDataCtorP x
           <|> ( do
                   xts <- many dataConFieldP
-                  (reservedOp "|/" *> withQuotTypeP (makeRApp x xts))
+                  pos <- getSourcePos
+                  (reservedOp "|/" *> withQuotTypeP (makeLocRApp x xts pos))
                     <|> withDataCtorP (makeDataCtor as x xts)
               )
     )
-  <|> (bareTypeP <* reservedOp "|/" >>= withQuotTypeP)
+  <|> (located bareTypeP <* reservedOp "|/" >>= withQuotTypeP)
 
 adtDataConP :: [Symbol] -> Parser DataCtorParsed
 adtDataConP as = do
@@ -1723,7 +1729,7 @@ dataWithQuotP
   -> Maybe (SizeFunV LocSymbol)
   -> [Symbol]
   -> [PVarV LocSymbol (BSortV LocSymbol)]
-  -> BareTypeParsed
+  -> Located BareTypeParsed
   -> Parser BPspec
 dataWithQuotP pos dn fsize as ps utype = do
   ector  <- equalityCtorP as <?> "equalityCtor"
@@ -1784,7 +1790,7 @@ equalityBindParamP :: Parser EqualityParamParsed
 equalityBindParamP = do
   lb <- locLowerIdP <* reservedOp ":"
   let b = val lb
-  EqualityBindParam (val lb) <$> bareArgP b
+  EqualityBindParam (val lb) <$> located (bareArgP b)
 
 equalityPreconditionP :: Parser EqualityParamParsed
 equalityPreconditionP = braces $ EqualityPrecondition <$> predP

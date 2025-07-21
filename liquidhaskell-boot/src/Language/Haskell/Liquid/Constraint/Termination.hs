@@ -200,7 +200,7 @@ consCBSizedTys consBind γ xes
        dxs            = F.pprint <$> vars
        collectArgs'   = collectArguments . length . ty_binds . toRTypeRep . unOCons . unTemplate
        checkEqTypes :: [Maybe SpecType] -> CG [SpecType]
-       checkEqTypes x = checkAllVsHead err1 toRSort (catMaybes x)
+       checkEqTypes x = checkAllVsHead err1 toRSort' (catMaybes x)
        err1           = ErrTermin loc dxs $ text "The decreasing parameters should be of same type"
        checkSameLens :: [Maybe Int] -> CG [Maybe Int]
        checkSameLens  = checkAllVsHead err2 length

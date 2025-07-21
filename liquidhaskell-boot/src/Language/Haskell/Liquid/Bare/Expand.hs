@@ -15,8 +15,10 @@ module Language.Haskell.Liquid.Bare.Expand
   , Expand(expand)
 
     -- * Converting BareType to SpecType
+  , bareQuotDeclSpecType
   , cookSpecType
   , cookSpecTypeE
+  , cookQuotDeclSpecTypeE
   , specExpandType
 
     -- * Re-exported for data-constructors
@@ -506,6 +508,42 @@ cookSpecTypeE env sigEnv name@(ModName _ _) x bt
     embs   = Bare.sigEmbs     sigEnv
     tyi    = Bare.sigTyRTyMap sigEnv
 
+-----------------------------------------------------------------------------------------
+cookQuotDeclSpecTypeE
+  :: Bare.QuotBareEnv
+  -> Bare.Env
+  -> Bare.SigEnv
+  -> ModName
+  -> Bare.PlugTV Ghc.Var
+  -> LocBareType
+  -> (Bare.Lookup LocSpecType, Bare.QuotEnv)
+-----------------------------------------------------------------------------------------
+cookQuotDeclSpecTypeE quotBareEnv env sigEnv name@(ModName _ _) x bt
+  = (fmap f st, qenv)
+  where
+    (st, qenv) = bareQuotDeclSpecType quotBareEnv env $ bareExpandType rtEnv bt
+
+    f = (if doplug || not allowTC then plugHoles allowTC sigEnv name x else id)
+        . fmap (RT.addTyConInfo embs tyi)
+        . Bare.txRefSort tyi embs
+        . fmap txExpToBind -- What does this function DO
+        . (specExpandType rtEnv . fmap (generalizeWith x))
+        . (if doplug || not allowTC then maybePlug allowTC sigEnv name x else id)
+
+    allowTC = typeclass (getConfig env)
+    -- modT   = mname `S.member` wiredInMods
+    doplug
+      | Bare.LqTV v <- x
+      , GM.isMethod v || GM.isSCSel v
+      , not (isTarget name)
+      = False
+      | otherwise
+      = True
+    _msg i = "cook-" ++ show i ++ " : " ++ F.showpp x
+    rtEnv  = Bare.sigRTEnv    sigEnv
+    embs   = Bare.sigEmbs     sigEnv
+    tyi    = Bare.sigTyRTyMap sigEnv
+
 -- | We don't want to generalize type variables that maybe bound in the
 --   outer scope, e.g. see tests/basic/pos/LocalPlug00.hs
 
@@ -537,6 +575,15 @@ bareSpecType :: Bare.Env -> LocBareType -> Bare.Lookup LocSpecType
 bareSpecType env bt = case Bare.ofBareTypeE env (F.loc bt) Nothing (val bt) of
   Left e  -> Left e
   Right t -> Right (F.atLoc bt t)
+
+bareQuotDeclSpecType
+  :: Bare.QuotBareEnv
+  -> Bare.Env
+  -> LocBareType
+  -> (Bare.Lookup LocSpecType, Bare.QuotEnv)
+bareQuotDeclSpecType quotBareEnv env bt
+  = let (st, qenv) = Bare.ofQuotDeclBareTypeE quotBareEnv env (F.loc bt) Nothing (val bt)
+     in (F.atLoc bt <$> st, qenv)
 
 maybePlug :: Bool -> Bare.SigEnv -> ModName -> Bare.PlugTV Ghc.Var -> LocSpecType -> LocSpecType
 maybePlug allowTC sigEnv name kx = case Bare.plugSrc kx of

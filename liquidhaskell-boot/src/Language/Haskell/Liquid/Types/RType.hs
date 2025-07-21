@@ -458,7 +458,6 @@ data BTyCon = BTyCon
   deriving (Generic, Data)
   deriving (B.Binary, Hashable) via Generically BTyCon
 
-<<<<<<< HEAD
 data UTyCon
   = GHCTyCon TyCon   -- | A GHC Type constructor
   | QuotientTyCon    -- | A quotient type constructor
@@ -467,22 +466,14 @@ data UTyCon
       , qtc_tvs    :: [Symbol]
       , qtc_base   :: SpecType
       }
-  deriving (Generic, Data, Typeable)
-=======
-data RTyCon = RTyCon
-  { rtc_tc    :: TyCon         -- ^ GHC Type Constructor
-  , rtc_pvars :: ![RPVar]      -- ^ Predicate Parameters
-  , rtc_info  :: !TyConInfo    -- ^ TyConInfo
-  }
   deriving (Generic, Data)
->>>>>>> c505c91cae0de5d6c7058625233e3f76b68dbfc5
 
 data LHTyCon c = RTyCon
   { rtc_tc    :: c            -- ^ GHC Type Constructor
   , rtc_pvars :: ![RPVar]     -- ^ Predicate Parameters
   , rtc_info  :: !TyConInfo   -- ^ TyConInfo
   }
-  deriving (Generic, Data, Functor, Foldable, Traversable, Typeable)
+  deriving (Generic, Data, Functor, Foldable, Traversable)
 
 type RTyCon = LHTyCon UTyCon
 

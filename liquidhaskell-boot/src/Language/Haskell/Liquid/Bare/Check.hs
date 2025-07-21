@@ -354,9 +354,9 @@ checkIAlOne allowHO bsc emb tcEnv env (t1, t2) =
   where
     err    t = ErrIAl (GM.sourcePosSrcSpan $ loc t) (val t)
     t1'      :: RSort
-    t1'      = toRSort $ val t1
+    t1'      = toRSort'  $ val t1
     t2'      :: RSort
-    t2'      = toRSort $ val t2
+    t2'      = toRSort'  $ val t2
     checkEq  = if t1' == t2' then emptyDiagnostics else mkDiagnostics mempty [errmis]
     errmis   = ErrIAlMis (GM.sourcePosSrcSpan $ loc t1) (val t1) (val t2) emsg
     emsg     = pprint t1 <+> text "does not match with" <+> pprint t2
@@ -478,7 +478,7 @@ checkMismatch (x, t) = if ok then emptyDiagnostics else mkDiagnostics mempty [er
 tyCompat :: Var -> RType RTyCon RTyVar r -> Bool
 tyCompat x t         = lqT == hsT
   where
-    lqT :: RSort     = toRSort t
+    lqT :: RSort     = toRSort' t
     hsT :: RSort     = ofType (varType x)
     _msg             = "TY-COMPAT: " ++ GM.showPpr x ++ ": hs = " ++ F.showpp hsT ++ " :lq = " ++ F.showpp lqT
 
@@ -506,7 +506,6 @@ checkRType allowHO bsc emb senv lt =
     st                 = val lt
     cb c ts            = classBinds emb (rRCls c ts)
     farg _ t           = allowHO || isBase t  -- NOTE: this check should be the same as the one in addCGEnv
-    f env me r err     = err <|> checkReft (F.srcSpan lt) env emb me r
     fq _ _ _           = Nothing
 
     insertPEnv p γ     = insertsSEnv γ (fmap (rTypeSortedReft emb) <$> pbinds p)
@@ -558,16 +557,16 @@ checkAbstractRefs rt = go rt
   where
     penv = mkPEnv rt
 
-    go t@(RAllT _ t1 r)     = check (toRSort t :: RSort) r <|>  go t1
+    go t@(RAllT _ t1 r)     = check (toRSort'  t :: RSort) r <|>  go t1
     go (RAllP _ t)          = go t
     go (RChooseQ _ _ t u)   = go t <|> go u
     go (RQuotient t _)      = go t
-    go t@(RApp c ts rs r)   = check (toRSort t :: RSort) r <|>  efold go ts <|> go' c rs
-    go t@(RFun _ _ t1 t2 r) = check (toRSort t :: RSort) r <|> go t1 <|> go t2
-    go t@(RVar _ r)         = check (toRSort t :: RSort) r
+    go t@(RApp c ts rs r)   = check (toRSort'  t :: RSort) r <|>  efold go ts <|> go' c rs
+    go t@(RFun _ _ t1 t2 r) = check (toRSort'  t :: RSort) r <|> go t1 <|> go t2
+    go t@(RVar _ r)         = check (toRSort'  t :: RSort) r
     go (RAllE _ t1 t2)      = go t1 <|> go t2
     go (REx _ t1 t2)        = go t1 <|> go t2
-    go t@(RAppTy t1 t2 r)   = check (toRSort t :: RSort) r <|> go t1 <|> go t2
+    go t@(RAppTy t1 t2 r)   = check (toRSort'  t :: RSort) r <|> go t1 <|> go t2
     go (RRTy xts _ _ t)     = efold go (snd <$> xts) <|> go t
     go (RExprArg _)         = Nothing
     go (RHole _)            = Nothing
@@ -582,7 +581,7 @@ checkAbstractRefs rt = go rt
       | otherwise
       = Nothing
     checkOne' (RProp xs t) p
-      | pvType p /= toRSort t
+      | pvType p /= toRSort'  t
       = Just $ text "Unexpected Sort in" <+> pprint p
       | or [s1 /= s2 | ((_, s1), (s2, _, _)) <- zip xs (pargs p)]
       = Just $ text "Wrong Arguments in" <+> pprint p
@@ -669,10 +668,10 @@ checkMBody senv emb _ sort (Def m c _ bs body) = checkMBody' emb sort γ' sp bod
     ct    = ofType $ dataConWrapperType c :: SpecType
 
 checkMBodyUnify
-  :: RType t t2 t1 -> RType c tv r -> [(t2,RType c tv (),RType c tv r)]
+  :: RType t t2 t1 -> RType RTyCon RTyVar r -> [(t2,RType RTyCon RTyVar (),RType RTyCon RTyVar r)]
 checkMBodyUnify = go
   where
-    go (RVar tv _) t      = [(tv, toRSort t, t)]
+    go (RVar tv _) t      = [(tv, toRSort' t, t)]
     go t@RApp{} t'@RApp{} = concat $ zipWith go (rt_args t) (rt_args t')
     go _ _                = []
 

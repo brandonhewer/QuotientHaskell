@@ -5,6 +5,7 @@
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE FlexibleInstances     #-}
+{-# LANGUAGE LambdaCase            #-}
 {-# LANGUAGE NamedFieldPuns        #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
 {-# LANGUAGE PartialTypeSignatures #-}
@@ -42,6 +43,9 @@ module Language.Haskell.Liquid.Bare.Resolve
   , ofBareType
   , ofBPVar
 
+  -- * Quotient declaration conversions from Bare
+  , ofQuotDeclBareTypeE
+
   -- * Post-processing types
   , txRefSort
   , errResolve
@@ -52,6 +56,8 @@ module Language.Haskell.Liquid.Bare.Resolve
   ) where
 
 import qualified Control.Exception                 as Ex
+import qualified Control.Monad.Except              as Except
+import qualified Control.Monad.State.Strict        as State
 import           Data.Bifunctor (first)
 import           Data.Function (on)
 import           Data.IORef (newIORef)
@@ -96,17 +102,17 @@ type Lookup a = Either [Error] a
 -------------------------------------------------------------------------------
 makeEnv :: Config -> GHCTyLookupEnv -> [Ghc.Id] -> Ghc.TcGblEnv -> Ghc.InstEnvs -> LocalVars -> GhcSrc -> LogicMap -> QuotEnv -> [(ModName, BareSpec)] -> Env
 makeEnv cfg ghcTyLookupEnv dataConIds tcg instEnv localVars src lmap qenv specs = RE
-  { reTyLookupEnv   = ghcTyLookupEnv
-  , reTcGblEnv      = tcg
-  , reInstEnvs      = instEnv
-  , reUsedExternals = usedExternals
-  , reLMap          = lmap
-  , reDataConIds    = dataConIds
-  , reLocalVars     = localVars
-  , reSrc           = src
-  , reGlobSyms      = S.fromList     globalSyms
-  , reQuotientTypes = qenv
-  , reCfg           = cfg
+  { reTyLookupEnv      = ghcTyLookupEnv
+  , reTcGblEnv         = tcg
+  , reInstEnvs         = instEnv
+  , reUsedExternals    = usedExternals
+  , reLMap             = lmap
+  , reDataConIds       = dataConIds
+  , reLocalVars        = localVars
+  , reSrc              = src
+  , reGlobSyms         = S.fromList     globalSyms
+  , reQuotientTypes    = qenv
+  , reCfg              = cfg
   }
   where
     globalSyms  = concatMap getGlobalSyms specs
@@ -313,6 +319,10 @@ ofBareType env l ps t = either fail' id (ofBareTypeE env l ps t)
 ofBareTypeE :: HasCallStack => Env -> F.SourcePos -> Maybe [PVar BSort] -> BareType -> Lookup SpecType
 ofBareTypeE env l ps t = ofBRType env (const (resolveReft l ps t)) l t
 
+ofQuotDeclBareTypeE :: HasCallStack => QuotBareEnv -> Env -> F.SourcePos -> Maybe [PVar BSort] -> BareType -> (Lookup SpecType, QuotEnv)
+ofQuotDeclBareTypeE quotBareEnv env l ps t
+  = ofQDeclBRType quotBareEnv env (const (resolveReft l ps t)) l t
+
 resolveReft :: F.SourcePos -> Maybe [PVar BSort] -> BareType -> RReft -> RReft
 resolveReft l ps t
         = txParam l RT.subvUReft (RT.uPVar <$> πs) t
@@ -372,6 +382,64 @@ type Expandable r = ( PPrint r
                     , Reftable (RTProp RTyCon RTyVar r)
                     , HasCallStack)
 
+ofQDeclBRType
+  :: QuotBareEnv -> Env -> ([F.Symbol] -> RReftV F.Symbol -> RReft) -> F.SourcePos -> BareType -> (Lookup SpecType, QuotEnv)
+ofQDeclBRType quotBareEnv env f l it
+  = State.runState (Except.runExceptT $ go [] it) $ reQuotientTypes env
+  where
+    goReft bs r = pure (f bs r)
+
+    goRFun bs x i t1 t2 r  = RFun x i{permitTC = Just (typeclass (getConfig env))} <$> (rebind x <$> go bs t1) <*> go (x:bs) t2 <*> goReft bs r
+
+    rebind x t              = F.subst1 t (x, F.EVar $ rTypeValueVar t)
+
+    go bs (RAppTy t1 t2 r)    = RAppTy <$> go bs t1 <*> go bs t2 <*> goReft bs r
+    go bs (RApp tc ts rs r)   = goRApp bs tc ts rs r
+    go bs (RFun x i t1 t2 r)  = goRFun bs x i t1 t2 r
+    go bs (RVar a r)          = RVar (RT.bareRTyVar a) <$> goReft bs r
+    go bs (RAllT a t r)       = RAllT a' <$> go bs t <*> goReft bs r
+      where a'                = dropTyVarInfo (mapTyVarValue RT.bareRTyVar a)
+    go bs (RAllP a t)         = RAllP a' <$> go bs t
+      where a'                = ofBPVar env l a
+    go bs (RChooseQ q qs t u) = RChooseQ q qs <$> go bs t <*> go bs u
+    go bs (RQuotient t q)     = (`RQuotient` q) <$> go bs t
+    go bs (RAllE x t1 t2)     = RAllE x  <$> go bs t1    <*> go bs t2
+    go bs (REx x t1 t2)       = REx   x  <$> go bs t1    <*> go (x:bs) t2
+    go bs (RRTy xts r o t)    = RRTy  <$> xts' <*> goReft bs r <*> pure o <*> go bs t
+      where xts'              = mapM (traverse (go bs)) xts
+    go bs (RHole r)           = RHole    <$> goReft bs r
+    go _ (RExprArg le)        = pure $ RExprArg le
+
+    goRef bs (RProp ss (RHole r)) = rPropP <$> mapM goSyms ss <*> goReft bs r
+    goRef bs (RProp ss t)         = RProp  <$> mapM goSyms ss <*> go bs t
+
+    goSyms (x, t)                 = Except.liftEither $ (x,) <$> ofBSortE env l t
+
+    lookupQuotSpecType m s = M.lookup (m, s) <$> State.get
+
+    goRApp bs BTyCon {btc_tc} ts rs r
+      = case val btc_tc of
+          LHNResolved (LHRQuotient s m) _ ->
+            lookupQuotSpecType mname name >>= \case
+              Just qd -> mkQuotType qd
+              Nothing -> case M.lookup (Ghc.moduleName m, val s) quotBareEnv of
+                Just qd -> do
+                  qsd <- traverse (go bs) qd
+                  State.modify (M.insert (mname, name) qsd) *> mkQuotType qsd
+                Nothing -> panic (Just $ GM.fSrcSpan s) " is not a valid quotient type constructor: this should be unreachable"
+            where
+              mname = Ghc.moduleName m
+              name  = val s
+
+              mkQuotType qd = do
+                r'  <- goReft bs r
+                rs' <- traverse (goRef bs) rs
+                ts' <- traverse (go bs) ts
+                Except.liftEither $ quotTCAppWith qd m s r' rs' ts'
+          _ -> bareTCApp <$> goReft bs r <*> lc' <*> mapM (goRef bs) rs <*> mapM (go bs) ts
+            where
+              lc' = Except.liftEither $ F.atLoc btc_tc <$> lookupGhcTyConLHName (reTyLookupEnv env) btc_tc
+
 ofBRType :: (Expandable r) => Env -> ([F.Symbol] -> r -> r) -> F.SourcePos -> BRType r
          -> Lookup (RRType r)
 ofBRType env f l = go []
@@ -406,8 +474,9 @@ ofBRType env f l = go []
                 r'  <- goReft bs r
                 rs' <- traverse (goRef bs) rs
                 ts' <- traverse (go bs) ts
-                quotTCAppWith (go bs) qd m s r' rs' ts'
-              Nothing -> panic (Just $ GM.fSrcSpan s) $ " is not a valid quotient type constructor: this should be unreachable"
+                let mkReft = fmap (ofReft . ur_reft)
+                quotTCAppWith (fmap mkReft qd) m s r' rs' ts'
+              Nothing -> panic (Just $ GM.fSrcSpan s) " is not a valid quotient type constructor: this should be unreachable"
           _ -> bareTCApp <$> goReft bs r <*> lc' <*> mapM (goRef bs) rs <*> mapM (go bs) ts
             where
               lc' = F.atLoc btc_tc <$> lookupGhcTyConLHName (reTyLookupEnv env) btc_tc

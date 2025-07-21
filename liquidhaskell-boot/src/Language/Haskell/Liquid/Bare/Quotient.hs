@@ -93,7 +93,7 @@ quotTCAppWith
   -> [RType RTyCon RTyVar r]
   -> Either [Error] (RType RTyCon RTyVar r)
 quotTCAppWith QuotDecl {..} qtc_module (Fixpoint.Loc l _ s) rt_reft rt_pargs rt_args
-  | tyVarCount >= argCount = Right $ qTyApp qtycType
+  | tyVarCount >= argCount = Right $ qTyApp $ Fixpoint.val qtycType
   | otherwise
       = Left
           [ Error.ErrQuotientApp
