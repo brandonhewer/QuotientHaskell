@@ -219,10 +219,10 @@ pprRtype bb p t@(RAllT _ _ r)
   = ppTy r $ pprForall bb p t
 pprRtype bb p t@(RAllP _ _)
   = pprForall bb p t
-pprRtype bb p (RChooseQ q qs u v)
-  = pprChoose bb p q qs u v
-pprRtype bb p (RQuotient t q)
-  = pprQuotient bb p t q
+pprRtype bb p (RChooseQ qvs t r)
+  = ppTy r $ pprChoose bb p qvs t
+pprRtype bb p (RQuotient t q r)
+  = ppTy r $ pprQuotient bb p t q
 pprRtype _ _ (RVar a r)
   = ppTy r $ pprint a
 pprRtype bb p t@RFun{}
@@ -430,13 +430,13 @@ ppRefSym :: (Eq a, IsString a, PPrint a) => a -> Doc
 ppRefSym "" = text "_"
 ppRefSym s  = pprint s
 
-pprChoose :: OkRT c tv r => PPEnv -> Prec -> F.Symbol -> [F.Symbol] -> RType c tv r -> RType c tv r -> Doc
-pprChoose bb p q qs t u
+pprChoose :: OkRT c tv r => PPEnv -> Prec -> QVU F.Symbol c tv -> RType c tv r -> Doc
+pprChoose bb p QVar {..} u
   =   text "choose"
-  <+> pprint q
-  <+> hsep (map pprint qs)
+  <+> pprint qv_quotient
+  <+> hsep (map pprint qv_quotients)
   <+> text "::"
-  <+> (pprRtype bb p t <> text ". " <> pprRtype bb p u)
+  <+> (pprRtype bb p qv_type <> text ". " <> pprRtype bb p u)
 
 pprQuotient :: OkRT c tv r => PPEnv -> Prec -> RType c tv r -> F.Symbol -> Doc
 pprQuotient bb p t q = pprRtype bb p t <+> text "/" <+> pprint q

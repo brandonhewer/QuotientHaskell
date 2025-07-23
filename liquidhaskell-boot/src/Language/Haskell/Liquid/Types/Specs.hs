@@ -50,6 +50,8 @@ module Language.Haskell.Liquid.Types.Specs (
   , GhcSpecRefl(..)
   , GhcSpecData(..)
   , GhcSpecQual(..)
+  , QuotBareEnv
+  , QuotEnv
   , BareDef
   , BareMeasure
   , SpecMeasure
@@ -89,6 +91,12 @@ import           Language.Haskell.Liquid.GHC.Misc (dropModuleNames)
 import           Language.Haskell.Liquid.Types.DataDecl
 import           Language.Haskell.Liquid.Types.Names
 import           Language.Haskell.Liquid.Types.QuotDecl
+  ( QuotDecl
+  , QuotDeclP
+  , QuotSpecDecl
+  , QuotDeclLHName
+  )
+import qualified Language.Haskell.Liquid.Types.QuotMap as Quotient
 import           Language.Haskell.Liquid.Types.RType
 import           Language.Haskell.Liquid.Types.RTypeOp
 import           Language.Haskell.Liquid.Types.Types
@@ -271,17 +279,16 @@ instance Semigroup GhcSpecSig where
     , gsAsmRel   = gsAsmRel x   <> gsAsmRel y
     }
 
-
-
-
-
-
-
 instance Monoid GhcSpecSig where
   mempty = SpSig mempty mempty mempty mempty mempty mempty mempty mempty mempty mempty mempty
 
+-- | Quotient declaration information stored in the environment
+type QuotBareEnv = M.HashMap (ModuleName, F.Symbol) QuotDecl
+type QuotEnv     = M.HashMap (ModuleName, F.Symbol) QuotSpecDecl
+
 data GhcSpecData = SpData
   { gsCtors      :: ![(Var, LocSpecType)]         -- ^ Data Constructor Measure Sigs
+  , gsQuotDecls  :: !QuotEnv                      -- ^ Quotient type declarations
   , gsMeas       :: ![(F.Symbol, LocSpecType)]    -- ^ Measure Types eg.  len :: [a] -> Int
   , gsInvariants :: ![(Maybe Var, LocSpecType)]   -- ^ Data type invariants from measure definitions, e.g forall a. {v: [a] | len(v) >= 0}
   , gsIaliases   :: ![(LocSpecType, LocSpecType)] -- ^ Data type invariant aliases
@@ -447,10 +454,12 @@ emapSpecM
   -> (LHName -> [F.Symbol])
      -- | The first parameter of the function argument are the variables in scope.
   -> ([F.Symbol] -> lname0 -> m lname1)
+     -- | A dedicated map for equality constructors that may contain unbound variables
+  -> ([F.Symbol] -> lname0 -> m lname1)
   -> ([F.Symbol] -> ty0 -> m ty1)
   -> Spec lname0 ty0
   -> m (Spec lname1 ty1)
-emapSpecM bscp lenv vf f sp = do
+emapSpecM bscp lenv vf ef f sp = do
     measures <- mapM (emapMeasureM vf (traverse . f)) (measures sp)
     expSigs <- sequence [ (,s) <$> vf [] n | (n, s) <- expSigs sp ]
     asmSigs <- mapM (\p -> traverse (traverse (f $ lenv $ val $ fst p)) p) (asmSigs sp)
@@ -461,7 +470,7 @@ emapSpecM bscp lenv vf f sp = do
     invariants <- mapM (traverse (traverse fnull)) (invariants sp)
     ialiases <- mapM (bimapM (traverse fnull) (traverse fnull)) (ialiases sp)
     dataDecls <- mapM (emapDataDeclM bscp vf f) (dataDecls sp)
-    quotDecls <- mapM (emapQuotDeclM bscp vf f) (quotDecls sp)
+    quotDecls <- mapM (Quotient.emapQuotDeclM bscp vf ef f) (quotDecls sp)
     newtyDecls <- mapM (emapDataDeclM bscp vf f) (newtyDecls sp)
     aliases <- mapM (traverse (emapRTAlias (emapBareTypeVM bscp vf))) (aliases sp)
     ealiases <- mapM (traverse (emapRTAlias (\e -> emapExprVM (vf . (++ e))))) $ ealiases sp
@@ -573,7 +582,7 @@ mapSpecLName f Spec {..} =
       , expSigs = map (first f) expSigs
       , sigs = map (fmap (fmap (mapRTypeV f . mapReft (mapUReftV f (fmap f))))) sigs
       , dataDecls = map (mapDataDeclV f) dataDecls
-      , quotDecls = map (mapQuotDeclV f) quotDecls
+      , quotDecls = map (Quotient.mapQuotDeclV f) quotDecls
       , newtyDecls = map (mapDataDeclV f) newtyDecls
       , aliases = map (fmap (fmap (mapRTypeV f . fmap (mapUReftV f (fmap f))))) aliases
       , ealiases = map (fmap (fmap (fmap f))) ealiases

@@ -3,7 +3,7 @@ module Map where
 {-@
 data Test
   =  Int
-  |/ test :: 0 == 3
+  |/ test  :: 0 == 3
 @-}
 
 {-@ fun :: Test -> Test @-}

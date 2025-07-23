@@ -57,6 +57,7 @@ import           Language.Haskell.Liquid.Misc
 import           Language.Haskell.Liquid.Types.DataDecl
 import           Language.Haskell.Liquid.Types.Errors
 import           Language.Haskell.Liquid.Types.Names
+import           Language.Haskell.Liquid.Types.QuotUnify
 import           Language.Haskell.Liquid.Types.RefType hiding (generalize)
 import           Language.Haskell.Liquid.Types.RType
 import           Language.Haskell.Liquid.Types.RTypeOp
@@ -300,8 +301,8 @@ substPVar src dst = go
      | pname q == pname src = RAllP q t
      | otherwise            = RAllP q (go t)
     go (RAllT a t r)        = RAllT a   (go t)  (goRR r)
-    go (RChooseQ q qs t u)  = RChooseQ q qs (go t) (go u)
-    go (RQuotient t q)      = RQuotient (go t) q
+    go (RChooseQ qvs t r)   = RChooseQ qvs (go t) (goRR r)
+    go (RQuotient t q r)    = RQuotient (go t) q (goRR r)
     go (RFun x i t t' r)    = RFun x i  (go t)  (go t') (goRR r)
     go (RAllE x t t')       = RAllE x   (go t)  (go t')
     go (REx x t t')         = REx x     (go t)  (go t')
@@ -363,7 +364,7 @@ substPred _   _  t              = t
 -- substRCon :: String -> (RPVar, SpecType) -> SpecType -> SpecType
 
 substRCon
-  :: (PPrint t, PPrint t2, Eq tv, Reftable r, Hashable tv, PPrint tv, PPrint r,
+  :: (PPrint t, PPrint t2, Eq tv, Reftable r, Hashable tv, PPrint tv, PPrint r, FromInt tv,
       SubsTy tv (RType RTyCon tv ()) r,
       SubsTy tv (RType RTyCon tv ()) (RType RTyCon tv ()),
       SubsTy tv (RType RTyCon tv ()) RTyCon,
@@ -435,9 +436,9 @@ freeArgsPs p (RAllT _ t r)
 freeArgsPs p (RAllP p' t)
   | p == p'   = []
   | otherwise = freeArgsPs p t
-freeArgsPs p (RChooseQ _ _ t u)
-  = L.nub $ freeArgsPs p t ++ freeArgsPs p u
-freeArgsPs p (RQuotient t _) = freeArgsPs p t
+freeArgsPs p (RChooseQ _ t r)
+  = L.nub $ freeArgsPs p t ++ freeArgsPsRef p r
+freeArgsPs p (RQuotient t _ r) = freeArgsPs p t ++ freeArgsPsRef p r
 freeArgsPs p (RApp _ ts _ r)
   = L.nub $ freeArgsPsRef p r ++ concatMap (freeArgsPs p) ts
 freeArgsPs p (RAllE _ t1 t2)

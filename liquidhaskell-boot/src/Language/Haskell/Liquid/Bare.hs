@@ -239,7 +239,8 @@ makeGhcSpec0 cfg ghcTyLookupEnv tcg instEnvs lenv localVars src lmap targetSpec 
   let (dg5, spcVars) = withDiagnostics $ makeSpecVars cfg src mySpec env measEnv
   let (dg6, spcTerm) = withDiagnostics $ makeSpecTerm cfg     mySpec lenv env
   let dg7            = mkDiagnostics [] qerrors
-  let sData    = makeSpecData  src env sigEnv measEnv elaboratedSig specs
+  let qenv           = Bare.cookQuotSpecDecl env sigEnv name <$> Bare.reQuotientTypes env
+  let sData    = makeSpecData  src env { Bare.reQuotientTypes = qenv } sigEnv measEnv elaboratedSig specs
   let finalLiftedSpec = makeLiftedSpec name src env refl sData elaboratedSig qual myRTE (lSpec0 <> lSpec1)
   let diags    = mconcat [dg0, dg1, dg2, dg3, dg4, dg5, dg6, dg7]
 
@@ -343,7 +344,7 @@ makeGhcSpec0 cfg ghcTyLookupEnv tcg instEnvs lenv localVars src lmap targetSpec 
     embs     = makeEmbeds          src ghcTyLookupEnv (mySpec0 : map snd dependencySpecs)
     dm       = Bare.tcDataConMap tycEnv0
     (dg0, datacons, tycEnv0) = makeTycEnv0   cfg name env embs mySpec2 iSpecs2
-    env0     = Bare.makeEnv cfg ghcTyLookupEnv dataConIds tcg instEnvs localVars src lmap M.empty ((name, targetSpec) : dependencySpecs)
+    env0     = Bare.makeEnv cfg ghcTyLookupEnv dataConIds tcg instEnvs localVars src lmap ((name, targetSpec) : dependencySpecs)
     (qerrors, env) = foldl' (addQuotientTypeToEnv quotenv) ([], env0) quottypes
 
     -- env      = Bare.makeEnv cfg ghcTyLookupEnv dataConIds tcg instEnvs localVars src lmap quotenv ((name, targetSpec) : dependencySpecs)
@@ -1134,6 +1135,7 @@ makeSpecData src env sigEnv measEnv sig specs = SpData
                        | (x, t) <- Bare.meDataCons measEnv
                        , let tt  = Bare.plugHoles (typeclass $ getConfig env) sigEnv name (Bare.LqTV x) t
                    ]
+  , gsQuotDecls  = Bare.reQuotientTypes env
   , gsMeas       = [ (F.symbol x, uRType <$> t) | (x, t) <- measVars ]
   , gsMeasures   = ms1 ++ ms2
   , gsOpaqueRefls = fst <$> Bare.meOpaqueRefl measEnv

@@ -113,6 +113,9 @@ import qualified Language.Fixpoint.Types as F
 import           Language.Haskell.Liquid.Types.Errors
 import           Language.Haskell.Liquid.Types.PrettyPrint
 
+import qualified Language.Haskell.Liquid.Types.QuotSubst as Quotient
+import           Language.Haskell.Liquid.Types.QuotUnify (FromInt) 
+import qualified Language.Haskell.Liquid.Types.QuotUnify as Quotient
 import           Language.Haskell.Liquid.Types.RType
 import           Language.Haskell.Liquid.Types.RTypeOp
 import           Language.Haskell.Liquid.Types.Types
@@ -204,6 +207,7 @@ uTop r          = MkUReft r (Pr [])
 instance ( SubsTy tv (RType c tv ()) (RType c tv ())
          , SubsTy tv (RType c tv ()) c
          , OkRT c tv r
+         , FromInt tv
          , FreeVar c tv
          , SubsTy tv (RType c tv ()) r
          , SubsTy tv (RType c tv ()) tv
@@ -216,6 +220,7 @@ instance ( SubsTy tv (RType c tv ()) (RType c tv ())
 instance ( SubsTy tv (RType c tv ()) (RType c tv ())
          , SubsTy tv (RType c tv ()) c
          , OkRT c tv r
+         , FromInt tv
          , FreeVar c tv
          , SubsTy tv (RType c tv ()) r
          , SubsTy tv (RType c tv ()) tv
@@ -227,6 +232,7 @@ instance ( SubsTy tv (RType c tv ()) (RType c tv ())
 -- MOVE TO TYPES
 instance ( SubsTy tv (RType c tv ()) c
          , OkRT c tv r
+         , FromInt tv
          , FreeVar c tv
          , SubsTy tv (RType c tv ()) r
          , SubsTy tv (RType c tv ()) (RType c tv ())
@@ -249,6 +255,7 @@ instance ( SubsTy tv (RType c tv ()) c
 -- TODO: remove and use only Semigroup?
 instance ( SubsTy tv (RType c tv ()) c
          , OkRT c tv r
+         , FromInt tv
          , FreeVar c tv
          , SubsTy tv (RType c tv ()) r
          , SubsTy tv (RType c tv ()) (RType c tv ())
@@ -415,12 +422,12 @@ eqRSort m (RAllT _ t _) t'
   = eqRSort m t t'
 eqRSort m t (RAllT _ t' _)
   = eqRSort m t t'
-eqRSort m (RChooseQ _ _ t u) (RChooseQ _ _ t' u')
-  = eqRSort m t t' && eqRSort m u u'
-eqRSort m (RChooseQ _ _ _ t) t'
+eqRSort m (RChooseQ qvs t _) (RChooseQ qvs' t' _)
+  = eqRSort m (qv_type qvs) (qv_type qvs') && eqRSort m t t'
+eqRSort m (RChooseQ _ t _) t'
   = eqRSort m t t'
-eqRSort m (RQuotient t _) (RQuotient t' _) = eqRSort m t t'
-eqRSort m (RQuotient t _) t' = eqRSort m t t'
+eqRSort m (RQuotient t _ _) (RQuotient t' _ _) = eqRSort m t t'
+eqRSort m (RQuotient t _ _) t' = eqRSort m t t'
 eqRSort m (RFun _ _ t1 t2 _) (RFun _ _ t1' t2' _)
   = eqRSort m t1 t1' && eqRSort m t2 t2'
 eqRSort m (RAppTy t1 t2 _) (RAppTy t1' t2' _)
@@ -587,12 +594,12 @@ nlzP ps (RAppTy t1 t2 r)
 nlzP ps (RAllT v t r)
  = (RAllT v t' r, ps ++ ps')
   where (t', ps') = nlzP [] t
-nlzP ps (RChooseQ q qs t u)
-  = (RChooseQ q qs t' u', ps ++ ps'')
-  where (t', ps')  = nlzP [] t
-        (u', ps'') = nlzP ps' u
-nlzP ps (RQuotient t q)
-  = (RQuotient t' q, ps ++ ps')
+nlzP ps (RChooseQ qvs t r)
+  = (RChooseQ qvs { qv_type = qt } t' r, ps ++ ps1 ++ ps2)
+  where (qt, ps1) = nlzP [] $ qv_type qvs
+        (t', ps2) = nlzP [] t
+nlzP ps (RQuotient t q r)
+  = (RQuotient t' q r, ps ++ ps')
   where (t', ps')  = nlzP [] t
 nlzP ps t@RApp{}
  = (t, ps)
@@ -610,7 +617,8 @@ nlzP _ t
  = panic Nothing $ "RefType.nlzP: cannot handle " ++ show t
 
 strengthenRefTypeGen, strengthenRefType ::
-         (  OkRT c tv r
+         ( OkRT c tv r
+         , FromInt tv
          , FreeVar c tv
          , SubsTy tv (RType c tv ()) (RType c tv ())
          , SubsTy tv (RType c tv ()) c
@@ -621,6 +629,7 @@ strengthenRefTypeGen, strengthenRefType ::
 
 strengthenRefType_ ::
          ( OkRT c tv r
+         , FromInt tv
          , FreeVar c tv
          , SubsTy tv (RType c tv ()) (RType c tv ())
          , SubsTy tv (RType c tv ()) c
@@ -694,24 +703,29 @@ strengthenRefType_ f (RAllE x tx t1) t2
 strengthenRefType_ f t1 (RAllE x tx t2)
   = RAllE x tx $ strengthenRefType_ f t1 t2
 
-strengthenRefType_ f (RChooseQ q qs t u) (RChooseQ q' qs' t' u')
-  | q == q' && qs == qs'
-  = RChooseQ q qs (strengthenRefType_ f t t') (strengthenRefType_ f u u')
+strengthenRefType_ f (RChooseQ qvs t r) (RChooseQ qvs' t' r')
+  = RChooseQ qvs {qv_type = qv_type'} rt_ty (r `meet` r')
+    where
+      σ = M.fromList
+            $ zip (qv_quotient qvs' : qv_quotients qvs') (qv_quotient qvs : qv_quotients qvs)
 
-strengthenRefType_ f (RChooseQ q qs qt u) t'
-  = RChooseQ q qs qt $ strengthenRefType_ f u t'
+      qv_type' = Quotient.unifyQVarTypes (qv_type qvs) (qv_type qvs')
+      rt_ty    = strengthenRefType_ f t $ Quotient.renameQVs σ t'
 
-strengthenRefType_ f t (RChooseQ q qs qt t')
-  = RChooseQ q qs qt $ strengthenRefType_ f t t'
+strengthenRefType_ f (RChooseQ qvs t r) t'
+  = RChooseQ qvs (strengthenRefType_ f t t') r
 
-strengthenRefType_ f (RQuotient t q) (RQuotient t' q')
-  | q == q' = RQuotient (strengthenRefType_ f t t') q
+strengthenRefType_ f t (RChooseQ qvs t' r)
+  = RChooseQ qvs (strengthenRefType_ f t t') r
 
-strengthenRefType_ f (RQuotient t q) t'
-  = RQuotient (strengthenRefType_ f t t') q
+strengthenRefType_ f (RQuotient t q r) (RQuotient t' q' r')
+  | q == q' = RQuotient (strengthenRefType_ f t t') q (r `meet` r')
 
-strengthenRefType_ f t (RQuotient t' q)
-  = RQuotient (strengthenRefType_ f t t') q
+strengthenRefType_ f (RQuotient t q r) t'
+  = RQuotient (strengthenRefType_ f t t') q r
+
+strengthenRefType_ f t (RQuotient t' q r)
+  = RQuotient (strengthenRefType_ f t t') q r
 
 strengthenRefType_ f (RAppTy t1 t1' r1) (RAppTy t2 t2' r2)
   = RAppTy t t' (r1 `meet` r2)
@@ -751,15 +765,15 @@ strengthen = strengthenWith meet
 strengthenWith :: (r -> r -> r) -> RTypeV v c tv r -> r -> RTypeV v c tv r
 strengthenWith mt = go
   where
-    go (RApp c ts rs r)      r' = RApp c ts rs   (r `mt` r')
-    go (RVar a r)            r' = RVar a         (r `mt` r')
-    go (RFun b i t1 t2 r)    r' = RFun b i t1 t2 (r `mt` r')
-    go (RAppTy t1 t2 r)      r' = RAppTy t1 t2   (r `mt` r')
-    go (RAllT a t r)         r' = RAllT a t      (r `mt` r')
-    go (RHole r)             r' = RHole          (r `mt` r')
-    go (RChooseQ q qs qt t') r' = RChooseQ q qs qt (go t' r')
-    go (RQuotient t q)       r' = RQuotient (go t r') q
-    go t                    _   = t
+    go (RApp c ts rs r)   r' = RApp c ts rs   (r `mt` r')
+    go (RVar a r)         r' = RVar a         (r `mt` r')
+    go (RFun b i t1 t2 r) r' = RFun b i t1 t2 (r `mt` r')
+    go (RAppTy t1 t2 r)   r' = RAppTy t1 t2   (r `mt` r')
+    go (RAllT a t r)      r' = RAllT a t      (r `mt` r')
+    go (RHole r)          r' = RHole          (r `mt` r')
+    go (RChooseQ qvs t r) r' = RChooseQ qvs t (r `mt` r')
+    go (RQuotient t q r)  r' = RQuotient t q (r `mt` r')
+    go t                  _  = t
 
 quantifyRTy :: (Monoid r, Eq tv) => [RTVar tv (RTypeV v c tv ())] -> RTypeV v c tv r -> RTypeV v c tv r
 quantifyRTy tvs ty = foldr rAllT ty tvs
@@ -861,7 +875,7 @@ pvArgs pv = [(s, t) | (t, s, _) <- pargs pv]
 
  -}
 appRTyCon :: (ToTypeable r) => TCEmb TyCon -> TyConMap -> RTyCon -> [RRType r] -> (RTyCon, [RPVar])
-appRTyCon _ _ rc@RTyCon {rtc_tc = QuotientTyCon _ _ _ _} _ = (rc, [])
+appRTyCon _ _ rc@RTyCon {rtc_tc = QuotientTyCon {}} _ = (rc, [])
 appRTyCon tce tyi rc@RTyCon {rtc_tc = tc@(GHCTyCon c)} ts = F.notracepp _msg (resTc, ps'')
   where
     _msg  = "appRTyCon-family: " ++ showpp (Ghc.isFamilyTyCon c, Ghc.tyConRealArity c, toType False <$> ts)
@@ -950,7 +964,6 @@ addNumSizeFun :: LHTyCon TyCon -> LHTyCon TyCon
 addNumSizeFun c
   = c {rtc_info = (rtc_info c) {sizeFunction = Just IdSizeFun } }
 
-
 generalize :: (Eq tv, Monoid r) => RType c tv r -> RType c tv r
 generalize t = mkUnivs (map (, mempty) (freeTyVars t)) [] t
 
@@ -963,12 +976,11 @@ allTyVars' t = fmap ty_var_value $ vs ++ vs'
     vs      = map fst . fst3 . bkUniv $ t
     vs'     = freeTyVars t
 
-
 freeTyVars :: Eq tv => RTypeV v c tv r -> [RTVar tv (RTypeV v c tv ())]
 freeTyVars (RAllP _ t)        = freeTyVars t
 freeTyVars (RAllT α t _)      = freeTyVars t L.\\ [α]
-freeTyVars (RChooseQ _ _ t u) = freeTyVars t `L.union` freeTyVars u
-freeTyVars (RQuotient t _)    = freeTyVars t
+freeTyVars (RChooseQ qvs t _) = freeTyVars (qv_type qvs) `L.union` freeTyVars t
+freeTyVars (RQuotient t _ _)  = freeTyVars t
 freeTyVars (RFun _ _ t t' _)  = freeTyVars t `L.union` freeTyVars t'
 freeTyVars (RApp _ ts _ _)    = L.nub $ concatMap freeTyVars ts
 freeTyVars (RVar α _)         = [makeRTVar α]
@@ -980,13 +992,13 @@ freeTyVars (RHole _)          = []
 freeTyVars (RRTy e _ _ t)     = L.nub $ concatMap freeTyVars (t:(snd <$> e))
 
 tyClasses :: (OkRT RTyCon tv r) => RType RTyCon tv r -> [(Class, [RType RTyCon tv r])]
-tyClasses (RAllP _ t)         = tyClasses t
-tyClasses (RAllT _ t _)       = tyClasses t
-tyClasses (RAllE _ _ t)       = tyClasses t
-tyClasses (RChooseQ _ _ t t') = tyClasses t ++ tyClasses t'
-tyClasses (REx _ _ t)         = tyClasses t
-tyClasses (RFun _ _ t t' _)   = tyClasses t ++ tyClasses t'
-tyClasses (RAppTy t t' _)     = tyClasses t ++ tyClasses t'
+tyClasses (RAllP _ t)        = tyClasses t
+tyClasses (RAllT _ t _)      = tyClasses t
+tyClasses (RAllE _ _ t)      = tyClasses t
+tyClasses (RChooseQ _ t _)   = tyClasses t
+tyClasses (REx _ _ t)        = tyClasses t
+tyClasses (RFun _ _ t t' _)  = tyClasses t ++ tyClasses t'
+tyClasses (RAppTy t t' _)    = tyClasses t ++ tyClasses t'
 tyClasses (RApp RTyCon {rtc_tc} ts _ _)
   | GHCTyCon c <- rtc_tc, Just cl <- tyConClass_maybe c
   = [(cl, ts)]
@@ -1086,10 +1098,10 @@ subsFree m s z@(α, τ,_) (RAllP π t)
 subsFree m s z@(a, τ, _) (RAllT α t r)
   -- subt inside the type variable instantiates the kind of the variable
   = RAllT (subt (a, τ) α) (subsFree m (ty_var_value α `S.insert` s) z t) (subt (a, τ) r)
-subsFree m s z (RChooseQ q qs t u)
-  = RChooseQ q qs (subsFree m s z t) (subsFree m s z u)
-subsFree m s z (RQuotient t q)
-  = RQuotient (subsFree m s z t) q
+subsFree m s z@(α, τ, τ') (RChooseQ qvs t r)
+  = RChooseQ qvs {qv_type = subsFree m s (α, τ, void τ') $ qv_type qvs} (subsFree m s z t) (subt (α, τ) r)
+subsFree m s z@(α, τ, _) (RQuotient t q r)
+  = RQuotient (subsFree m s z t) q (subt (α, τ) r)
 subsFree m s z@(α, τ, _) (RFun x i t t' r)
   = RFun x i (subsFree m s z t) (subsFree m s z t') (subt (α, τ) r)
 subsFree m s z@(α, τ, _) (RApp c ts rs r)
@@ -1280,8 +1292,8 @@ instance SubsTy Symbol Symbol (BRType r) where
   subt (x, y) (RAllT (RTVar (BTV v) i) t r)
     | x == val v = RAllT (RTVar (BTV v) i) t r
     | otherwise  = RAllT (RTVar (BTV v) i) (subt (x,y) t) r
-  subt (x, y) (RChooseQ q qs t u) = RChooseQ q qs (subt (x, y) t) $ subt (x, y) u
-  subt (x, y) (RQuotient t q) = RQuotient (subt (x, y) t) q
+  subt (x, y) (RChooseQ qvs t r) = RChooseQ qvs {qv_type = subt (x, y) $ qv_type qvs} (subt (x, y) t) r
+  subt (x, y) (RQuotient t q r) = RQuotient (subt (x, y) t) q r
   subt su (RFun x i t1 t2 r)  = RFun x i (subt su t1) (subt su t2) r
   subt su (RAllP p t)       = RAllP p (subt su t)
   subt su (RApp c ts ps r)  = RApp c (subt su <$> ts) (subt su <$> ps) r
@@ -1515,9 +1527,9 @@ toTypeSubst σ useRFInfo (RAllT a t _) | RTV α <- ty_var_value a
   = ForAllTy (Bndr α Required) (toTypeSubst σ useRFInfo t)
 toTypeSubst σ useRFInfo (RAllP _ t)
   = toTypeSubst σ useRFInfo t
-toTypeSubst σ useRFInfo (RChooseQ _ _ _ u)
-  = toTypeSubst σ useRFInfo u
-toTypeSubst σ useRFInfo (RQuotient t _)
+toTypeSubst σ useRFInfo (RChooseQ _ t _)
+  = toTypeSubst σ useRFInfo t
+toTypeSubst σ useRFInfo (RQuotient t _ _)
   = toTypeSubst σ useRFInfo t
 toTypeSubst σ _ (RVar (RTV α) _)
   | Just t <- M.lookup (F.symbol α) σ = t
@@ -1558,9 +1570,9 @@ toType useRFInfo (RAllT a t _) | RTV α <- ty_var_value a
   = ForAllTy (Bndr α Required) (toType useRFInfo t)
 toType useRFInfo (RAllP _ t)
   = toType useRFInfo t
-toType useRFInfo (RChooseQ _ _ _ u)
+toType useRFInfo (RChooseQ _ u _)
   = toType useRFInfo u
-toType useRFInfo (RQuotient t _)
+toType useRFInfo (RQuotient t _ _)
   = toType useRFInfo t
 toType _ (RVar (RTV α) _)
   = TyVarTy α
@@ -1930,12 +1942,13 @@ mkTyConInfo c userTv userPv f = TyConInfo tcTv userPv f
 tyVarsPosition :: RType RTyCon tv r -> Positions tv
 tyVarsPosition = go (Just True)
   where
+    go :: Maybe Bool -> RTypeV v (LHTyCon c) a r -> Positions a
     go p (RVar t _)         = report p t
     go p (RFun _ _ t1 t2 _) = go (flip' p) t1 <> go p t2
     go p (RAllT _ t _)      = go p t
     go p (RAllP _ t)        = go p t
-    go p (RChooseQ _ _ t u) = go p t <> go p u
-    go p (RQuotient t _)    = go p t
+    go p (RChooseQ qvs t _) = go p (qv_type qvs) <> go p t
+    go p (RQuotient t _ _)  = go p t
     go p (RApp c ts _ _)    = mconcat (zipWith go (getPosition p <$> varianceTyArgs (rtc_info c)) ts)
     go p (RAllE _ t1 t2)    = go p t1 <> go p t2
     go p (REx _ t1 t2)      = go p t1 <> go p t2

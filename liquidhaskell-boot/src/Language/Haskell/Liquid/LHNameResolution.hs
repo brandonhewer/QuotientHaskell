@@ -35,6 +35,7 @@
 -- resolve names of modules that import the specs.
 --
 
+{-# LANGUAGE BlockArguments             #-}
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
@@ -67,6 +68,7 @@ import           Data.Bifunctor (first)
 import qualified Data.Char                               as Char
 import           Data.Coerce (coerce)
 import           Data.Data (Data, gmapT)
+import           Data.Functor  (($>))
 import           Data.Generics (extT)
 
 
@@ -438,8 +440,8 @@ fixExpressionArgsOfTypeAliases taliases =
     go (RAllT a t r)       = RAllT a (go t) r
     go (RAllP a t)         = RAllP a (go t)
     go (RAllE x t1 t2)     = RAllE x (go t1) (go t2)
-    go (RChooseQ q qs t u) = RChooseQ q qs (go t) (go u)
-    go (RQuotient t q)     = RQuotient t q
+    go (RChooseQ qvs t r)  = RChooseQ qvs (go t) r
+    go (RQuotient t q r)   = RQuotient t q r
     go (REx x t1 t2)       = REx   x (go t1) (go t2)
     go (RRTy e r o t)      = RRTy  e r o     (go t)
     go t@RHole{}           = t
@@ -665,6 +667,7 @@ resolveLogicNames cfg env globalRdrEnv unhandledNames lmap0 localVars lnameEnv p
       (bscope cfg)
       (map localVarToSymbol . maybe [] lvdLclEnv . (GHC.lookupNameEnv (lvNames localVars) <=< getLHGHCName))
       resolveLogicName
+      resolveLogicNameEC
       (emapBareTypeVM (bscope cfg) resolveLogicName)
       sp {imeasures}
   where
@@ -675,9 +678,13 @@ resolveLogicNames cfg env globalRdrEnv unhandledNames lmap0 localVars lnameEnv p
 
     localVarToSymbol = F.symbol . GHC.occNameString . GHC.nameOccName . GHC.varName
 
-    resolveLogicName :: [Symbol] -> LocSymbol -> State RenameOutput LHName
-    resolveLogicName ss ls
-        -- The name is local
+    resolveLogicNameWith
+      :: ([Symbol] -> State RenameOutput LHName)
+      -> [Symbol]
+      -> LocSymbol
+      -> State RenameOutput LHName
+    resolveLogicNameWith notFound ss ls
+      -- The name is local
       | elem s ss = return $ makeLocalLHName s
       | otherwise =
         case lookupInScopeNonReflectedEnv env s of
@@ -689,10 +696,7 @@ resolveLogicNames cfg env globalRdrEnv unhandledNames lmap0 localVars lnameEnv p
               Nothing
                 | elem s wiredInNames ->
                   return $ makeLocalLHName s
-                | otherwise -> do
-                  unless (HS.member s unhandledNames) $
-                    addError (errResolveLogicName ls alts)
-                  return $ makeLocalLHName s
+                | otherwise -> notFound alts
           Right [(_, lhname)] ->
             return lhname
           Right names -> do
@@ -711,6 +715,18 @@ resolveLogicNames cfg env globalRdrEnv unhandledNames lmap0 localVars lnameEnv p
         wiredInNames =
            map fst wiredSortedSyms ++
            map (lhNameToResolvedSymbol . fst) (concatMap (DataDecl.dcpTyArgs . val) wiredDataCons)
+
+    resolveLogicName :: [Symbol] -> LocSymbol -> State RenameOutput LHName
+    resolveLogicName ss ls
+      = resolveLogicNameWith
+          ( \alts ->
+               unless (HS.member (val ls) unhandledNames) (addError $ errResolveLogicName ls alts)
+            $> makeLocalLHName (val ls)
+          ) ss ls
+
+    resolveLogicNameEC :: [Symbol] -> LocSymbol -> State RenameOutput LHName
+    resolveLogicNameEC ss ls
+      = resolveLogicNameWith (const $ pure $ makeLocalLHName (val ls)) ss ls
 
     errResolveLogicName s alts =
       ErrResolve
@@ -839,18 +855,25 @@ toBareSpecLHName cfg env sp0 = runIdentity $ go sp0
         (bscope cfg)
         (const [])
         symbolToLHName
+        symbolToLHNameEC
         (emapBareTypeVM (bscope cfg) symbolToLHName)
         sp
 
     unhandledNames = HS.fromList $ map fst $ expSigs sp0
 
     symbolToLHName :: [Symbol] -> Symbol -> Identity LHName
-    symbolToLHName ss s
-      | elem s ss = return $ makeLocalLHName s
-      | otherwise =
-        case lookupSEnv s (lneLHName env) of
-          Nothing -> do
-            unless (HS.member s unhandledNames) $
-              panic Nothing $ "toBareSpecLHName: cannot find " ++ show s
-            return $ makeLocalLHName s
-          Just lhname -> return lhname
+    symbolToLHName ss s = 
+      symbolToLHNameWith
+        ( unless
+            (HS.member s unhandledNames)
+            (panic Nothing $ "toBareSpecLHName: cannot find " ++ show s)
+        $> makeLocalLHName s
+        ) ss s
+
+    symbolToLHNameEC :: [Symbol] -> Symbol -> Identity LHName
+    symbolToLHNameEC ss s = symbolToLHNameWith (pure $ makeLocalLHName s) ss s
+
+    symbolToLHNameWith :: Identity LHName -> [Symbol] -> Symbol -> Identity LHName
+    symbolToLHNameWith i ss s
+      | elem s ss = pure $ makeLocalLHName s
+      | otherwise = maybe i pure (lookupSEnv s (lneLHName env))

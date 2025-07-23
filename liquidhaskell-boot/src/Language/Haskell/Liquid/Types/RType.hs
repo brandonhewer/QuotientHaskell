@@ -58,6 +58,11 @@ module Language.Haskell.Liquid.Types.RType (
   , Predicate
   , PredicateV (..)
 
+  -- * Quotient variables
+  , BareQVar
+  , QVar (..)
+  , QVU
+
   -- * Manipulating `Predicates`
   , emapExprVM
   , mapPredicateV
@@ -756,6 +761,7 @@ type RTVU c tv = RTVUV Symbol c tv
 type RTVUV v c tv = RTVar tv (RTypeV v c tv ())
 type PVU c tv = PVUV Symbol c tv
 type PVUV v c tv = PVarV v (RTypeV v c tv ())
+type QVU v c tv = QVar (RTypeV v c tv ())
 
 instance Show tv => Show (RTVU c tv) where
   show (RTVar t _) = show t
@@ -791,10 +797,9 @@ data RTypeV v c tv r
   -- | For example "choose q :: []. (a -> b) -> [a] / q -> [b] / q"
   -- |                          ^^ rt_qty
   | RChooseQ {
-      rt_quotient  :: !Symbol
-    , rt_quotients :: [Symbol]
-    , rt_qty       :: !(RTypeV v c tv r)
-    , rt_ty        :: !(RTypeV v c tv r)
+      rt_qvbind :: !(QVU v c tv)
+    , rt_ty     :: !(RTypeV v c tv r)
+    , rt_reft   :: !r
     }
 
   -- | For example "[a] / q"
@@ -802,6 +807,7 @@ data RTypeV v c tv r
   | RQuotient {
       rt_ty       :: !(RTypeV v c tv r)
     , rt_quotient :: !Symbol
+    , rt_reft     :: !r
     }
 
   -- | For example, in [a]<{\h -> v > h}>, we apply (via `RApp`)
@@ -931,6 +937,18 @@ emapUReftVM
   => ([Symbol] -> v -> m v') -> (r -> m r') -> UReftV v r -> m (UReftV v' r')
 emapUReftVM f g (MkUReft r p) = MkUReft <$> g r <*> emapPredicateVM f p
 
+data QVar t
+  = QVar
+      { qv_quotient  :: !Symbol
+      , qv_quotients :: ![Symbol]
+      , qv_type      :: !t
+      } deriving (Eq, Generic, Data, Functor, Foldable, Traversable)
+        deriving (B.Binary, Hashable) via Generically (QVar t)
+
+type BareQVar = QVU F.LocSymbol BTyCon BTyVar
+
+instance (NFData t) => NFData (QVar t)
+
 type BRType      = RTypeV Symbol BTyCon BTyVar    -- ^ "Bare" parsed version
 type BRTypeV v   = RTypeV v BTyCon BTyVar         -- ^ "Bare" parsed version
 type RRType      = RTypeV Symbol RTyCon RTyVar    -- ^ "Resolved" version
@@ -989,6 +1007,10 @@ instance F.PPrint RTyVar where
 
 instance (F.PPrint r, F.PPrint t, F.PPrint (RType c tv r)) => F.PPrint (Ref t (RType c tv r)) where
   pprintTidy k (RProp ss s) = ppRefArgs k (fst <$> ss) <+> F.pprintTidy k s
+
+instance F.PPrint t => F.PPrint (QVar t) where
+  pprintTidy k QVar {..}
+    = F.pprintTidy k qv_quotient <+> hsep (map (F.pprintTidy k) qv_quotients) <+> "::" <+> F.pprintTidy k qv_type
 
 ppRefArgs :: F.Tidy -> [Symbol] -> Doc
 ppRefArgs _ [] = empty

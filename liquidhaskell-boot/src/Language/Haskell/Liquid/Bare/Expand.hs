@@ -18,7 +18,7 @@ module Language.Haskell.Liquid.Bare.Expand
   , bareQuotDeclSpecType
   , cookSpecType
   , cookSpecTypeE
-  , cookQuotDeclSpecTypeE
+  , cookQuotSpecDecl
   , specExpandType
 
     -- * Re-exported for data-constructors
@@ -48,6 +48,8 @@ import qualified Liquid.GHC.API       as Ghc
 import           Language.Haskell.Liquid.Types.Errors
 import           Language.Haskell.Liquid.Types.DataDecl
 import           Language.Haskell.Liquid.Types.Names
+import           Language.Haskell.Liquid.Types.QuotDecl
+import qualified Language.Haskell.Liquid.Types.QuotGen as Quotient
 import qualified Language.Haskell.Liquid.Types.RefType as RT
 import           Language.Haskell.Liquid.Types.RType
 import           Language.Haskell.Liquid.Types.RTypeOp
@@ -229,8 +231,8 @@ buildTypeEdges table = ordNub . go
     go (REx _ t1 t2)        = go t1 ++ go t2
     go (RAllT _ t _)        = go t
     go (RAllP _ t)          = go t
-    go (RChooseQ _ _ t1 t2) = go t1 ++ go t2
-    go (RQuotient t _)      = go t
+    go (RChooseQ qvs t _)   = go (mempty <$ qv_type qvs) ++ go t
+    go (RQuotient t _ _)    = go t
     go (RVar _ _)           = []
     go (RExprArg _)         = []
     go (RHole _)            = []
@@ -396,8 +398,8 @@ expandBareType rtEnv l = go
     go (RAllT a t r)       = RAllT a (go t) r
     go (RAllP a t)         = RAllP a (go t)
     go (RAllE x t1 t2)     = RAllE x (go t1) (go t2)
-    go (RChooseQ q qs t u) = RChooseQ q qs (go t) (go u)
-    go (RQuotient t q)     = RQuotient (go t) q
+    go (RChooseQ qvs t r)  = RChooseQ qvs { qv_type = void $ go (mempty <$ qv_type qvs) } (go t) r
+    go (RQuotient t q r)   = RQuotient (go t) q r
     go (REx x t1 t2)       = REx   x (go t1) (go t2)
     go (RRTy e r o t)      = RRTy  e r o     (go t)
     go t@RHole{}           = t
@@ -491,7 +493,7 @@ cookSpecTypeE env sigEnv name@(ModName _ _) x bt
         . fmap (RT.addTyConInfo embs tyi)
         . Bare.txRefSort tyi embs
         . fmap txExpToBind -- What does this function DO
-        . (specExpandType rtEnv . fmap (generalizeWith x))
+        . (specExpandType rtEnv . fmap (Quotient.generalizeQV . generalizeWith x))
         . (if doplug || not allowTC then maybePlug allowTC sigEnv name x else id)
 
     allowTC = typeclass (getConfig env)
@@ -509,40 +511,71 @@ cookSpecTypeE env sigEnv name@(ModName _ _) x bt
     tyi    = Bare.sigTyRTyMap sigEnv
 
 -----------------------------------------------------------------------------------------
-cookQuotDeclSpecTypeE
-  :: Bare.QuotBareEnv
-  -> Bare.Env
+cookQuotDeclSpecType
+  :: Bare.Env
   -> Bare.SigEnv
   -> ModName
-  -> Bare.PlugTV Ghc.Var
-  -> LocBareType
-  -> (Bare.Lookup LocSpecType, Bare.QuotEnv)
+  -> LocSpecType
+  -> LocSpecType
 -----------------------------------------------------------------------------------------
-cookQuotDeclSpecTypeE quotBareEnv env sigEnv name@(ModName _ _) x bt
-  = (fmap f st, qenv)
+cookQuotDeclSpecType env sigEnv name@(ModName _ _) st
+  | doplug || not allowTC
+      = plugHoles allowTC sigEnv name Bare.RawTV . f . maybePlug allowTC sigEnv name Bare.RawTV $ st
+  | otherwise = f st
   where
-    (st, qenv) = bareQuotDeclSpecType quotBareEnv env $ bareExpandType rtEnv bt
-
-    f = (if doplug || not allowTC then plugHoles allowTC sigEnv name x else id)
-        . fmap (RT.addTyConInfo embs tyi)
-        . Bare.txRefSort tyi embs
-        . fmap txExpToBind -- What does this function DO
-        . (specExpandType rtEnv . fmap (generalizeWith x))
-        . (if doplug || not allowTC then maybePlug allowTC sigEnv name x else id)
+    f = fmap (RT.addTyConInfo embs tyi)
+      . Bare.txRefSort tyi embs
+      . fmap txExpToBind -- What does this function DO
+      . specExpandType rtEnv
+      . fmap (Quotient.generalizeQV . RT.generalize)
 
     allowTC = typeclass (getConfig env)
     -- modT   = mname `S.member` wiredInMods
-    doplug
-      | Bare.LqTV v <- x
-      , GM.isMethod v || GM.isSCSel v
-      , not (isTarget name)
-      = False
-      | otherwise
-      = True
-    _msg i = "cook-" ++ show i ++ " : " ++ F.showpp x
+    doplug = isTarget name
+
     rtEnv  = Bare.sigRTEnv    sigEnv
     embs   = Bare.sigEmbs     sigEnv
     tyi    = Bare.sigTyRTyMap sigEnv
+
+cookSpecEqualityParam
+  :: Bare.Env
+  -> Bare.SigEnv
+  -> ModName
+  -> SpecEqualityParam
+  -> SpecEqualityParam
+cookSpecEqualityParam env sigEnv name EqualityBindParam {..}
+  = EqualityBindParam
+      { epType = cookQuotDeclSpecType env sigEnv name epType
+      , ..
+      }
+cookSpecEqualityParam _ _ _ (EqualityPrecondition e) = EqualityPrecondition e
+
+cookSpecEqualityCtor
+  :: Bare.Env
+  -> Bare.SigEnv
+  -> ModName
+  -> SpecEqualityCtor
+  -> SpecEqualityCtor
+cookSpecEqualityCtor env sigEnv name EqualityCtor {..}
+  = EqualityCtor
+      { ecTheta      = map (cookQuotDeclSpecType env sigEnv name) ecTheta
+      , ecParameters = map (cookSpecEqualityParam env sigEnv name) ecParameters
+      , ..
+      }
+
+cookQuotSpecDecl
+  :: Bare.Env
+  -> Bare.SigEnv
+  -> ModName
+  -> QuotSpecDecl
+  -> QuotSpecDecl
+cookQuotSpecDecl env sigEnv name@(ModName _ _) QuotDecl {..}
+  = QuotDecl
+      { qtycType        = cookQuotDeclSpecType env sigEnv name qtycType
+      , qtycFirstEqCon  = cookSpecEqualityCtor env sigEnv name qtycFirstEqCon
+      , qtycEqCons      = map (cookSpecEqualityCtor env sigEnv name) qtycEqCons
+      , ..
+      }
 
 -- | We don't want to generalize type variables that maybe bound in the
 --   outer scope, e.g. see tests/basic/pos/LocalPlug00.hs

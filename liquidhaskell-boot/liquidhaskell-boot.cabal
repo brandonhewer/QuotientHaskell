@@ -98,7 +98,10 @@ library
                       Language.Haskell.Liquid.Types.PredType
                       Language.Haskell.Liquid.Types.PrettyPrint
                       Language.Haskell.Liquid.Types.QuotDecl
+                      Language.Haskell.Liquid.Types.QuotGen
+                      Language.Haskell.Liquid.Types.QuotMap
                       Language.Haskell.Liquid.Types.QuotSubst
+                      Language.Haskell.Liquid.Types.QuotUnify
                       Language.Haskell.Liquid.Types.RefType
                       Language.Haskell.Liquid.Types.RType
                       Language.Haskell.Liquid.Types.RTypeOp

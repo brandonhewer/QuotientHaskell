@@ -457,6 +457,16 @@ data TError t =
                 , tcname :: !Doc
                 }
 
+  | ErrQuotTyCon { pos :: !SrcSpan
+                 , nam :: !Doc
+                 , msg :: !Doc
+                 } -- ^ Underlying type of a quotient declaration is malformed
+
+  | ErrEqualityCtor { pos :: !SrcSpan
+                    , nam :: !Doc
+                    , msg :: !Doc
+                    }
+
   | ErrLiftExp  { pos    :: !SrcSpan
                 , msg    :: !Doc
                 }
@@ -1059,6 +1069,16 @@ ppError' _ _ (ErrRClass p0 c is)
 
 ppError' _ dCtx (ErrTyCon _ msg ty)
   = text "Illegal data refinement for" <+> ppTicks ty
+        $+$ dCtx
+        $+$ nest 4 msg
+
+ppError' _ dCtx (ErrQuotTyCon _ msg ty)
+  = text "Malformed underlying type in the declaration of the quotient type" <+> ppTicks ty
+        $+$ dCtx
+        $+$ nest 4 msg
+
+ppError' _ dCtx (ErrEqualityCtor _ msg ty)
+  = text "Malformed equality constructor" <+> ppTicks ty
         $+$ dCtx
         $+$ nest 4 msg
 

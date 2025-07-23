@@ -18,6 +18,8 @@ module Language.Haskell.Liquid.Types.QuotDecl
   , QuotDeclParsed
   , QuotDeclR
   , QuotSpecDecl
+  , SpecEqualityCtor
+  , SpecEqualityParam
   ) where
 
 import           Data.Binary                         (Binary)
@@ -60,6 +62,7 @@ class LocTraversable t where
 --------------------------------------------------------------------------------
 type EqualityParam       = EqualityParamP Symbol BareType
 type EqualityParamParsed = EqualityParamP LocSymbol BareTypeParsed
+type SpecEqualityParam   = EqualityParamP Symbol SpecType
 data EqualityParamP v ty
   = EqualityBindParam
       { epBinder :: !Symbol
@@ -81,14 +84,15 @@ instance (Ord v, F.Fixpoint v, F.PPrint v, F.PPrint ty) => F.PPrint (EqualityPar
 --------------------------------------------------------------------------------
 type EqualityCtor       = EqualityCtorP Symbol BareType
 type EqualityCtorParsed = EqualityCtorP LocSymbol BareTypeParsed
+type SpecEqualityCtor   = EqualityCtorP Symbol SpecType
 data EqualityCtorP v ty
   = EqualityCtor
-      { ecName       :: !(Located Symbol) -- ^ Equality constructor name
-      , ecTyVars     :: [Symbol]            -- ^ Type variable parameters
-      , ecTheta      :: [Located ty]        -- ^ Equality constructor theta constraints (e.g. typeclasses)
+      { ecName       :: !(Located Symbol)     -- ^ Equality constructor name
+      , ecTyVars     :: [Symbol]              -- ^ Type variable parameters
+      , ecTheta      :: [Located ty]          -- ^ Equality constructor theta constraints (e.g. typeclasses)
       , ecParameters :: [EqualityParamP v ty] -- ^ Equality constructor parameters
-      , ecLeftTerm   :: ExprV v             -- ^ Left-hand side of the target equality
-      , ecRightTerm  :: ExprV v             -- ^ Right-hand side of the target equality
+      , ecLeftTerm   :: ExprV v               -- ^ Left-hand side of the target equality
+      , ecRightTerm  :: ExprV v               -- ^ Right-hand side of the target equality
       }
     deriving (Data, Generic, Eq, Functor, Foldable, Traversable)
 

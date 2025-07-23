@@ -68,8 +68,8 @@ txRType cF vF = go
     go (RVar α r)          = RVar  (vF α) r
     go (RAllT α t r)       = RAllT (goRTV α) (go t) r
     go (RAllP π t)         = RAllP (goPV  π) (go t)
-    go (RChooseQ q qs t u) = RChooseQ q qs (go t) (go u)
-    go (RQuotient t q)     = RQuotient (go t) q
+    go (RChooseQ qvs t r)  = RChooseQ qvs {qv_type = txRType cF vF $ qv_type qvs} (go t) r
+    go (RQuotient t q r)   = RQuotient (go t) q r
     go (RFun x i t t' r)   = RFun   x i      (go t) (go t') r
     go (RAllE x t t')      = RAllE x         (go t) (go t')
     go (REx x t t')        = REx   x         (go t) (go t')

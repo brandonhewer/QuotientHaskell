@@ -1,7 +1,8 @@
 {-# LANGUAGE NamedFieldPuns #-}
 
 module Language.Haskell.Liquid.Types.QuotSubst
-  ( unfoldQuotientType
+  ( renameQVs
+  , unfoldQuotientType
   ) where
 
 import           Data.Functor                           (void)
@@ -13,6 +14,7 @@ import qualified Language.Fixpoint.Types                as Fixpoint
 import qualified Language.Haskell.Liquid.GHC.Misc       as GM
 import           Language.Haskell.Liquid.Types.RType
   ( LHTyCon (..)
+  , QVU
   , RRType
   , RTVar   (..)
   , RTypeV  (..)
@@ -49,9 +51,9 @@ substituteTVWith f σ RAllP {..}
       }
 substituteTVWith f σ RChooseQ {..}
   = RChooseQ
-      { rt_qty = substituteTVWith f σ rt_qty
-      , rt_ty  = substituteTVWith f σ rt_ty
-      , ..
+      { rt_qvbind = fmap (substituteTVWith void σ) rt_qvbind
+      , rt_ty     = substituteTVWith f σ rt_ty
+      , rt_reft
       }
 substituteTVWith f σ RQuotient {..}
   = RQuotient
@@ -107,3 +109,66 @@ rTyVar = (`RVar` mempty) . Liquid.RTV . GM.symbolTyVar
 
 unfoldQuotientType :: UReftable r => [Symbol] -> [RRType r] -> RRType r -> RRType r
 unfoldQuotientType tvs ts = substituteTV (HashMap.fromList $ zipWithDefault rTyVar tvs ts)
+
+renameQVs :: HashMap Symbol Symbol -> RTypeV v c tv r -> RTypeV v c tv r
+renameQVs _ RVar {..} = RVar {..}
+renameQVs σ RFun {..}
+  = RFun
+      { rt_in  = renameQVs σ rt_in
+      , rt_out = renameQVs σ rt_out
+      , ..
+      }
+renameQVs σ RAllT {..}
+  = RAllT
+      { rt_ty = renameQVs σ rt_ty
+      , ..
+      }
+renameQVs σ RAllP {..}
+  = RAllP
+      { rt_ty = renameQVs σ rt_ty
+      , ..
+      }
+renameQVs σ RChooseQ {..}
+  = RChooseQ
+      { rt_ty = renameQVs (deleteQVs σ rt_qvbind) rt_ty
+      , ..
+      }
+renameQVs σ RQuotient {..}
+  = RQuotient
+      { rt_ty       = renameQVs σ rt_ty
+      , rt_quotient = HashMap.lookupDefault rt_quotient rt_quotient σ
+      , ..
+      }
+renameQVs σ RApp {..}
+  = RApp
+      { rt_args = map (renameQVs σ) rt_args
+      , ..
+      }
+renameQVs σ RAllE {..}
+  = RAllE
+      { rt_ty = renameQVs σ rt_ty
+      , ..
+      }
+renameQVs σ REx {..}
+  = REx
+      { rt_ty = renameQVs σ rt_ty
+      , ..
+      }
+renameQVs _ (RExprArg e) = RExprArg e
+renameQVs σ RAppTy {..}
+  = RAppTy
+      { rt_arg = renameQVs σ rt_arg
+      , rt_res = renameQVs σ rt_res
+      , ..
+      }
+renameQVs σ RRTy {..}
+  = RRTy
+      { rt_env = map (fmap $ renameQVs σ) rt_env
+      , rt_ty  = renameQVs σ rt_ty
+      , ..
+      }
+renameQVs _ (RHole r) = RHole r
+
+deleteQVs :: HashMap Symbol Symbol -> QVU v c tv -> HashMap Symbol Symbol
+deleteQVs σ Liquid.QVar {qv_quotient, qv_quotients}
+  = foldl' (flip HashMap.delete) (HashMap.delete qv_quotient σ) qv_quotients

@@ -1,9 +1,10 @@
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE NamedFieldPuns      #-}
 {-# LANGUAGE FlexibleContexts    #-}
 {-# LANGUAGE TupleSections       #-}
 {-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE OverloadedStrings   #-}
-{-# OPTIONS_GHC -Wno-x-partial #-}
+{-# OPTIONS_GHC -Wno-x-partial   #-}
 
 module Language.Haskell.Liquid.Bare.Check
   ( checkTargetSpec
@@ -41,6 +42,7 @@ import           Language.Haskell.Liquid.Types.DataDecl
 import           Language.Haskell.Liquid.Types.Errors
 import           Language.Haskell.Liquid.Types.Names
 import           Language.Haskell.Liquid.Types.PredType
+import           Language.Haskell.Liquid.Types.QuotDecl
 import           Language.Haskell.Liquid.Types.RType
 import           Language.Haskell.Liquid.Types.RefType
 import           Language.Haskell.Liquid.Types.RTypeOp
@@ -158,6 +160,7 @@ checkTargetSpec specs src env cbs tsp
                      <> runReader (foldMapM (checkInv allowHO bsc emb tcEnv env)                 (gsInvariants (gsData tsp))) ef
                      <> runReader (checkIAl allowHO bsc emb tcEnv env                            (gsIaliases   (gsData tsp))) ef
                      <> runReader (checkMeasures emb env ms) ef
+                     <> runReader (checkQuotDecls allowHO bsc emb tcEnv env qdecls) ef
                      <> checkClassMeasures                                        ms
                      <> checkClassMethods (gsCls src) (gsCMethods (gsVars tsp)) (gsTySigs     (gsSig tsp))
                      -- <> foldMap checkMismatch sigs
@@ -186,6 +189,7 @@ checkTargetSpec specs src env cbs tsp
     emb              = gsTcEmbeds (gsName tsp)
     tcEnv            = gsTyconEnv (gsName tsp)
     ms               = gsMeasures (gsData tsp)
+    qdecls           = gsQuotDecls (gsData tsp)
     clsSigs sp       = [ (v, t) | (v, t) <- gsTySigs sp, isJust (isClassOpId_maybe v) ]
     sigs             = gsTySigs (gsSig tsp) ++ gsAsmSigs (gsSig tsp) ++ gsCtors (gsData tsp)
     -- allowTC          = typeclass (getConfig sp)
@@ -289,6 +293,78 @@ checkSigTExpr allowHO bsc emb tcEnv env (x, (t, es)) =
     mbErr1 = checkBind allowHO bsc empty emb tcEnv env (x, t)
     mbErr2 = maybe (pure emptyDiagnostics) (checkTerminationExpr emb env . (x, t,)) es
     -- mbErr2 = checkTerminationExpr emb env . (x, t,) =<< es
+
+--------------------------------------------------------------------------------
+checkQuotDecls
+  :: Bool
+  -> BScope
+  -> F.TCEmb TyCon
+  -> Bare.TyConMap
+  -> F.SEnv F.SortedReft
+  -> QuotEnv
+  -> ElabM Diagnostics
+--------------------------------------------------------------------------------
+checkQuotDecls allowHO bsc emb tcEnv senv env
+  = foldMapM (checkQuotDecl allowHO bsc emb tcEnv senv) env
+
+checkQuotDecl
+  :: Bool
+  -> BScope
+  -> F.TCEmb TyCon
+  -> Bare.TyConMap
+  -> F.SEnv F.SortedReft
+  -> QuotSpecDecl
+  -> ElabM Diagnostics
+checkQuotDecl allowHO bsc emb tcEnv senv QuotDecl {..} = do
+  es1 <- checkTy allowHO bsc err emb tcEnv senv qtycType
+  es2 <- checkEqualityCtor allowHO bsc emb tcEnv senv sp qtycFirstEqCon
+  es3 <- foldMapM (checkEqualityCtor allowHO bsc emb tcEnv senv sp) qtycEqCons
+  pure $ es1 <> es2 <> es3
+  where
+    sp = F.srcSpan qtycType
+
+    err msg
+      = ErrQuotTyCon
+          { pos = GM.sourcePosSrcSpan $ loc qtycName
+          , nam = pprint qtycName
+          , msg
+          }
+
+checkEqualityCtor
+  :: Bool
+  -> BScope
+  -> F.TCEmb TyCon
+  -> Bare.TyConMap
+  -> F.SEnv F.SortedReft
+  -> F.SrcSpan
+  -> SpecEqualityCtor
+  -> ElabM Diagnostics
+checkEqualityCtor allowHO bsc emb tcEnv senv sp EqualityCtor {..} = do
+  es1 <- foldMapM (checkTy allowHO bsc err emb tcEnv senv) ecTheta
+  es2 <- foldMapM (checkEqualityParam allowHO bsc err emb tcEnv senv sp) ecParameters
+  pure $ es1 <> es2
+  where
+    err msg
+      = ErrEqualityCtor
+          { pos = GM.sourcePosSrcSpan $ loc ecName
+          , nam = pprint ecName
+          , msg
+          }
+
+checkEqualityParam
+  :: Bool
+  -> BScope
+  -> (Doc -> Error)
+  -> F.TCEmb TyCon
+  -> Bare.TyConMap
+  -> F.SEnv F.SortedReft
+  -> F.SrcSpan
+  -> SpecEqualityParam
+  -> ElabM Diagnostics
+checkEqualityParam allowHO bsc err emb tcEnv senv _ EqualityBindParam {..}
+  = checkTy allowHO bsc err emb tcEnv senv epType
+checkEqualityParam _ _ err _ _ senv sp (EqualityPrecondition e)
+  = foldMap (mkDiagnostics [] . pure . err) <$> checkSortedReftFull sp senv e
 
 -- | Used for termination checking. If we have no \"len\" defined /yet/ (for example we are checking
 -- 'GHC.Prim') then we want to skip this check.
@@ -497,7 +573,7 @@ checkRType :: Bool -> BScope -> F.TCEmb TyCon -> F.SEnv F.SortedReft -> LocSpecT
 ------------------------------------------------------------------------------------------------
 checkRType allowHO bsc emb senv lt =
   do ef <- ask
-     let f env me r err = err <|> runReader (checkReft (F.srcSpan lt) env emb me r) ef
+     let f  env me r err = err <|> runReader (checkReft (F.srcSpan lt) env emb me r) ef
      pure $     checkAppTys st
             <|> checkAbstractRefs st
             <|> efoldReft farg bsc cb (tyToBind emb) (rTypeSortedReft emb) f fq insertPEnv senv Nothing st
@@ -506,7 +582,7 @@ checkRType allowHO bsc emb senv lt =
     st                 = val lt
     cb c ts            = classBinds emb (rRCls c ts)
     farg _ t           = allowHO || isBase t  -- NOTE: this check should be the same as the one in addCGEnv
-    fq _ _ _           = Nothing
+    fq _ _ _ _         = Nothing
 
     insertPEnv p γ     = insertsSEnv γ (fmap (rTypeSortedReft emb) <$> pbinds p)
     pbinds p           = (pname p, pvarRType p :: RSort) : [(x, tx) | (tx, x, _) <- pargs p]
@@ -522,8 +598,8 @@ checkAppTys = go
   where
     go (RAllT _ t _)       = go t
     go (RAllP _ t)         = go t
-    go (RChooseQ _ _ t u)  = go t <|> go u
-    go (RQuotient t _)     = go t
+    go (RChooseQ qvs t _)  = checkAppTys (qv_type qvs) <|> go t
+    go (RQuotient t _ _)   = go t
     go (RApp rtc ts _ _)
       = checkTcArity rtc (length ts) <|>
         L.foldl' (\merr t -> merr <|> go t) Nothing ts
@@ -559,8 +635,8 @@ checkAbstractRefs rt = go rt
 
     go t@(RAllT _ t1 r)     = check (toRSort'  t :: RSort) r <|>  go t1
     go (RAllP _ t)          = go t
-    go (RChooseQ _ _ t u)   = go t <|> go u
-    go (RQuotient t _)      = go t
+    go (RChooseQ qvs t r)   = check (toRSort' t :: RSort) r <|> go (mempty <$ qv_type qvs) <|> go t
+    go (RQuotient t _ r)    = check (toRSort' t :: RSort) r <|> go t
     go t@(RApp c ts rs r)   = check (toRSort'  t :: RSort) r <|>  efold go ts <|> go' c rs
     go t@(RFun _ _ t1 t2 r) = check (toRSort'  t :: RSort) r <|> go t1 <|> go t2
     go t@(RVar _ r)         = check (toRSort'  t :: RSort) r

@@ -56,6 +56,7 @@ module Language.Haskell.Liquid.Bare.Resolve
   ) where
 
 import qualified Control.Exception                 as Ex
+import           Control.Monad                     (void)
 import qualified Control.Monad.Except              as Except
 import qualified Control.Monad.State.Strict        as State
 import           Data.Bifunctor (first)
@@ -100,8 +101,8 @@ type Lookup a = Either [Error] a
 -------------------------------------------------------------------------------
 -- | Creating an environment
 -------------------------------------------------------------------------------
-makeEnv :: Config -> GHCTyLookupEnv -> [Ghc.Id] -> Ghc.TcGblEnv -> Ghc.InstEnvs -> LocalVars -> GhcSrc -> LogicMap -> QuotEnv -> [(ModName, BareSpec)] -> Env
-makeEnv cfg ghcTyLookupEnv dataConIds tcg instEnv localVars src lmap qenv specs = RE
+makeEnv :: Config -> GHCTyLookupEnv -> [Ghc.Id] -> Ghc.TcGblEnv -> Ghc.InstEnvs -> LocalVars -> GhcSrc -> LogicMap -> [(ModName, BareSpec)] -> Env
+makeEnv cfg ghcTyLookupEnv dataConIds tcg instEnv localVars src lmap specs = RE
   { reTyLookupEnv      = ghcTyLookupEnv
   , reTcGblEnv         = tcg
   , reInstEnvs         = instEnv
@@ -111,7 +112,7 @@ makeEnv cfg ghcTyLookupEnv dataConIds tcg instEnv localVars src lmap qenv specs 
   , reLocalVars        = localVars
   , reSrc              = src
   , reGlobSyms         = S.fromList     globalSyms
-  , reQuotientTypes    = qenv
+  , reQuotientTypes    = M.empty
   , reCfg              = cfg
   }
   where
@@ -383,7 +384,13 @@ type Expandable r = ( PPrint r
                     , HasCallStack)
 
 ofQDeclBRType
-  :: QuotBareEnv -> Env -> ([F.Symbol] -> RReftV F.Symbol -> RReft) -> F.SourcePos -> BareType -> (Lookup SpecType, QuotEnv)
+  :: QuotBareEnv
+  -> Env
+  -> ([F.Symbol]
+  -> RReftV F.Symbol -> RReft)
+  -> F.SourcePos
+  -> BareType
+  -> (Lookup SpecType, QuotEnv)
 ofQDeclBRType quotBareEnv env f l it
   = State.runState (Except.runExceptT $ go [] it) $ reQuotientTypes env
   where
@@ -401,8 +408,9 @@ ofQDeclBRType quotBareEnv env f l it
       where a'                = dropTyVarInfo (mapTyVarValue RT.bareRTyVar a)
     go bs (RAllP a t)         = RAllP a' <$> go bs t
       where a'                = ofBPVar env l a
-    go bs (RChooseQ q qs t u) = RChooseQ q qs <$> go bs t <*> go bs u
-    go bs (RQuotient t q)     = (`RQuotient` q) <$> go bs t
+    go bs (RChooseQ qvs t r)  = mkChooseQ <$> go bs (mempty <$ qv_type qvs) <*> go bs t <*> goReft bs r
+      where mkChooseQ qt = RChooseQ qvs {qv_type = void qt}
+    go bs (RQuotient t q r)   = (`RQuotient` q) <$> go bs t <*> goReft bs r
     go bs (RAllE x t1 t2)     = RAllE x  <$> go bs t1    <*> go bs t2
     go bs (REx x t1 t2)       = REx   x  <$> go bs t1    <*> go (x:bs) t2
     go bs (RRTy xts r o t)    = RRTy  <$> xts' <*> goReft bs r <*> pure o <*> go bs t
@@ -440,13 +448,14 @@ ofQDeclBRType quotBareEnv env f l it
             where
               lc' = Except.liftEither $ F.atLoc btc_tc <$> lookupGhcTyConLHName (reTyLookupEnv env) btc_tc
 
-ofBRType :: (Expandable r) => Env -> ([F.Symbol] -> r -> r) -> F.SourcePos -> BRType r
-         -> Lookup (RRType r)
-ofBRType env f l = go []
+ofBRType' :: (Expandable r) => Env -> ([F.Symbol] -> r -> r) -> F.SourcePos -> [F.Symbol] -> BRType r
+          -> Lookup (RRType r)
+ofBRType' env f l = go
   where
     goReft bs r             = return (f bs r)
     goRFun bs x i t1 t2 r  = RFun x i{permitTC = Just (typeclass (getConfig env))} <$> (rebind x <$> go bs t1) <*> go (x:bs) t2 <*> goReft bs r
     rebind x t              = F.subst1 t (x, F.EVar $ rTypeValueVar t)
+
     go bs (RAppTy t1 t2 r)    = RAppTy <$> go bs t1 <*> go bs t2 <*> goReft bs r
     go bs (RApp tc ts rs r)   = goRApp bs tc ts rs r
     go bs (RFun x i t1 t2 r)  = goRFun bs x i t1 t2 r
@@ -455,8 +464,13 @@ ofBRType env f l = go []
       where a'                = dropTyVarInfo (mapTyVarValue RT.bareRTyVar a)
     go bs (RAllP a t)         = RAllP a' <$> go bs t
       where a'                = ofBPVar env l a
-    go bs (RChooseQ q qs t u) = RChooseQ q qs <$> go bs t <*> go bs u
-    go bs (RQuotient t q)     = (`RQuotient` q) <$> go bs t
+    go bs (RChooseQ qvs t r)
+      = mkChooseQ
+          <$> ofBRType' env (\_ -> const ()) l bs (qv_type qvs)
+          <*> go bs t
+          <*> goReft bs r
+      where mkChooseQ qt = RChooseQ qvs { qv_type = qt }
+    go bs (RQuotient t q r)   = (`RQuotient` q) <$> go bs t <*> goReft bs r
     go bs (RAllE x t1 t2)     = RAllE x  <$> go bs t1    <*> go bs t2
     go bs (REx x t1 t2)       = REx   x  <$> go bs t1    <*> go (x:bs) t2
     go bs (RRTy xts r o t)    = RRTy  <$> xts' <*> goReft bs r <*> pure o <*> go bs t
@@ -480,6 +494,10 @@ ofBRType env f l = go []
           _ -> bareTCApp <$> goReft bs r <*> lc' <*> mapM (goRef bs) rs <*> mapM (go bs) ts
             where
               lc' = F.atLoc btc_tc <$> lookupGhcTyConLHName (reTyLookupEnv env) btc_tc
+
+ofBRType :: (Expandable r) => Env -> ([F.Symbol] -> r -> r) -> F.SourcePos -> BRType r
+         -> Lookup (RRType r)
+ofBRType env f l = ofBRType' env f l []
 
 lookupGhcTyConLHName :: HasCallStack => GHCTyLookupEnv -> Located LHName -> Lookup Ghc.TyCon
 lookupGhcTyConLHName env lc = do

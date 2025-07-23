@@ -45,6 +45,12 @@ import           Language.Haskell.Liquid.Types.Errors
 import           Language.Haskell.Liquid.Types.Names
 import           Language.Haskell.Liquid.Types.PredType
 import           Language.Haskell.Liquid.Types.QuotDecl
+  ( EqualityCtorParsed
+  , EqualityParamParsed
+  , QuotDeclParsed
+  )
+import qualified Language.Haskell.Liquid.Types.QuotDecl as Quotient
+import qualified Language.Haskell.Liquid.Types.QuotMap  as Quotient
 import           Language.Haskell.Liquid.Types.RType
 import           Language.Haskell.Liquid.Types.RefType
 import           Language.Haskell.Liquid.Types.RTypeOp
@@ -229,6 +235,7 @@ btP = do
     parseQuot c@(PC sb rt_ty) sy
       =   try ( do
             rt_quotient <- reservedOp "/" *> lowerIdP
+            let rt_reft = trueURef
             parseFun (PC sb RQuotient {..}) sy
           )
       <|> parseFun c sy
@@ -554,20 +561,21 @@ bareAllP = do
     rAllT a t = RAllT a t trueURef
     inAngles  = try  (sepBy  predVarDefP comma)
 
-bareChooseAnglesP :: Parser [(Symbol, [Symbol], BareTypeParsed)]
-bareChooseAnglesP
-  = angles $ sepBy ( do
-      qt  <- lowerIdP
-      qts <- many lowerIdP
-      qty <- reservedOp "::" *> genBareTypeP
-      return (qt, qts, qty)
-    ) comma
+bareQuotientVars :: Parser [BareQVar]
+bareQuotientVars
+  = angles $ sepBy
+      ( do
+          qv_quotient  <- lowerIdP
+          qv_quotients <- many lowerIdP
+          qv_type      <- void <$> (reservedOp "::" *> genBareTypeP)
+          return QVar {..}
+      ) comma
 
 bareChooseP :: Parser BareTypeParsed
 bareChooseP = do
-  cs  <- bareChooseAnglesP
+  cs  <- bareQuotientVars
   uty <- dot *> bareTypeP
-  return $ foldr (\(rt_quotient, rt_quotients, rt_qty) rt_ty -> RChooseQ {..}) uty cs
+  return $ foldr (\rt_qvbind rt_ty -> let rt_reft = trueURef in RChooseQ {..}) uty cs
 
 -- See #1907 for why we have to alpha-rename pvar binders
 rAllP :: SourcePos -> PVarV LocSymbol (BSortV LocSymbol) -> BareTypeParsed -> BareTypeParsed
@@ -978,7 +986,7 @@ ppPspec k (DDecl d)
 ppPspec k (NTDecl d)
   = "newtype" <+> pprintTidy k (parsedToBareType <$> mapDataDeclV val d)
 ppPspec k (QDecl q)
-  = pprintTidy k (parsedToBareType <$> mapQuotDeclV val q)
+  = pprintTidy k (parsedToBareType <$> Quotient.mapQuotDeclV val q)
 ppPspec k (Invt t)
   = "invariant" <+> pprintTidy k (parsedToBareType <$> t)
 ppPspec k (Using (t1, t2))
@@ -1734,7 +1742,7 @@ dataWithQuotP
 dataWithQuotP pos dn fsize as ps utype = do
   ector  <- equalityCtorP as <?> "equalityCtor"
   ectors <- many (reservedOp "|/" *> equalityCtorP as)
-  return $ QDecl QuotDecl
+  return $ QDecl Quotient.QuotDecl
     { qtycName       = dn
     , qtycTyVars     = as
     , qtycPVars      = ps
@@ -1790,10 +1798,10 @@ equalityBindParamP :: Parser EqualityParamParsed
 equalityBindParamP = do
   lb <- locLowerIdP <* reservedOp ":"
   let b = val lb
-  EqualityBindParam (val lb) <$> located (bareArgP b)
+  Quotient.EqualityBindParam (val lb) <$> located (bareArgP b)
 
 equalityPreconditionP :: Parser EqualityParamParsed
-equalityPreconditionP = braces $ EqualityPrecondition <$> predP
+equalityPreconditionP = braces $ Quotient.EqualityPrecondition <$> predP
 
 equalityConstraintsP :: Parser [Located BareTypeParsed]
 equalityConstraintsP
@@ -1813,7 +1821,7 @@ equalityCtorP ecTyVars = do
   ecParameters <- equalityCtorParamsP
   ecLeftTerm   <- exprP
   ecRightTerm  <- reservedOp "==" *> exprP
-  return EqualityCtor {..} 
+  return Quotient.EqualityCtor {..} 
 
 ---------------------------------------------------------------------
 -- Identifiers ------------------------------------------------------
