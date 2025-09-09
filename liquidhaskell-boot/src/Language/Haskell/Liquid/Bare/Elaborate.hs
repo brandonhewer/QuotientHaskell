@@ -751,8 +751,8 @@ specTypeToLHsType = \case
      where
       notExprArg (RExprArg _) = False
       notExprArg _            = True
-    RApp RTyCon { rtc_tc = QuotientTyCon {..} } ts _ _ ->
-      specTypeToLHsType (foldl' (flip $ subsTyVarMeet') qtc_base $ zip (map symbolRTyVar qtc_tvs) ts)
+    RApp RTyCon { rtc_tc = QuotientTyCon QTyCon {..} } ts _ _ ->
+      specTypeToLHsType (foldl' (flip subsTyVarMeet') qtc_base $ zip (map symbolRTyVar qtc_tvs) ts)
     -- subsTyVarMeet'
     RAllE _ tin tout -> nlHsFunTy (specTypeToLHsType tin) (specTypeToLHsType tout)
     REx _ tin tout -> nlHsFunTy (specTypeToLHsType tin) (specTypeToLHsType tout)

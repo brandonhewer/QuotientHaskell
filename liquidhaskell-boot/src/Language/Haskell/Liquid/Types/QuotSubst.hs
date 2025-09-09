@@ -14,6 +14,7 @@ import qualified Language.Fixpoint.Types                as Fixpoint
 import qualified Language.Haskell.Liquid.GHC.Misc       as GM
 import           Language.Haskell.Liquid.Types.RType
   ( LHTyCon (..)
+  , QTyCon  (..)
   , QVU
   , RRType
   , RTVar   (..)
@@ -62,7 +63,7 @@ substituteTVWith f σ RQuotient {..}
       }
 substituteTVWith f σ RApp {rt_tycon = rt_tycon@RTyCon{rtc_tc}, ..}
   = case rtc_tc of
-      QuotientTyCon {..} -> unfoldQuotientType qtc_tvs rt_args $ fmap Liquid.ofUReft qtc_base
+      QuotientTyCon QTyCon {..} -> unfoldQuotientType qtc_tvs rt_args $ fmap Liquid.ofUReft qtc_base
       _                  ->
         RApp
           { rt_args  = map (substituteTVWith f σ) rt_args

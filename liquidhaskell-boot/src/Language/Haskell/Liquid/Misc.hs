@@ -113,6 +113,9 @@ snd5 (_,x,_,_,_) = x
 fst5 :: (t0, t1, t2, t3, t4) -> t0
 fst5 (x,_,_,_,_) = x
 
+fifth5 :: (t0, t1, t2, t3, t4) -> t4
+fifth5 (_,_,_,_,x) = x
+
 fourth4 :: (t, t1, t2, t3) -> t3
 fourth4 (_,_,_,x) = x
 

@@ -28,8 +28,9 @@ module Language.Haskell.Liquid.Types.RType (
   , BTyVar(..)
 
   -- * Refined Type Constructors
+  , QTyCon (..)
   , UTyCon (..)
-  , LHTyCon (RTyCon, rtc_tc, rtc_info)
+  , LHTyCon (..)
   , RTyCon
   , TyConInfo(..), defaultTyConInfo
   , rTyConPVs
@@ -60,7 +61,9 @@ module Language.Haskell.Liquid.Types.RType (
 
   -- * Quotient variables
   , BareQVar
-  , QVar (..)
+  , SpecQVar
+  , QVar     (..)
+  , QVarKind (..)
   , QVU
 
   -- * Manipulating `Predicates`
@@ -86,7 +89,7 @@ module Language.Haskell.Liquid.Types.RType (
   , RRType, RRProp
   , BRType, BRProp, BRPropV
   , BSort, BSortV, BPVar
-  , RTVU, PVU
+  , RTVU, RTVUV, PVU
 
   -- * Instantiated RType
   , BareType
@@ -277,7 +280,7 @@ data PVarV v t = PV
   , ptype :: !t
   , parg  :: !Symbol
   , pargs :: ![(t, Symbol, F.ExprV v)]
-  } deriving (Generic, Data, Show, Functor)
+  } deriving (Generic, Data, Show, Functor, Foldable, Traversable)
   deriving B.Binary via Generically (PVarV v t)
 
 mapPVarV :: (v -> v') -> (t -> t') -> PVarV v t -> PVarV v' t'
@@ -463,14 +466,18 @@ data BTyCon = BTyCon
   deriving (Generic, Data)
   deriving (B.Binary, Hashable) via Generically BTyCon
 
-data UTyCon
-  = GHCTyCon TyCon   -- | A GHC Type constructor
-  | QuotientTyCon    -- | A quotient type constructor
+data QTyCon
+  = QTyCon
       { qtc_module :: !Ghc.Module
       , qtc_name   :: !(F.Located Symbol)
-      , qtc_tvs    :: [Symbol]
-      , qtc_base   :: SpecType
+      , qtc_tvs    :: ![Symbol]
+      , qtc_base   :: !SpecType
       }
+    deriving (Generic, Data)
+
+data UTyCon
+  = GHCTyCon      !TyCon  -- | A GHC Type constructor
+  | QuotientTyCon !QTyCon -- | A quotient type constructor
   deriving (Generic, Data)
 
 data LHTyCon c = RTyCon
@@ -483,13 +490,15 @@ data LHTyCon c = RTyCon
 type RTyCon = LHTyCon UTyCon
 
 instance F.Symbolic UTyCon where
-  symbol (GHCTyCon c) = F.symbol c
-  symbol QuotientTyCon {qtc_name} = F.val qtc_name
+  symbol (GHCTyCon c)                      = F.symbol c
+  symbol (QuotientTyCon QTyCon {qtc_name}) = F.val qtc_name
 
 instance F.Symbolic c => F.Symbolic (LHTyCon c) where
   symbol = F.symbol . rtc_tc
 
 instance NFData BTyCon
+
+instance NFData QTyCon
 
 instance NFData UTyCon
 
@@ -657,10 +666,13 @@ instance TyConable BTyCon where
       LHRLogic _ -> ppTycon $ lhNameToResolvedSymbol $ F.val $ btc_tc b
       LHRQuotient s _ -> ppTycon s
 
+instance Eq QTyCon where
+  QTyCon m1 c1 _ _ == QTyCon m2 c2 _ _ = m1 == m2 && c1 == c2
+
 instance Eq UTyCon where
-  GHCTyCon c1             == GHCTyCon c2             = c1 == c2
-  QuotientTyCon m1 c1 _ _ == QuotientTyCon m2 c2 _ _ = m1 == m2 && c1 == c2
-  _                       == _                       = False
+  GHCTyCon      c1 == GHCTyCon      c2 = c1 == c2
+  QuotientTyCon q1 == QuotientTyCon q2 = q1 == q2
+  _                == _                = False
 
 instance Eq c => Eq (LHTyCon c) where
   x == y = rtc_tc x == rtc_tc y
@@ -672,8 +684,8 @@ instance Ord BTyCon where
   compare x y = compare (btc_tc x) (btc_tc y)
 
 instance F.Fixpoint UTyCon where
-  toFix (GHCTyCon c) = text $ showPpr c
-  toFix QuotientTyCon {qtc_name} = text $ F.symbolString $ F.val qtc_name
+  toFix (GHCTyCon c)                      = text $ showPpr c
+  toFix (QuotientTyCon QTyCon {qtc_name}) = text $ F.symbolString $ F.val qtc_name
 
 instance F.Fixpoint c => F.Fixpoint (LHTyCon c) where
   toFix = F.toFix . rtc_tc
@@ -688,9 +700,13 @@ instance F.Fixpoint BTyCon where
       LHRLogic _ -> text $ F.symbolString $ lhNameToResolvedSymbol $ F.val $ btc_tc b
       LHRQuotient s _ -> text $ F.symbolString $ F.val s
 
+instance F.PPrint QTyCon where
+  pprintTidy k (QTyCon m s _ _)
+    = F.pprintTidy k (Ghc.moduleNameString $ Ghc.moduleName m) <+> "." <+> F.pprintTidy k s
+
 instance F.PPrint UTyCon where
-  pprintTidy k (GHCTyCon c)            = F.pprintTidy k $ F.symbol c
-  pprintTidy k (QuotientTyCon _ s _ _) = F.pprintTidy k s
+  pprintTidy k (GHCTyCon c)        = F.pprintTidy k $ F.symbol c
+  pprintTidy k (QuotientTyCon qtc) = F.pprintTidy k qtc
 
 instance (F.PPrint c, F.Symbolic c) => F.PPrint (LHTyCon c) where
   pprintTidy k c
@@ -937,15 +953,24 @@ emapUReftVM
   => ([Symbol] -> v -> m v') -> (r -> m r') -> UReftV v r -> m (UReftV v' r')
 emapUReftVM f g (MkUReft r p) = MkUReft <$> g r <*> emapPredicateVM f p
 
+data QVarKind
+  = ForAllQ -- | Universally quantified quotients: for use in refined data constructors
+  | ChooseQ -- | Choice quantified quotients
+  deriving (Eq, Generic, Data)
+  deriving (B.Binary, Hashable) via Generically QVarKind
+
 data QVar t
   = QVar
       { qv_quotient  :: !Symbol
       , qv_quotients :: ![Symbol]
+      , qv_kind      :: !QVarKind
       , qv_type      :: !t
       } deriving (Eq, Generic, Data, Functor, Foldable, Traversable)
         deriving (B.Binary, Hashable) via Generically (QVar t)
 
 type BareQVar = QVU F.LocSymbol BTyCon BTyVar
+
+instance NFData QVarKind
 
 instance (NFData t) => NFData (QVar t)
 
@@ -969,7 +994,7 @@ type RRProp r    = Ref       RSort (RRType r)
 type BRProp r    = BRPropV Symbol r
 type BRPropV v r = Ref       (BSortV v) (BRTypeV v r)
 type SpecRTVar   = RTVar     RTyVar RSort
-
+type SpecQVar    = QVU Symbol RTyCon RTyVar
 
 
 type LocBareType = F.Located BareType

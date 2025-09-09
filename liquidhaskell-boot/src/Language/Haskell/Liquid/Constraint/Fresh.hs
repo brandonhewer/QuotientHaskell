@@ -13,6 +13,7 @@ module Language.Haskell.Liquid.Constraint.Fresh
   ( -- module Language.Haskell.Liquid.Types.Fresh
     -- , 
     refreshArgsTop
+  , freshTyReftype
   , freshTyType
   , freshTyExpr
   , trueTy
@@ -26,7 +27,7 @@ module Language.Haskell.Liquid.Constraint.Fresh
 import qualified Data.HashMap.Strict            as M
 import qualified Data.HashSet                   as S
 import           Data.Hashable
-import           Control.Monad.State            (gets, get, put, modify)
+import           Control.Monad.State            (StateT, gets, get, lift, put, modify)
 import           Control.Monad                  (when, (>=>))
 import           Prelude                        hiding (error)
 
@@ -50,6 +51,12 @@ instance Freshable CG Integer where
              let n = freshIndex s
              put $ s { freshIndex = n + 1 }
              return n
+
+instance Freshable CG RTyVar where
+  fresh = RTV . GM.symbolTyVar . F.tempSymbol "c" <$> fresh
+
+instance Freshable CG a => Freshable (StateT s CG) a where
+  fresh = lift fresh
 
 --------------------------------------------------------------------------------
 refreshArgsTop :: (Var, SpecType) -> CG SpecType

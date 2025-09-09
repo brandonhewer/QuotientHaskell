@@ -358,6 +358,26 @@ data TError t =
                 , msg :: !Doc
                 } -- ^ Haskell bad Measure error
 
+  | ErrOccurs   { pos         :: !SrcSpan
+                , occursLeft  :: !Doc
+                , occursRight :: !Doc
+                , msg         :: !Doc
+                } -- ^ Occurs error in inference of refinement expression types
+
+  | ErrDoesNotUnify
+                { pos         :: !SrcSpan
+                , leftType    :: !Doc
+                , rightType   :: !Doc
+                , msg         :: !Doc
+                } -- ^ Unification error in inference of refinement expression types
+
+  | ErrIlltypedExpr
+                { pos          :: !SrcSpan
+                , expression   :: !Doc
+                , expectedType :: !Doc
+                , msg          :: !Doc
+                } -- ^ Typing error for refinement expressions
+
   | ErrUnbound  { pos :: !SrcSpan
                 , var :: !Doc
                 } -- ^ Unbound symbol in specification
@@ -894,6 +914,21 @@ ppError' _ _ (ErrMeas _ t s)
 
 ppError' _ dCtx (ErrHMeas _ t s)
   = text "Cannot lift Haskell function" <+> ppTicks t <+> text "to logic"
+        $+$ dCtx
+        $+$ nest 4 (pprint s)
+
+ppError' _ dCtx (ErrOccurs _ v t s)
+  = text "Occurs error:" <+> v <+> text "~" <+> t
+        $+$ dCtx
+        $+$ nest 4 (pprint s)
+
+ppError' _ dCtx (ErrDoesNotUnify _ l r s)
+  = text "Unification error:" <+> l <+> text "does not unify with" <+> r
+        $+$ dCtx
+        $+$ nest 4 (pprint s)
+
+ppError' _ dCtx (ErrIlltypedExpr _ e t s)
+  = text "Expression type error: " <+> e <+> text "does not have type" <+> t
         $+$ dCtx
         $+$ nest 4 (pprint s)
 

@@ -70,7 +70,7 @@ import           Liquid.GHC.API    as Ghc hiding ( (<+>)
                                                                   , parens
                                                                   , ($+$)
                                                                   )
-import           Language.Haskell.Liquid.Misc           (thrd3)
+import           Language.Haskell.Liquid.Misc           (fourth4)
 import           Language.Haskell.Liquid.WiredIn        (wiredSortedSyms)
 import qualified Language.Fixpoint.Types            as F
 import           Language.Fixpoint.Misc
@@ -78,6 +78,7 @@ import           Language.Fixpoint.Misc
 import qualified Language.Haskell.Liquid.UX.CTags      as Tg
 import           Language.Haskell.Liquid.UX.Config
 
+import           Language.Haskell.Liquid.Constraint.QuotEnv (CGQuotEnv)
 import           Language.Haskell.Liquid.Types.Errors
 import           Language.Haskell.Liquid.Types.RefType
 import           Language.Haskell.Liquid.Types.RType
@@ -112,6 +113,7 @@ data CGEnv = CGE
   , cerr   :: !(Maybe (TError SpecType))             -- ^ error that should be reported at the user
   , cgInfo :: !TargetInfo                            -- ^ top-level TargetInfo
   , cgVar  :: !(Maybe Var)                           -- ^ top level function being checked
+  , cgQuotEnv :: !CGQuotEnv                        -- ^ Quotient type environment
   } -- deriving (Data, Typeable)
 
 instance HasConfig CGEnv where
@@ -242,6 +244,7 @@ data CGInfo = CGInfo
   , unsorted      :: !F.Templates                        -- ^ Potentially unsorted expressions
   }
 
+-- f :: a / q -> ...
 
 getTemplates :: CG F.Templates
 getTemplates = do
@@ -303,7 +306,7 @@ mkRTyConInv    :: [(Maybe Var, F.Located SpecType)] -> RTyConInv
 mkRTyConInv tss
   = group [ (c, RInv (go ts) t v) | (v, t@(RApp c ts _ _)) <- strip <$> tss ]
     where
-      strip = fmap (thrd3 . bkUniv . val)
+      strip = fmap (fourth4 . bkUniv . val)
       go ts | generic (toRSort <$> ts) = []
             | otherwise                = toRSort <$> ts
 
@@ -336,7 +339,6 @@ goodInvs ts (RInv ts' t _)
   | otherwise
   = Nothing
 
-
 unifiable :: RSort -> RSort -> Bool
 unifiable t1 t2 = isJust $ tcUnifyTy (toType False t1) (toType False t2)
 
@@ -353,8 +355,8 @@ addRInv m (x, t)
      res = ty_res . toRTypeRep
 
 uTyConDataCons :: UTyCon -> [DataCon]
-uTyConDataCons (GHCTyCon c)            = Ghc.tyConDataCons c
-uTyConDataCons (QuotientTyCon _ _ _ t) = typeDataCons t
+uTyConDataCons (GHCTyCon c)                     = Ghc.tyConDataCons c
+uTyConDataCons (QuotientTyCon (QTyCon _ _ _ t)) = typeDataCons t
 
 typeDataCons :: SpecType -> [DataCon]
 typeDataCons RVar      {}         = []
@@ -457,7 +459,7 @@ instance NFData RInv where
   rnf (RInv x y z) = rnf x `seq` rnf y `seq` rnf z
 
 instance NFData CGEnv where
-  rnf (CGE x1 _ _ x4 x5 x55 x6 x7 x8 x9 _ _ _ x10 _ _ _ _ _ _ _ _ _ _)
+  rnf (CGE x1 _ _ x4 x5 x55 x6 x7 x8 x9 _ _ _ x10 _ _ _ _ _ _ _ _ _ _ _)
     = x1 `seq` rnf x5
          `seq` rnf x55
          `seq` rnf x6

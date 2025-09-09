@@ -223,10 +223,11 @@ elaborateClassDcp coreToLg simplifier dcp = do
       -- turns forall a b. (a -> b) -> f a -> f b into
       -- forall f. Functor f => forall a b. (a -> b) -> f a -> f b
   stripPred :: SpecType -> SpecType
-  stripPred = Misc.fourth4 . bkUnivClass
+  stripPred = Misc.fifth5 . bkUnivClass
   fullTy :: SpecType -> SpecType
   fullTy t = mkArrow
     tvars
+    []
     []
     [ ( recsel{- F.symbol dc-}
       , classRFInfo True
@@ -237,9 +238,9 @@ elaborateClassDcp coreToLg simplifier dcp = do
     t
   -- YL: is this redundant if we already have strengthenClassSel?
   strengthenTy :: F.Symbol -> SpecType -> SpecType
-  strengthenTy x t = mkUnivs tvs pvs (RFun z i clas (t' `RT.strengthen` mt) r)
+  strengthenTy x t = mkUnivs tvs pvs qvs (RFun z i clas (t' `RT.strengthen` mt) r)
    where
-    (tvs, pvs, RFun z i clas t' r) = bkUniv t
+    (tvs, pvs, qvs, RFun z i clas t' r) = bkUniv t
     vv = rTypeValueVar t'
     mt = RT.uReft (vv, F.PAtom F.Eq (F.EVar vv) (F.EApp (F.EVar x) (F.EVar z)))
 
@@ -253,7 +254,7 @@ elaborateMethod dc methods st = mapExprReft
   grabtcbind :: SpecType -> F.Symbol
   grabtcbind t =
     F.notracepp "grabtcbind"
-      $ case Misc.fst4 . fst . bkArrow . Misc.thd3 . bkUniv $ t of
+      $ case Misc.fst4 . fst . bkArrow . Misc.fourth4 . bkUniv $ t of
           tcbind : _ -> tcbind
           []         -> impossible
             Nothing
@@ -353,6 +354,7 @@ makeClassAuxTypesOne elab (ldcp, inst, methods) =
         fullSig =
           mkArrow
             [(bRTV, mempty) | bRTV <- isRTvs]
+            []
             []
             ptys .
           subst (zip clsTvs isSpecTys) $

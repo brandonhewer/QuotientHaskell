@@ -445,7 +445,7 @@ forallExprReftLookup :: CGEnv
                      -> Maybe ([F.Symbol], [RFInfo], [SpecType], [RReft], SpecType)
 forallExprReftLookup γ sym = snap <$> lookup' sym
   where
-    snap     = mapFifth5 ignoreOblig . (\((x,a,b,c),t)->(x,a,b,c,t)) . bkArrow . thd3 . bkUniv
+    snap     = mapFifth5 ignoreOblig . (\((x,a,b,c),t)->(x,a,b,c,t)) . bkArrow . fourth4 . bkUniv
     lookup' z = γ ?= F.symbol z
 
 

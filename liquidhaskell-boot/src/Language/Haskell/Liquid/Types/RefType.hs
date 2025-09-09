@@ -50,6 +50,7 @@ module Language.Haskell.Liquid.Types.RefType (
   , bTyVar, rTyVar, rVar, rApp, gApp, rEx
   , symbolRTyVar, bareRTyVar
   , tyConBTyCon
+  , tyConRTyCon
   , pdVarReft
 
   -- * Substitutions
@@ -113,9 +114,9 @@ import qualified Language.Fixpoint.Types as F
 import           Language.Haskell.Liquid.Types.Errors
 import           Language.Haskell.Liquid.Types.PrettyPrint
 
+import qualified Language.Haskell.Liquid.Types.AntiUnify as AntiUnify
+import           Language.Haskell.Liquid.Types.AntiUnify (FromInt) 
 import qualified Language.Haskell.Liquid.Types.QuotSubst as Quotient
-import           Language.Haskell.Liquid.Types.QuotUnify (FromInt) 
-import qualified Language.Haskell.Liquid.Types.QuotUnify as Quotient
 import           Language.Haskell.Liquid.Types.RType
 import           Language.Haskell.Liquid.Types.RTypeOp
 import           Language.Haskell.Liquid.Types.Types
@@ -466,7 +467,8 @@ instance Hashable RTyVar where
 
 instance Hashable UTyCon where
   hashWithSalt i (GHCTyCon c) = hashWithSalt i c
-  hashWithSalt i (QuotientTyCon m s _ _) = hashWithSalt i (Ghc.moduleName m) `hashWithSalt` s
+  hashWithSalt i (QuotientTyCon (QTyCon m s _ _))
+    = hashWithSalt i (Ghc.moduleName m) `hashWithSalt` s
 
 instance Hashable RTyCon where
   hashWithSalt i = hashWithSalt i . rtc_tc
@@ -709,7 +711,7 @@ strengthenRefType_ f (RChooseQ qvs t r) (RChooseQ qvs' t' r')
       σ = M.fromList
             $ zip (qv_quotient qvs' : qv_quotients qvs') (qv_quotient qvs : qv_quotients qvs)
 
-      qv_type' = Quotient.unifyQVarTypes (qv_type qvs) (qv_type qvs')
+      qv_type' = AntiUnify.antiUnify (qv_type qvs) (qv_type qvs')
       rt_ty    = strengthenRefType_ f t $ Quotient.renameQVs σ t'
 
 strengthenRefType_ f (RChooseQ qvs t r) t'
@@ -965,7 +967,7 @@ addNumSizeFun c
   = c {rtc_info = (rtc_info c) {sizeFunction = Just IdSizeFun } }
 
 generalize :: (Eq tv, Monoid r) => RType c tv r -> RType c tv r
-generalize t = mkUnivs (map (, mempty) (freeTyVars t)) [] t
+generalize t = mkUnivs (map (, mempty) (freeTyVars t)) [] [] t
 
 allTyVars :: (Ord tv) => RType c tv r -> [tv]
 allTyVars = sortNub . allTyVars'
@@ -973,7 +975,7 @@ allTyVars = sortNub . allTyVars'
 allTyVars' :: (Eq tv) => RType c tv r -> [tv]
 allTyVars' t = fmap ty_var_value $ vs ++ vs'
   where
-    vs      = map fst . fst3 . bkUniv $ t
+    vs      = map fst . fst4 . bkUniv $ t
     vs'     = freeTyVars t
 
 freeTyVars :: Eq tv => RTypeV v c tv r -> [RTVar tv (RTypeV v c tv ())]
@@ -1098,8 +1100,8 @@ subsFree m s z@(α, τ,_) (RAllP π t)
 subsFree m s z@(a, τ, _) (RAllT α t r)
   -- subt inside the type variable instantiates the kind of the variable
   = RAllT (subt (a, τ) α) (subsFree m (ty_var_value α `S.insert` s) z t) (subt (a, τ) r)
-subsFree m s z@(α, τ, τ') (RChooseQ qvs t r)
-  = RChooseQ qvs {qv_type = subsFree m s (α, τ, void τ') $ qv_type qvs} (subsFree m s z t) (subt (α, τ) r)
+subsFree m s z@(α, τ, _) (RChooseQ qvs t r)
+  = RChooseQ qvs {qv_type = subt (α, τ) $ qv_type qvs} (subsFree m s z t) (subt (α, τ) r)
 subsFree m s z@(α, τ, _) (RQuotient t q r)
   = RQuotient (subsFree m s z t) q (subt (α, τ) r)
 subsFree m s z@(α, τ, _) (RFun x i t t' r)
@@ -1534,7 +1536,7 @@ toTypeSubst σ useRFInfo (RQuotient t _ _)
 toTypeSubst σ _ (RVar (RTV α) _)
   | Just t <- M.lookup (F.symbol α) σ = t
   | otherwise                         = TyVarTy α
-toTypeSubst σ useRFInfo (RApp RTyCon{rtc_tc = QuotientTyCon {..}} ts _ _)
+toTypeSubst σ useRFInfo (RApp RTyCon{rtc_tc = QuotientTyCon QTyCon {..}} ts _ _)
   = toTypeSubst (M.fromList $ zip qtc_tvs $ map (toTypeSubst σ useRFInfo) ts) useRFInfo qtc_base
 toTypeSubst σ useRFInfo (RApp RTyCon{rtc_tc = GHCTyCon c} ts _ _)
   = TyConApp c (toTypeSubst σ useRFInfo <$> filter notExprArg ts)
@@ -1576,7 +1578,7 @@ toType useRFInfo (RQuotient t _ _)
   = toType useRFInfo t
 toType _ (RVar (RTV α) _)
   = TyVarTy α
-toType useRFInfo (RApp RTyCon{rtc_tc = QuotientTyCon {..}} ts _ _)
+toType useRFInfo (RApp RTyCon{rtc_tc = QuotientTyCon QTyCon {..}} ts _ _)
   = toTypeSubst (M.fromList $ zip qtc_tvs $ map (toType useRFInfo) ts) useRFInfo qtc_base
 toType useRFInfo (RApp RTyCon{rtc_tc = GHCTyCon c} ts _ _)
   = TyConApp c (toType useRFInfo <$> filter notExprArg ts)
@@ -1675,6 +1677,12 @@ shiftVV t@(RAppTy _ _ r) vv'
 
 shiftVV t@(RVar _ r) vv'
   = t { rt_reft = (`F.shiftVV` vv') <$> r }
+
+shiftVV t@RQuotient {rt_reft} vv'
+  = t { rt_reft =  (`F.shiftVV` vv') <$> rt_reft }
+
+shiftVV t@RChooseQ {rt_reft} vv'
+  = t { rt_reft =  (`F.shiftVV` vv') <$> rt_reft }
 
 shiftVV t _
   = t -- errorstar $ "shiftVV: cannot handle " ++ showpp t

@@ -170,24 +170,25 @@ plugHolesOld, plugHolesNew
 -- NOTE: this use of toType is safe as rt' is derived from t.
 plugHolesOld allowTC tce tyi xx f t0 zz@(Loc l l' st0)
     = Loc l l'
-    . mkArrow (zip (updateRTVar <$> αs') rs) ps' []
+    . mkArrow (zip (updateRTVar <$> αs') rs) ps' qs' []
     . makeCls cs'
     . goPlug tce tyi err f (subts su rt)
     . mapExprReft (\_ -> F.applyCoSub coSub)
     . subts su
     $ st
   where
-    tyvsmap      = case Bare.runMapTyVars allowTC (toType False rt) st err of
-                          Left e  -> Ex.throw e
-                          Right s -> Bare.vmap s
-    su           = [(y, rTyVar x)           | (x, y) <- tyvsmap]
-    su'          = [(y, RVar (rTyVar x) ()) | (x, y) <- tyvsmap] :: [(RTyVar, RSort)]
-    coSub        = M.fromList [(F.symbol y, F.FObj (F.symbol x)) | (y, x) <- su]
-    ps'          = fmap (subts su') <$> ps
-    cs'          = [(F.dummySymbol, RApp c ts [] mempty) | (c, ts) <- cs2 ]
-    (αs', rs)    = unzip αs
-    (αs,_,cs2,rt) = bkUnivClass (F.notracepp "hs-spec" $ ofType (Ghc.expandTypeSynonyms t0) :: SpecType)
-    (_,ps,_ ,st) = bkUnivClass (F.notracepp "lq-spec" st0)
+    tyvsmap         = case Bare.runMapTyVars allowTC (toType False rt) st err of
+                        Left e  -> Ex.throw e
+                        Right s -> Bare.vmap s
+    su              = [(y, rTyVar x)           | (x, y) <- tyvsmap]
+    su'             = [(y, RVar (rTyVar x) ()) | (x, y) <- tyvsmap] :: [(RTyVar, RSort)]
+    coSub           = M.fromList [(F.symbol y, F.FObj (F.symbol x)) | (y, x) <- su]
+    ps'             = fmap (subts su') <$> ps
+    qs'             = fmap (subts su') <$> qs
+    cs'             = [(F.dummySymbol, RApp c ts [] mempty) | (c, ts) <- cs2 ]
+    (αs', rs)       = unzip αs
+    (αs,_,_,cs2,rt) = bkUnivClass (F.notracepp "hs-spec" $ ofType (Ghc.expandTypeSynonyms t0) :: SpecType)
+    (_,ps,qs,_,st)  = bkUnivClass (F.notracepp "lq-spec" st0)
 
     makeCls cs t = foldr (uncurry (rFun' (classRFInfo allowTC))) t cs
     err hsT lqT  = ErrMismatch (GM.fSrcSpan zz) (pprint xx)
@@ -201,7 +202,7 @@ plugHolesOld allowTC tce tyi xx f t0 zz@(Loc l l' st0)
 
 plugHolesNew allowTC@False tce tyi xx f t0 zz@(Loc l l' st0)
     = Loc l l'
-    . mkArrow (zip (updateRTVar <$> as'') rs) ps []
+    . mkArrow (zip (updateRTVar <$> as'') rs) ps qs []
     . makeCls cs'
     . goPlug tce tyi err f rt'
     $ st
@@ -214,8 +215,8 @@ plugHolesNew allowTC@False tce tyi xx f t0 zz@(Loc l l' st0)
     su           = case Bare.runMapTyVars allowTC (toType False rt) st err of
                           Left e  -> Ex.throw e
                           Right s -> [ (rTyVar x, y) | (x, y) <- Bare.vmap s]
-    (as,_,tyCons,rt) = bkUnivClass (ofType (Ghc.expandTypeSynonyms t0) :: SpecType)
-    (_,ps,_ ,st) = bkUnivClass st0
+    (as,_,_,tyCons,rt) = bkUnivClass (ofType (Ghc.expandTypeSynonyms t0) :: SpecType)
+    (_,ps,qs,_,st) = bkUnivClass st0
 
     makeCls cs t = foldr (uncurry (rFun' (classRFInfo allowTC))) t cs
     err hsT lqT  = ErrMismatch (GM.fSrcSpan zz) (pprint xx)
@@ -228,7 +229,7 @@ plugHolesNew allowTC@False tce tyi xx f t0 zz@(Loc l l' st0)
 
 plugHolesNew allowTC@True tce tyi a f t0 zz@(Loc l l' st0)
     = Loc l l'
-    . mkArrow (zip (updateRTVar <$> as'') rs) ps (if length cs > length cs' then cs else cs')
+    . mkArrow (zip (updateRTVar <$> as'') rs) ps qs (if length cs > length cs' then cs else cs')
     -- . makeCls cs'
     . goPlug tce tyi err f rt'
     $ st
@@ -241,8 +242,8 @@ plugHolesNew allowTC@True tce tyi a f t0 zz@(Loc l l' st0)
     su           = case Bare.runMapTyVars allowTC (toType False rt) st err of
                           Left e  -> Ex.throw e
                           Right s -> [ (rTyVar x, y) | (x, y) <- Bare.vmap s]
-    (as,_,cs0,rt) = bkUnivClass' (ofType (Ghc.expandTypeSynonyms t0) :: SpecType)
-    (_,ps,cs0' ,st) = bkUnivClass' st0
+    (as,_,_,cs0,rt) = bkUnivClass' (ofType (Ghc.expandTypeSynonyms t0) :: SpecType)
+    (_,ps,qs,cs0' ,st) = bkUnivClass' st0
     cs  = [ (x, classRFInfo allowTC, t, r) | (x,t,r)<-cs0]
     cs' = [ (x, classRFInfo allowTC, t, r) | (x,t,r)<-cs0']
 

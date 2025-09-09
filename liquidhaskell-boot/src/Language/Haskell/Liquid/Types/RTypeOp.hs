@@ -32,6 +32,7 @@ module Language.Haskell.Liquid.Types.RTypeOp (
   , mapBot, mapBind, mapRFInfo
   , foldRType
   , emapFReftM
+  , mapRBase
   , mapRTypeV
   , mapRTypeVM
   , mapDataDeclV
@@ -101,6 +102,7 @@ type RTypeRep = RTypeRepV Symbol
 data RTypeRepV v c tv r = RTypeRep
   { ty_vars   :: [(RTVar tv (RTypeV v c tv ()), r)]
   , ty_preds  :: [PVarV v (RTypeV v c tv ())]
+  , ty_qvars  :: [(QVU v c tv, r)]
   , ty_binds  :: [Symbol]
   , ty_info   :: [RFInfo]
   , ty_refts  :: [r]
@@ -110,7 +112,7 @@ data RTypeRepV v c tv r = RTypeRep
 
 fromRTypeRep :: RTypeRepV v c tv r -> RTypeV v c tv r
 fromRTypeRep RTypeRep{..}
-  = mkArrow ty_vars ty_preds arrs ty_res
+  = mkArrow ty_vars ty_preds ty_qvars arrs ty_res
   where
     arrs = safeZip4WithError ("fromRTypeRep: " ++ show (length ty_binds, length ty_info, length ty_args, length ty_refts)) ty_binds ty_info ty_args ty_refts
 
@@ -122,17 +124,18 @@ classRFInfoType b = fromRTypeRep .
 --------------------------------------------------------------------------------
 toRTypeRep           :: RTypeV v c tv r -> RTypeRepV v c tv r
 --------------------------------------------------------------------------------
-toRTypeRep t         = RTypeRep αs πs xs is rs ts t''
+toRTypeRep t         = RTypeRep αs πs qs xs is rs ts t''
   where
-    (αs, πs, t') = bkUniv t
+    (αs, πs, qs, t') = bkUniv t
     ((xs, is, ts, rs), t'') = bkArrow t'
 
 mkArrow :: [(RTVar tv (RTypeV v c tv ()), r)]
         -> [PVarV v (RTypeV v c tv ())]
+        -> [(QVU v c tv, r)]
         -> [(Symbol, RFInfo, RTypeV v c tv r, r)]
         -> RTypeV v c tv r
         -> RTypeV v c tv r
-mkArrow αs πs zts = mkUnivs αs πs . mkRFuns zts
+mkArrow αs πs qs zts = mkUnivs αs πs qs . mkRFuns zts
   where
     mkRFuns xts t = foldr (\(b,i,t1,r) t2 -> RFun b i t1 t2 r) t xts
 
@@ -162,24 +165,28 @@ safeBkArrow t@RAllT {} = Prelude.error {- panic Nothing -} $ "safeBkArrow on RAl
 safeBkArrow (RAllP _ _)     = Prelude.error {- panic Nothing -} "safeBkArrow on RAllP"
 safeBkArrow t               = bkArrow t
 
-mkUnivs :: (Foldable t, Foldable t1)
+mkUnivs :: (Foldable t, Foldable t1, Foldable t2)
         => t  (RTVar tv (RTypeV v c tv ()), r)
         -> t1 (PVarV v (RTypeV v c tv ()))
+        -> t2 (QVU v c tv, r)
         -> RTypeV v c tv r
         -> RTypeV v c tv r
-mkUnivs αs πs rt = foldr (\(a,r) t -> RAllT a t r) (foldr RAllP rt πs) αs
+mkUnivs αs πs qs rt
+  = let qt = foldr (\(q, r) t -> RChooseQ q t r) rt qs
+     in foldr (\(a,r) t -> RAllT a t r) (foldr RAllP qt πs) αs
 
-bkUnivClass :: SpecType -> ([(SpecRTVar, RReft)],[PVar RSort], [(RTyCon, [SpecType])], SpecType )
-bkUnivClass t        = (as, ps, cs, t2)
+bkUnivClass :: SpecType -> ([(SpecRTVar, RReft)],[PVar RSort], [(SpecQVar, RReft)], [(RTyCon, [SpecType])], SpecType )
+bkUnivClass t        = (as, ps, qs, cs, t2)
   where
-    (as, ps, t1) = bkUniv  t
-    (cs, t2)     = bkClass t1
+    (as, ps, qs, t1) = bkUniv  t
+    (cs, t2)         = bkClass t1
 
 
-bkUniv :: RTypeV v tv c r -> ([(RTVar c (RTypeV v tv c ()), r)], [PVarV v (RTypeV v tv c ())], RTypeV v tv c r)
-bkUniv (RAllT α t r) = let (αs, πs, t') = bkUniv t in ((α, r):αs, πs, t')
-bkUniv (RAllP π t)   = let (αs, πs, t') = bkUniv t in (αs, π:πs, t')
-bkUniv t             = ([], [], t)
+bkUniv :: RTypeV v c tv r -> ([(RTVar tv (RTypeV v c tv ()), r)], [PVarV v (RTypeV v c tv ())], [(QVU v c tv, r)], RTypeV v c tv r)
+bkUniv (RAllT α t r)    = let (αs, πs, qs, t') = bkUniv t in ((α, r):αs, πs, qs, t')
+bkUniv (RAllP π t)      = let (αs, πs, qs, t') = bkUniv t in (αs, π:πs, qs, t')
+bkUniv (RChooseQ q t r) = let (αs, πs, qs, t') = bkUniv t in (αs, πs, (q, r):qs, t')
+bkUniv t                = ([], [], [], t)
 
 
 -- bkFun :: RType t t1 a -> ([Symbol], [RType t t1 a], [a], RType t t1 a)
@@ -187,10 +194,10 @@ bkUniv t             = ([], [], t)
 -- bkFun t               = ([], [], [], t)
 
 bkUnivClass' :: SpecType ->
-  ([(SpecRTVar, RReft)], [PVar RSort], [(Symbol, SpecType, RReft)], SpecType)
-bkUnivClass' t = (as, ps, zip3 bs ts rs, t2)
+  ([(SpecRTVar, RReft)], [PVar RSort], [(SpecQVar, RReft)], [(Symbol, SpecType, RReft)], SpecType)
+bkUnivClass' t = (as, ps, qs, zip3 bs ts rs, t2)
   where
-    (as, ps, t1) = bkUniv  t
+    (as, ps, qs, t1) = bkUniv  t
     (bs, ts, rs, t2)     = bkClass' t1
 
 mkChoose :: Foldable t
@@ -742,7 +749,8 @@ stripAnnotations' (RAppTy t t' r)    = RAppTy (stripAnnotations' t) (stripAnnota
 stripAnnotations' (RApp c@RTyCon {rtc_tc} ts rs r)
   = case rtc_tc of
       GHCTyCon      _    -> RApp c (stripAnnotations' <$> ts) (stripAnnotationsRef' <$> rs) r
-      QuotientTyCon {..} -> Quotient.unfoldQuotientType qtc_tvs ts $ fmap ofUReft qtc_base
+      QuotientTyCon QTyCon {..} ->
+        Quotient.unfoldQuotientType qtc_tvs ts $ fmap ofUReft qtc_base
 stripAnnotations' (RRTy _ _ _ t)    = stripAnnotations' t
 stripAnnotations' (RChooseQ _ t _)  = stripAnnotations' t
 stripAnnotations' (RQuotient t _ _) = stripAnnotations' t
@@ -758,27 +766,30 @@ insertSEnv = F.insertSEnv
 insertsSEnv :: F.SEnv a -> [(Symbol, a)] -> F.SEnv a
 insertsSEnv  = foldr (\(x, t) γ -> insertSEnv x t γ)
 
-rTypeValueVar :: (Reftable r) => RType c tv r -> Symbol
+rTypeValueVar :: (Reftable r) => RTypeV v c tv r -> Symbol
 rTypeValueVar t = vv where F.Reft (vv,_) =  rTypeReft t
 
-rTypeReft :: (Reftable r) => RType c tv r -> F.Reft
+rTypeReft :: (Reftable r) => RTypeV v c tv r -> F.Reft
 rTypeReft = maybe F.trueReft toReft . stripRTypeBase
 
 -- stripRTypeBase ::  RType a -> Maybe a
-stripRTypeBase :: RType c tv r -> Maybe r
-stripRTypeBase (RApp _ _ _ x)   = Just x
-stripRTypeBase (RVar _ x)       = Just x
-stripRTypeBase (RFun _ _ _ _ x) = Just x
-stripRTypeBase (RAppTy _ _ x)   = Just x
-stripRTypeBase (RAllT _ _ x)    = Just x
-stripRTypeBase _                = Nothing
+stripRTypeBase :: RTypeV v c tv r -> Maybe r
+stripRTypeBase RApp      {rt_reft} = Just rt_reft
+stripRTypeBase RVar      {rt_reft} = Just rt_reft
+stripRTypeBase RFun      {rt_reft} = Just rt_reft
+stripRTypeBase RChooseQ  {rt_reft} = Just rt_reft
+stripRTypeBase RQuotient {rt_reft} = Just rt_reft
+stripRTypeBase RAppTy    {rt_reft} = Just rt_reft
+stripRTypeBase RAllT     {rt_ref}  = Just rt_ref
+stripRTypeBase _                   = Nothing
 
 topRTypeBase :: (Reftable r) => RType c tv r -> RType c tv r
 topRTypeBase = mapRBase top
 
-mapRBase :: (r -> r) -> RType c tv r -> RType c tv r
+mapRBase :: (r -> r) -> RTypeV v c tv r -> RTypeV v c tv r
 mapRBase f (RApp c ts rs r)   = RApp c ts rs $ f r
 mapRBase f (RVar a r)         = RVar a $ f r
 mapRBase f (RFun x i t1 t2 r) = RFun x i t1 t2 $ f r
 mapRBase f (RAppTy t1 t2 r)   = RAppTy t1 t2 $ f r
+mapRBase f (RQuotient t q r)  = RQuotient t q $ f r
 mapRBase _ t                  = t

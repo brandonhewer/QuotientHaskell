@@ -97,9 +97,9 @@ initEnv info
     makeExactDc dcs = if exactDCFlag info then map strengthenDataConType dcs else dcs
 
 addPolyInfo :: SpecType -> SpecType
-addPolyInfo t = mkUnivs (go <$> as) ps t'
+addPolyInfo t = mkUnivs (go <$> as) ps qs t'
   where
-    (as, ps, t') = bkUniv t
+    (as, ps, qs, t') = bkUniv t
     pos          = tyVarsPosition t'
     go (a,r) = if {- ty_var_value a `elem` ppos pos && -}  ty_var_value a `notElem` pneg pos
                then (setRtvPol a False,r)
@@ -183,36 +183,37 @@ measEnv :: TargetSpec
         -> CGEnv
 --------------------------------------------------------------------------------
 measEnv sp xts cbs _tcb lt1s lt2s asms itys hs info = CGE
-  { cgLoc    = Sp.empty
-  , renv     = fromListREnv (second val <$> gsMeas (gsData sp)) []
-  , litEnv   = F.fromListSEnv lts
-  , constEnv = F.fromListSEnv lt2s
-  , fenv     =
+  { cgLoc     = Sp.empty
+  , renv      = fromListREnv (second val <$> gsMeas (gsData sp)) []
+  , litEnv    = F.fromListSEnv lts
+  , constEnv  = F.fromListSEnv lt2s
+  , fenv      =
       initFEnv $ filterHO $ concat
         [ tcb'
         , lts
         , second (rTypeSort tce . val) <$> gsMeas (gsData sp)
         , [(F.eqName e, eqSort e) | e <- gsImpAxioms (gsRefl sp)]
         ]
-  , denv     = dmapty val $ gsDicts (gsSig sp)
-  , recs     = S.empty
-  , invs     = mempty
-  , rinvs    = mempty
-  , ial      = mkRTyConIAl (gsIaliases (gsData sp))
-  , grtys    = fromListREnv xts  []
-  , assms    = fromListREnv asms []
-  , intys    = fromListREnv itys []
-  , emb      = tce
-  , tgEnv    = Tg.makeTagEnv cbs
-  , tgKey    = Nothing
-  , trec     = Nothing
-  , lcb      = M.empty
-  , forallcb = M.empty
-  , holes    = fromListHEnv hs
-  , lcs      = mempty
-  , cerr     = Nothing
-  , cgInfo   = info
-  , cgVar    = Nothing
+  , denv      = dmapty val $ gsDicts (gsSig sp)
+  , recs      = S.empty
+  , invs      = mempty
+  , rinvs     = mempty
+  , ial       = mkRTyConIAl (gsIaliases (gsData sp))
+  , grtys     = fromListREnv xts  []
+  , assms     = fromListREnv asms []
+  , intys     = fromListREnv itys []
+  , emb       = tce
+  , tgEnv     = Tg.makeTagEnv cbs
+  , tgKey     = Nothing
+  , trec      = Nothing
+  , lcb       = M.empty
+  , forallcb  = M.empty
+  , holes     = fromListHEnv hs
+  , lcs       = mempty
+  , cerr      = Nothing
+  , cgInfo    = info
+  , cgVar     = Nothing
+  , cgQuotEnv = M.empty
   }
   where
       tce         = gsTcEmbeds (gsName sp)

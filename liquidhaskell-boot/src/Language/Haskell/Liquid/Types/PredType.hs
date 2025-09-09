@@ -57,7 +57,7 @@ import           Language.Haskell.Liquid.Misc
 import           Language.Haskell.Liquid.Types.DataDecl
 import           Language.Haskell.Liquid.Types.Errors
 import           Language.Haskell.Liquid.Types.Names
-import           Language.Haskell.Liquid.Types.QuotUnify
+import           Language.Haskell.Liquid.Types.AntiUnify
 import           Language.Haskell.Liquid.Types.RefType hiding (generalize)
 import           Language.Haskell.Liquid.Types.RType
 import           Language.Haskell.Liquid.Types.RTypeOp
@@ -182,7 +182,7 @@ strengthenRType wkT wrT = maybe wkT (strengthen wkT) (stripRTypeBase wrT)
 dcWrapSpecType :: Bool -> DataCon -> DataConP -> SpecType
 dcWrapSpecType allowTC dc (DataConP _ _ vs ps cs yts rt _ _ _)
   = {- F.tracepp ("dcWrapSpecType: " ++ show dc ++ " " ++ F.showpp rt) $ -}
-    mkArrow makeVars' ps ts' rt'
+    mkArrow makeVars' ps [] ts' rt'
   where
     isCls    = Ghc.isClassTyCon $ Ghc.dataConTyCon dc
     (as0, sts) = unzip (reverse yts)
@@ -200,7 +200,7 @@ dcWrapSpecType allowTC dc (DataConP _ _ vs ps cs yts rt _ _ _)
     rt'      = F.subst subst rt
     makeVars = filter (`elem` fvs) $ zipWith (\v a -> RTVar v (rTVarInfo a :: RTVInfo RSort)) vs (fst $ splitForAllTyCoVars $ dataConRepType dc)
     makeVars' = map (, mempty) makeVars 
-    fvs = freeTyVars $ mkArrow [] ps ts' rt'
+    fvs = freeTyVars $ mkArrow [] ps [] ts' rt'
 
 dataConTy :: Monoid r
           => M.HashMap RTyVar (RType RTyCon RTyVar r)

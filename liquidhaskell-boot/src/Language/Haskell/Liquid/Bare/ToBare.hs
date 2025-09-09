@@ -46,7 +46,7 @@ specToBareTC = uTyConToBTyCon . rtc_tc
 
 uTyConToBTyCon :: UTyCon -> BTyCon
 uTyConToBTyCon (GHCTyCon c)             = tyConBTyCon c
-uTyConToBTyCon QuotientTyCon {qtc_name, qtc_module}
+uTyConToBTyCon (QuotientTyCon QTyCon {qtc_name, qtc_module})
   = BTyCon
       { btc_tc    = makeResolvedLHName (LHRQuotient qtc_name qtc_module) <$> qtc_name
       , btc_class = False

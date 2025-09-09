@@ -586,7 +586,7 @@ generalizeWith  Bare.RawTV   t = t
 generalizeWith _             t = RT.generalize t
 
 generalizeVar :: Ghc.Var -> SpecType -> SpecType
-generalizeVar v t = mkUnivs [(a, mempty) | a <- as] [] t
+generalizeVar v t = mkUnivs [(a, mempty) | a <- as] [] [] t
   where
     as            = filter isGen (RT.freeTyVars t)
     (vas,_)       = Ghc.splitForAllTyCoVars (GM.expandVarType v)

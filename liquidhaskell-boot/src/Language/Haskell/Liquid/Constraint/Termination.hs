@@ -81,9 +81,9 @@ makeTermEnvs γ xtes xes ts ts' = setTRec γ . zip xs <$> rts
     err x        = "Constant: makeTermEnvs: no terminating expression for " ++ GM.showPpr x
 
 addObligation :: Oblig -> SpecType -> RReft -> SpecType
-addObligation o t r  = mkArrow αs πs xts $ RRTy [] r o t2
+addObligation o t r  = mkArrow αs πs qs xts $ RRTy [] r o t2
   where
-    (αs, πs, t1) = bkUniv t
+    (αs, πs, qs, t1) = bkUniv t
     ((xs, is, ts, rs), t2) = bkArrow t1
     xts              = zip4 xs is ts rs
 

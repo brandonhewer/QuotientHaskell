@@ -46,16 +46,25 @@ library
                       Language.Haskell.Liquid.CSS
                       Language.Haskell.Liquid.Constraint.Constraint
                       Language.Haskell.Liquid.Constraint.Env
+                      Language.Haskell.Liquid.Constraint.Expr
                       Language.Haskell.Liquid.Constraint.Fresh
                       Language.Haskell.Liquid.Constraint.Generate
                       Language.Haskell.Liquid.Constraint.Init
+                      Language.Haskell.Liquid.Constraint.Instantiate
                       Language.Haskell.Liquid.Constraint.Monad
+                      Language.Haskell.Liquid.Constraint.PathCompress
                       Language.Haskell.Liquid.Constraint.Qualifier
+                      Language.Haskell.Liquid.Constraint.QuotEnv
+                      Language.Haskell.Liquid.Constraint.Quotient
+                      Language.Haskell.Liquid.Constraint.Sort
                       Language.Haskell.Liquid.Constraint.Split
+                      Language.Haskell.Liquid.Constraint.Substitution
                       Language.Haskell.Liquid.Constraint.ToFixpoint
                       Language.Haskell.Liquid.Constraint.Template
                       Language.Haskell.Liquid.Constraint.Termination
                       Language.Haskell.Liquid.Constraint.Types
+                      Language.Haskell.Liquid.Constraint.Unification
+                      Language.Haskell.Liquid.Constraint.UnionFind
                       Language.Haskell.Liquid.Constraint.Relational
                       Language.Haskell.Liquid.Constraint.RewriteCase
                       Liquid.GHC.API
@@ -85,6 +94,7 @@ library
                       Language.Haskell.Liquid.Transforms.Rewrite
                       Language.Haskell.Liquid.Transforms.Simplify
                       Language.Haskell.Liquid.Transforms.InlineAux
+                      Language.Haskell.Liquid.Types.AntiUnify
                       Language.Haskell.Liquid.Types.Bounds
                       Language.Haskell.Liquid.Types.DataDecl
                       Language.Haskell.Liquid.Types.Dictionaries
@@ -101,8 +111,8 @@ library
                       Language.Haskell.Liquid.Types.QuotGen
                       Language.Haskell.Liquid.Types.QuotMap
                       Language.Haskell.Liquid.Types.QuotSubst
-                      Language.Haskell.Liquid.Types.QuotUnify
                       Language.Haskell.Liquid.Types.RefType
+                      Language.Haskell.Liquid.Types.Renaming
                       Language.Haskell.Liquid.Types.RType
                       Language.Haskell.Liquid.Types.RTypeOp
                       Language.Haskell.Liquid.Types.Specs

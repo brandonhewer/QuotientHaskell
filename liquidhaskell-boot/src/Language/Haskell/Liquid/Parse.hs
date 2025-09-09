@@ -521,7 +521,7 @@ constraintP
   = do xts <- constraintEnvP
        t1  <- bareTypeP
        reservedOp "<:"
-       fromRTypeRep . RTypeRep [] []
+       fromRTypeRep . RTypeRep [] [] []
                                ((val . fst <$> xts) ++ [dummySymbol])
                                (replicate (length xts + 1) defRFInfo)
                                (replicate (length xts + 1) trueURef)
@@ -568,7 +568,7 @@ bareQuotientVars
           qv_quotient  <- lowerIdP
           qv_quotients <- many lowerIdP
           qv_type      <- void <$> (reservedOp "::" *> genBareTypeP)
-          return QVar {..}
+          return QVar {qv_kind = ChooseQ, ..}
       ) comma
 
 bareChooseP :: Parser BareTypeParsed

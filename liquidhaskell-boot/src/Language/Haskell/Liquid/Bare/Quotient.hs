@@ -15,7 +15,8 @@ import qualified Language.Haskell.Liquid.GHC.Misc       as Source
 import qualified Language.Haskell.Liquid.Types.Errors   as Error
 import           Language.Haskell.Liquid.Types.QuotDecl (QuotDeclR, QuotDeclP (..))
 import           Language.Haskell.Liquid.Types.RType
-  ( Reftable
+  ( QTyCon (..)
+  , Reftable
   , RRType
   , RTProp
   , RTyCon
@@ -41,8 +42,8 @@ adjust f k ((ik , iv) : kvs)
   | otherwise = (ik, iv) : adjust f k kvs
 
 uTyConVariance :: UTyCon -> VarianceInfo
-uTyConVariance (GHCTyCon c)                      = Variance.makeTyConVariance c
-uTyConVariance QuotientTyCon {qtc_tvs, qtc_base} = computeVariances qtc_tvs qtc_base
+uTyConVariance (GHCTyCon c)                               = Variance.makeTyConVariance c
+uTyConVariance (QuotientTyCon QTyCon {qtc_tvs, qtc_base}) = computeVariances qtc_tvs qtc_base
 
 computeVariances :: [Symbol] -> RRType r -> VarianceInfo
 computeVariances tvs = map snd . go HashSet.empty Covariant (map (, Variance.Invariant) tvs)
@@ -114,12 +115,16 @@ quotTCAppWith QuotDecl {..} qtc_module (Fixpoint.Loc l _ s) rt_reft rt_pargs rt_
       = Liquid.RApp
           { rt_tycon
               = Liquid.RTyCon
-                  Liquid.QuotientTyCon
-                    { qtc_name = qtycName
-                    , qtc_tvs  = qtycTyVars
-                    , qtc_base = Liquid.ofReft . Liquid.toReft <$> qtc_base
-                    , ..
-                    } [] $ tyConInfo qtc_base
+                  { rtc_tc
+                      = Liquid.QuotientTyCon QTyCon
+                          { qtc_name = qtycName
+                          , qtc_tvs  = qtycTyVars
+                          , qtc_base = Liquid.ofReft . Liquid.toReft <$> qtc_base
+                          , ..
+                          }
+                  , rtc_pvars = []
+                  , rtc_info  = tyConInfo qtc_base
+                  }
           , ..
           }
 

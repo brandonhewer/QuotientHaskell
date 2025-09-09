@@ -45,7 +45,14 @@ import           Language.Haskell.Liquid.Constraint.Fresh ( addKuts, freshTyType
 import           Language.Haskell.Liquid.Constraint.Init ( initEnv, initCGI )
 import           Language.Haskell.Liquid.Constraint.Env
 import           Language.Haskell.Liquid.Constraint.Monad
-import Language.Haskell.Liquid.Constraint.Split ( splitC, splitW )
+import           Language.Haskell.Liquid.Constraint.Split ( splitC, splitW )
+import           Language.Haskell.Liquid.Constraint.QuotEnv
+  ( CGEqualityCtor
+  , CGQuotDecl
+  , CGQuotEnv
+  )
+import qualified Language.Haskell.Liquid.Constraint.QuotEnv  as Quotient
+import qualified Language.Haskell.Liquid.Constraint.Quotient as Quotient
 import           Language.Haskell.Liquid.Constraint.Relational (consAssmRel, consRelTop)
 import           Language.Haskell.Liquid.Types.Dictionaries
 import           Language.Haskell.Liquid.Types.Errors
@@ -53,6 +60,8 @@ import           Language.Haskell.Liquid.Types.Fresh
 import           Language.Haskell.Liquid.Types.Literals
 import           Language.Haskell.Liquid.Types.Names
 import           Language.Haskell.Liquid.Types.PredType
+import           Language.Haskell.Liquid.Types.QuotDecl (QuotSpecDecl, SpecEqualityCtor)
+import qualified Language.Haskell.Liquid.Types.QuotDecl as Quotient
 import           Language.Haskell.Liquid.Types.RType
 import           Language.Haskell.Liquid.Types.RTypeOp
 import           Language.Haskell.Liquid.Types.RefType
@@ -87,7 +96,8 @@ consAct γ cfg info = do
   let sSpc = gsSig . giSpec $ info
   let gSrc = giSrc info
   when (gradual cfg) (mapM_ (addW . WfC γ . val . snd) (gsTySigs sSpc ++ gsAsmSigs sSpc))
-  γ' <- foldM (consCBTop cfg info) γ (giCbs gSrc)
+  cgQuotEnv <- consQuotEnv cfg info γ
+  γ' <- foldM (consCBTop cfg info) γ { cgQuotEnv = cgQuotEnv } (giCbs gSrc)
   -- Relational Checking: the following only runs when the list of relational specs is not empty
   (ψ, γ'') <- foldM (consAssmRel cfg info) ([], γ') (gsAsmRel sSpc ++ gsRelation sSpc)
   mapM_ (consRelTop cfg info γ'' ψ) (gsRelation sSpc)
@@ -237,8 +247,8 @@ consBind _ _ (x, _, Assumed t)
   = return $ F.notracepp ("TYPE FOR SELECTOR " ++ show x) $ Assumed t
 
 consBind isRec' γ (x, e, Asserted spect)
-  = do let γ'       = γ `setBind` x
-           (_,πs,_) = bkUniv spect
+  = do let γ'          = γ `setBind` x
+           (_,πs,_,_) = bkUniv spect
        cgenv    <- foldM addPToEnv γ' πs
        cconsE cgenv e (weakenResult (typeclass (getConfig γ)) x spect)
        when (F.symbol x `elemHEnv` holes γ) $
@@ -248,8 +258,8 @@ consBind isRec' γ (x, e, Asserted spect)
        return $ Asserted spect
 
 consBind isRec' γ (x, e, Internal spect)
-  = do let γ'       = γ `setBind` x
-           (_,πs,_) = bkUniv spect
+  = do let γ'          = γ `setBind` x
+           (_,πs,_,_) = bkUniv spect
        γπ    <- foldM addPToEnv γ' πs
        let γπ' = γπ {cerr = Just $ ErrHMeas (getLocation γπ) (pprint x) (text explanation)}
        cconsE γπ' e spect
@@ -294,6 +304,77 @@ addPToEnv :: CGEnv
 addPToEnv γ π
   = do γπ <- γ += ("addSpec1", pname π, pvarRType π)
        foldM (+=) γπ [("addSpec2", x, ofRSort t) | (t, x, _) <- pargs π]
+
+--------------------------------------------------------------------------------
+-- | Constraint Generation: Quotient Types -------------------------------------
+--------------------------------------------------------------------------------
+consQuotEnv :: Config -> TargetInfo -> CGEnv -> CG CGQuotEnv
+--------------------------------------------------------------------------------
+consQuotEnv cfg info cgenv
+  = traverse (consQuotDecl cfg info cgenv) $ gsQuotDecls $ gsData $ giSpec info
+
+consQuotDecl :: Config -> TargetInfo -> CGEnv -> QuotSpecDecl -> CG CGQuotDecl
+consQuotDecl cfg info γ Quotient.QuotDecl {..}
+  = makeCGQuotDecl
+      <$> consQuotEqualityCtor cfg info γ qtycTyVars qtycFirstEqCon
+      <*> traverse (consQuotEqualityCtor cfg info γ qtycTyVars) qtycEqCons
+  where
+    makeCGQuotDecl :: CGEqualityCtor -> [CGEqualityCtor] -> CGQuotDecl
+    makeCGQuotDecl cgqEqCon cgqEqCons
+      = Quotient.CGQuotDecl
+          { cgqName   = qtycName
+          , cgqTyVars = qtycTyVars
+          , cgqSrcPos = qtycSrcPos
+          , cgqPVars  = []
+          , cgqType   = qtycType
+          , cgqSFun   = qtycSFun
+          , ..
+          }
+
+consQuotEqualityCtor
+  :: Config
+  -> TargetInfo
+  -> CGEnv
+  -> [F.Symbol]
+  -> SpecEqualityCtor
+  -> CG CGEqualityCtor
+consQuotEqualityCtor cfg info γ cgecTyParams Quotient.EqualityCtor {..} = do
+  let Quotient.SplitEqConParams {..} = Quotient.splitEqConParams ecParameters
+  s
+
+{-
+
+data CGEqualityCtor
+  = CGEqualityCtor
+      { cgecName         :: !(Located Symbol)
+      -- | ^ The name of the equality constructor
+      , cgecTyParams     :: ![Symbol]
+      -- | ^ Type variable parameters of the quotient type
+      , cgecTyVars       :: ![Symbol]
+      -- | ^ Type variables bound in the equality constructor             
+      , cgecTheta        :: ![LocSpecType]
+      -- | ^ Class constraints of the equality constructor
+      , cgecBinds        :: !(HashMap Symbol SpecType)
+      -- | ^ Bound variables of the equality constructor
+      , cgecPrecondition :: !Expr
+      -- | ^ The precondition of the equality constructor
+      , cgecLeftTerm     :: !EqualityLeft
+      -- | ^ The left-hand side of the constructed equality
+      , cgecRightTerm    :: !Expr
+      -- | ^ The right-hand side of the constructed equality
+      }
+
+data EqualityCtorP v ty
+  = EqualityCtor
+      { ecName       :: !(Located Symbol)     -- ^ Equality constructor name
+      , ecTyVars     :: [Symbol]              -- ^ Type variable parameters
+      , ecTheta      :: [Located ty]          -- ^ Equality constructor theta constraints (e.g. typeclasses)
+      , ecParameters :: [EqualityParamP v ty] -- ^ Equality constructor parameters
+      , ecLeftTerm   :: ExprV v               -- ^ Left-hand side of the target equality
+      , ecRightTerm  :: ExprV v               -- ^ Right-hand side of the target equality
+      }
+    deriving (Data, Generic, Eq, Functor, Foldable, Traversable)
+-}
 
 --------------------------------------------------------------------------------
 -- | Bidirectional Constraint Generation: CHECKING -----------------------------
@@ -514,22 +595,25 @@ consE γ e'@(App e a) | Just aDict <- getExprDict γ a
   = case dhasinfo (dlookup (denv γ) aDict) (getExprFun γ e) of
       Just riSig -> return $ fromRISig riSig
       _          -> do
-        ([], πs, te) <- bkUniv <$> consE γ e
-        te'          <- instantiatePreds γ e' $ foldr RAllP te πs
-        (γ', te''')  <- dropExists γ te'
-        te''         <- dropConstraints γ te'''
+        ([], πs, qs, te) <- bkUniv <$> consE γ e
+        te'              <- instantiatePreds γ e' $ foldr RAllP te πs
+        (γ', te''')      <- dropExists γ te'
+        te''             <- dropConstraints γ te'''
         updateLocA {- πs -} (exprLoc e) te''
         let RFun x _ tx t _ = checkFun ("Non-fun App with caller ", e') γ te''
         cconsE γ' a tx
         addPost γ'        $ maybe (checkUnbound γ' e' x t a) (F.subst1 t . (x,)) (argExpr γ a)
 
 consE γ e'@(App e a)
-  = do ([], πs, te) <- bkUniv <$> consE γ {- GM.tracePpr ("APP-EXPR: " ++ GM.showPpr (exprType e)) -} e
-       te1        <- instantiatePreds γ e' $ foldr RAllP te πs
-       (γ', te2)  <- dropExists γ te1
-       te3        <- dropConstraints γ te2
+  = do ([], πs, qs, te) <- bkUniv <$> consE γ {- GM.tracePpr ("APP-EXPR: " ++ GM.showPpr (exprType e)) -} e
+       te1              <- instantiatePreds γ e' $ foldr RAllP te πs
+       (γ', te2)        <- dropExists γ te1
+       te3              <- dropConstraints γ te2
        updateLocA (exprLoc e) te3
        let RFun x _ tx t _ = checkFun ("Non-fun App with caller ", e') γ te3
+       case tx of
+         RQuotient {..} -> x
+         _ -> x
        cconsE γ' a tx
        makeSingleton γ' (simplify e') <$> addPost γ' (maybe (checkUnbound γ' e' x t a) (F.subst1 t . (x,)) (argExpr γ $ simplify a))
 

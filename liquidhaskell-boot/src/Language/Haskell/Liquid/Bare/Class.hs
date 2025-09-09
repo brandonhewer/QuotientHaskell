@@ -80,7 +80,7 @@ addCC :: Bool -> Ghc.Var -> LocSpecType -> LocSpecType
 addCC allowTC var zz@(Loc l l' st0)
   = Loc l l'
   . addForall hst
-  . mkArrow [] ps' []
+  . mkArrow [] ps' [] []
   . makeCls cs'
   . mapExprReft (\_ -> F.applyCoSub coSub)
   . subts su
@@ -96,8 +96,8 @@ addCC allowTC var zz@(Loc l l' st0)
     coSub         = M.fromList [(F.symbol y, F.FObj (F.symbol x)) | (y, x) <- su]
     ps'           = fmap (subts su') <$> ps
     cs'           = [(F.dummySymbol, RApp c ts [] mempty) | (c, ts) <- cs ]
-    (_,_,cs,_)    = bkUnivClass (F.notracepp "hs-spec" $ ofType (Ghc.expandTypeSynonyms t0) :: SpecType)
-    (_,ps,_ ,st)  = bkUnivClass (F.notracepp "lq-spec" st0)
+    (_,_,_,cs,_)  = bkUnivClass (F.notracepp "hs-spec" $ ofType (Ghc.expandTypeSynonyms t0) :: SpecType)
+    (_,ps,_,_,st) = bkUnivClass (F.notracepp "lq-spec" st0)
 
     makeCls c t  = foldr (uncurry rFun) t c
     err hsT lqT   = ErrMismatch (GM.fSrcSpan zz) (pprint var)
@@ -180,7 +180,7 @@ mkConstr env sigEnv name = fmap (fmap dropUniv) . Bare.cookSpecTypeE env sigEnv 
 
    --FIXME: cleanup this code
 unClass :: SpecType -> SpecType
-unClass = snd . bkClass . thrd3 . bkUniv
+unClass = snd . bkClass . fourth4 . bkUniv
 
 makeMethod :: Bare.Env -> Bare.SigEnv -> ModName -> (Located LHName, LocBareType)
            -> Bare.Lookup (ModName, PlugTV Ghc.Var, LocSpecType)
@@ -221,14 +221,14 @@ makeSpecDictionaryOne env sigEnv name (RI bt mDictName lbt xts)
   where
     ts      = mkTy' <$> lbt
     rts     = concatMap (univs . val) ts
-    univs t = (\(RTVar tv _, _) -> tv) <$> as where (as, _, _) = bkUniv t
+    univs t = (\(RTVar tv _, _) -> tv) <$> as where (as, _, _, _) = bkUniv t
 
     mkTy' :: LocBareType -> LocSpecType
     mkTy' = Bare.cookSpecType env sigEnv name Bare.GenTV
     mkTy :: LocBareType -> LocSpecType
     mkTy = fmap (mapUnis tidy) . Bare.cookSpecType env sigEnv name
                Bare.GenTV -- (Bare.HsTV (Bare.lookupGhcVar env name "rawDictionaries" x))
-    mapUnis f t = mkUnivs (f as) ps t0 where (as, ps, t0) = bkUniv t
+    mapUnis f t = mkUnivs (f as) ps qs t0 where (as, ps, qs, t0) = bkUniv t
 
     tidy vs = l ++ r
       where (l,r) = L.partition (\(RTVar tv _,_) -> tv `elem` rts) vs
@@ -265,7 +265,7 @@ resolveDictionaries env = map $ \ri ->
                  panic (Just $ GM.fSrcSpan $ btc_tc c) "cannot find class instance"
 
 dropUniv :: SpecType -> SpecType
-dropUniv t = t' where (_,_,t') = bkUniv t
+dropUniv t = t' where (_,_,_,t') = bkUniv t
 
 
 ----------------------------------------------------------------------------------

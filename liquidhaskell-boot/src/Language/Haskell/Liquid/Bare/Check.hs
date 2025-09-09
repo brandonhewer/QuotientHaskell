@@ -623,8 +623,8 @@ checkTcArity RTyCon{ rtc_tc = tc } givenArity
     = Nothing
   where
     expectedArity = case tc of
-      GHCTyCon      c    -> tyConRealArity c
-      QuotientTyCon {..} -> length qtc_tvs
+      GHCTyCon      c           -> tyConRealArity c
+      QuotientTyCon QTyCon {..} -> length qtc_tvs
 
 checkAbstractRefs
   :: (PPrint t, Reftable t, SubsTy RTyVar RSort t, Reftable (RTProp RTyCon RTyVar (UReft t))) =>
